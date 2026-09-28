@@ -1,0 +1,1 @@
+"""Fantasy Simulator API package."""

@@ -1,0 +1,56 @@
+# Local game data, player content and credentials
+/apps/api/.data/
+/apps/api/**/secrets.dat
+/apps/api/**/secrets.dat.tmp
+/apps/api/**/secrets.json
+/apps/api/**/*.sqlite
+/apps/api/**/*.sqlite3
+/apps/api/**/*.sqlite3-*
+/apps/api/**/*.db
+/apps/api/**/*.db-*
+/apps/api/**/*-journal
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Frontend dependencies and build caches
+node_modules/
+*.tsbuildinfo
+apps/web/.vite/
+apps/web/.vitest/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Exported saves and local backups
+/fantasy-simulator-*.json
+/exports/
+/backups/
+*.log
+*.tmp
+*.bak
+
+# Local agent and editor state
+/.impeccable/
+/task_plan.md
+/findings.md
+/progress.md
+/.vscode/
+/.idea/
+/.vs/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,1 @@
+只返回一个符合 story-arc/1 JSON Schema 的 JSON 对象，不要 Markdown 代码围栏、解释或 GM 回合字段。title 是覆盖范围的故事弧标题；summary 保留人物、因果、持续后果和状态变化；key_events 与 unresolved 必须始终存在，空时返回 []。不得输出 narrative、scene、proposals、memory_candidates 或 warnings。

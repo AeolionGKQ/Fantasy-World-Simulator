@@ -1,0 +1,790 @@
+"""Fantasy Simulator phase-one standard-library HTTP server."""
+
+import argparse
+import hashlib
+import hmac
+import json
+import mimetypes
+import os
+import posixpath
+import secrets
+import sys
+import tempfile
+import threading
+import time
+import urllib.parse
+import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+try:
+    from .catalog import CATALOG, LOCATIONS, RACES
+    from .content_registry import ContentRegistry
+    from .contract_registry import contract_from_documents
+    from .database import Database, DomainError, SecretStore
+    from .model_provider import OpenAICompatibleProvider, ProviderError, validate_candidate
+    from .narrative_contract import ContractError, validate_gm_response, validate_story_arc
+    from .story_repository import StoryRepository
+except ImportError:  # Direct execution with the isolated embedded runtime.
+    api_directory = str(Path(__file__).resolve().parent)
+    if api_directory not in sys.path:
+        sys.path.insert(0, api_directory)
+    from catalog import CATALOG, LOCATIONS, RACES
+    from content_registry import ContentRegistry
+    from contract_registry import contract_from_documents
+    from database import Database, DomainError, SecretStore
+    from model_provider import OpenAICompatibleProvider, ProviderError, validate_candidate
+    from narrative_contract import ContractError, validate_gm_response, validate_story_arc
+    from story_repository import StoryRepository
+
+MAX_REQUEST_BYTES = 2_000_000
+MAX_IMPORT_BYTES = 64 * 1024 * 1024
+APP_ID = "fantasy-simulator"
+API_VERSION = "1"
+
+
+def draft_to_view(draft):
+    data = draft["data"]
+    return {"race_id": data.get("race_id", ""),
+            "race_branch_id": data.get("race_branch_id"),
+            "name": data.get("name", ""), "gender": data.get("gender", ""),
+            "age": data.get("age"), "appearance": data.get("appearance", ""),
+            "personality": data.get("personality", ""), "rank": data.get("rank"),
+            "talent": data.get("talent", ""), "background": data.get("backstory", ""),
+            "location_id": data.get("start_location_id", ""),
+            "additional": data.get("additional", ""),
+            "current_step": draft["current_step"],
+            "draft_revision": draft["draft_revision"]}
+
+
+def draft_from_view(body):
+    fields = {"race_id", "race_branch_id", "name", "gender", "age", "appearance",
+              "personality", "rank", "talent", "background", "location_id",
+              "additional", "current_step", "draft_revision", "expected_save_revision",
+              "request_id"}
+    unknown = set(body) - fields
+    if unknown:
+        raise DomainError("INVALID_INPUT", "存在未知草稿请求字段", 400,
+                          fields={key: "未知字段" for key in unknown})
+    draft = {"race_id": body.get("race_id"),
+             "race_branch_id": body.get("race_branch_id"),
+             "name": body.get("name"), "gender": body.get("gender"),
+             "age": body.get("age"), "appearance": body.get("appearance"),
+             "personality": body.get("personality"), "rank": body.get("rank"),
+             "talent": body.get("talent"), "backstory": body.get("background"),
+             "start_location_id": body.get("location_id"),
+             "additional": body.get("additional")}
+    draft = {key: value for key, value in draft.items() if value not in (None, "")}
+    return {"request_id": body.get("request_id"),
+            "expected_revision": body.get("draft_revision"),
+            "expected_save_revision": body.get("expected_save_revision"),
+            "current_step": body.get("current_step", 1), "data": draft}
+
+
+def _named_item(items, item_id):
+    return next((item for item in items if item["id"] == item_id), None)
+
+
+def candidate_to_view(candidate, draft, confirmed_at=None):
+    data = candidate["data"]
+    race = _named_item(RACES, draft.get("race_id"))
+    branch = _named_item(race.get("branches", []), draft.get("race_branch_id")) if race else None
+    location = _named_item(LOCATIONS, draft.get("start_location_id"))
+    rank = data.get("rank")
+    view = {"id": candidate["id"], "save_id": candidate["save_id"],
+            "job_id": candidate.get("job_id"),
+            "draft_revision": candidate.get("draft_revision", 0),
+            "identity": {"name": draft.get("name"), "gender": draft.get("gender"),
+                         "age": draft.get("age"),
+                         "race_name": race.get("name") if race else None,
+                         "race_branch_name": branch.get("name") if branch else None,
+                         "location_name": location.get("name") if location else None,
+                         "rank_name": f"{rank} 阶" if rank else None},
+            "description": {"appearance": draft.get("appearance"),
+                            "personality": draft.get("personality"),
+                            "talent": draft.get("talent"),
+                            "background": draft.get("backstory"),
+                            "additional": draft.get("additional")},
+            "attributes": data["attributes"], "resources": data.get("resources"),
+            "power": {"base": data["base_power"],
+                      "effective": data["effective_power"],
+                      "modifiers": data.get("power_modifiers", [])},
+            "exp": data["exp"], "next_exp": data.get("exp_to_next"),
+            "summary": data.get("summary"), "strengths": data.get("strengths", []),
+            "limitations": data.get("limitations", []), "warnings": data.get("warnings", []),
+            "valid": True}
+    if confirmed_at is not None:
+        view["confirmed_at"] = confirmed_at
+    return view
+
+
+def bootstrap_to_view(bootstrap):
+    save = bootstrap["save"]
+    stored = bootstrap["character"]
+    data = stored["data"]
+    candidate = {"id": stored["candidate_id"], "save_id": stored["save_id"],
+                 "draft_revision": 0,
+                 "data": {"attributes": data["attributes"], "resources": data["resources"],
+                          "rank": data["rank"], "base_power": data["base_power"],
+                          "effective_power": data["effective_power"],
+                          "power_modifiers": data.get("power_modifiers", []),
+                          "exp": data["exp"], "exp_to_next": data.get("exp_to_next"),
+                          "summary": data.get("summary"), "strengths": data.get("strengths", []),
+                          "limitations": data.get("limitations", []), "warnings": data.get("warnings", [])}}
+    character = candidate_to_view(candidate, data["identity"], stored["confirmed_at"])
+    location = _named_item(LOCATIONS, data["current_location_id"])
+    return {"save_id": save["id"], "save_revision": save["revision"],
+            "character": character, "location": location,
+            "phase": "ready", "ruleset_version": save["ruleset_version"]}
+
+
+def model_test_to_view(result):
+    connected = bool(result.get("connected"))
+    thinking = result.get("thinking") or {}
+    if not isinstance(thinking, dict):
+        thinking = {"capability": thinking, "strategy": None,
+                    "confidence": "unknown", "message": result.get("message", "")}
+    structured_output = result.get("structured_output") or {}
+    if not isinstance(structured_output, dict):
+        structured_output = {"capability": structured_output, "strategy": None,
+                             "message": ""}
+    return {"ok": connected, "message": result.get("message", "连接测试通过" if connected else "连接测试未通过"),
+            "latency_ms": result.get("latency_ms"),
+            "model_available": result.get("model_available"),
+            "thinking_capability": thinking.get("capability", "unknown"),
+            "thinking_strategy": thinking.get("strategy"),
+            "thinking_confidence": thinking.get("confidence", "unknown"),
+            "thinking_message": thinking.get("message", result.get("message", "")),
+            "thinking_probed_at": thinking.get("probed_at"),
+            "structured_output_capability": structured_output.get("capability", "unknown"),
+            "structured_output_strategy": structured_output.get("strategy"),
+            "structured_output_message": structured_output.get("message", ""),
+            "structured_output_probed_at": structured_output.get("probed_at"),
+            "may_have_cost": bool(result.get("may_have_cost", True))}
+
+
+class AppContext:
+    RESPONSE_FORMAT_PROBE_TTL_SECONDS = 10 * 60
+
+    def __init__(self, data_dir, static_dir, provider=None):
+        data_dir = os.path.abspath(data_dir)
+        self.content_registry = ContentRegistry(Path(__file__).resolve().parent)
+        self.database = Database(os.path.join(data_dir, "fantasy_simulator.sqlite3"),
+                                 self.content_registry)
+        self.story = StoryRepository(self.database, self.content_registry)
+        self.secrets = SecretStore(os.path.join(data_dir, "secrets.dat"))
+        self.static_dir = os.path.abspath(static_dir)
+        self.provider = provider or OpenAICompatibleProvider()
+        self._worker_lock = threading.Lock()
+        self._workers = set()
+        self._provider_condition = threading.Condition()
+        self._active_provider_calls = 0
+        self._response_format_probe_lock = threading.Lock()
+        self._response_format_probe_proofs = {}
+
+    @staticmethod
+    def _response_format_probe_identity(config):
+        endpoint = str(config.get("base_url", "")).strip().rstrip("/")
+        model = str(config.get("model", "")).strip()
+        return endpoint, model
+
+    @staticmethod
+    def _api_key_digest(api_key):
+        return hashlib.sha256(str(api_key or "").encode("utf-8")).hexdigest()
+
+    def create_response_format_probe(self, config, api_key, capability):
+        token = secrets.token_urlsafe(32)
+        now = time.monotonic()
+        endpoint, model = self._response_format_probe_identity(config)
+        proof = {
+            "endpoint": endpoint,
+            "model": model,
+            "api_key_digest": self._api_key_digest(api_key),
+            "capability": capability,
+            "expires_at": now + self.RESPONSE_FORMAT_PROBE_TTL_SECONDS,
+        }
+        with self._response_format_probe_lock:
+            self._response_format_probe_proofs = {
+                key: value for key, value in self._response_format_probe_proofs.items()
+                if value["expires_at"] > now
+            }
+            self._response_format_probe_proofs[token] = proof
+        return token
+
+    def validate_response_format_probe(self, token, config, api_key):
+        if not isinstance(token, str) or not token:
+            return False
+        now = time.monotonic()
+        endpoint, model = self._response_format_probe_identity(config)
+        digest = self._api_key_digest(api_key)
+        with self._response_format_probe_lock:
+            proof = self._response_format_probe_proofs.get(token)
+            if proof is None:
+                return False
+            if proof["expires_at"] <= now:
+                self._response_format_probe_proofs.pop(token, None)
+                return False
+            return (proof["capability"] == "supported" and
+                    proof["endpoint"] == endpoint and proof["model"] == model and
+                    hmac.compare_digest(proof["api_key_digest"], digest))
+
+    def validate_response_format_update(self, body):
+        current = self.database.get_model_config()
+        candidate = dict(current)
+        candidate.update({key: body[key] for key in (
+            "base_url", "model", "timeout_seconds", "structured_output", "max_concurrency"
+        ) if key in body})
+        if not candidate.get("structured_output", False):
+            return
+        current_identity = self._response_format_probe_identity(current)
+        candidate_identity = self._response_format_probe_identity(candidate)
+        current_capability = self.database.get_response_format_capability(current)
+        can_reuse_current = (
+            "api_key" not in body and current_identity == candidate_identity and
+            current.get("structured_output", False) and
+            current_capability["capability"] == "supported"
+        )
+        if can_reuse_current:
+            return
+        api_key = body.get("api_key", self.secrets.get_api_key())
+        if not self.validate_response_format_probe(
+                body.get("structured_output_probe_token"), candidate, api_key):
+            raise DomainError(
+                "INVALID_INPUT", "结构化输出探测凭证无效或已过期", 400,
+                fields={"structured_output": "请使用当前 API Key 重新探测 response_format 支持情况"})
+
+    def schedule(self, save_id, job_id):
+        worker = threading.Thread(target=self._run_generation, args=(save_id, job_id),
+                                  name=f"generation-{job_id}", daemon=True)
+        with self._worker_lock:
+            self._workers.add(worker)
+        worker.start()
+
+    def schedule_narrative(self, save_id, job_id):
+        worker = threading.Thread(target=self._run_narrative, args=(save_id, job_id),
+                                  name=f"narrative-{job_id}", daemon=True)
+        with self._worker_lock:
+            self._workers.add(worker)
+        worker.start()
+
+    def resume_queued(self):
+        for save_id, job_id in self.database.list_queued_jobs():
+            self.schedule(save_id, job_id)
+        for save_id, job_id in self.story.list_queued():
+            self.schedule_narrative(save_id, job_id)
+
+    def _provider_enter(self, config):
+        limit = max(1, min(16, int(config.get("max_concurrency", 1))))
+        with self._provider_condition:
+            while self._active_provider_calls >= limit:
+                self._provider_condition.wait()
+            self._active_provider_calls += 1
+
+    def _provider_exit(self):
+        with self._provider_condition:
+            self._active_provider_calls -= 1
+            self._provider_condition.notify_all()
+
+    def _run_generation(self, save_id, job_id):
+        try:
+            claimed = self.database.claim_job(save_id, job_id)
+            if claimed is None:
+                return
+            config = self.database.get_model_config()
+            self._provider_enter(config)
+            try:
+                if self.database.get_job(save_id, job_id)["status"] != "cancel_requested":
+                    proposal = self.provider.generate_character(
+                        config, self.secrets.get_api_key(), claimed["draft"], claimed["feedback"],
+                        lambda result: self.database.set_model_capability(config, result)
+                    )
+                else:
+                    proposal = None
+            finally:
+                self._provider_exit()
+            if proposal is None:
+                self.database.fail_job(save_id, job_id, "GENERATION_CANCELLED", "生成已取消")
+                return
+            candidate = validate_candidate(proposal, claimed["draft"]["rank"])
+            self.database.complete_job(save_id, job_id, candidate)
+        except ProviderError as exc:
+            self.database.fail_job(save_id, job_id, exc.code, exc.message)
+        except Exception:
+            self.database.fail_job(save_id, job_id, "INTERNAL_ERROR", "生成任务发生内部错误")
+        finally:
+            current = threading.current_thread()
+            with self._worker_lock:
+                self._workers.discard(current)
+
+    def _run_narrative(self, save_id, job_id):
+        claimed = None
+        try:
+            claimed = self.story.claim(save_id, job_id)
+            if claimed is None:
+                return
+            config = self.database.get_model_config()
+            if not config.get("base_url") or not config.get("model"):
+                raise ProviderError("MODEL_NOT_CONFIGURED", "模型未配置，无法生成叙事")
+            job_type = claimed["job"]["type"]
+            if job_type in {"turns_to_arc", "arcs_to_arc"}:
+                frozen = self.story.claim_arc(claimed)
+                action = {"action_type": job_type, "frozen_sources": frozen}
+                contract_kind = "story_arc"
+            else:
+                action = dict(claimed["input"])
+                contract_kind = "gm_turn"
+            messages, manifest = self.content_registry.build_messages(
+                claimed["context_state"], action, claimed["early_summaries"],
+                claimed["recent_full_turns"], claimed["memories"], claimed["arcs"],
+                claimed["location_nodes"], claimed["documents"], contract_kind,
+                claimed["revision_manifest"])
+            contract = contract_from_documents(contract_kind, claimed["documents"])
+            request_config = dict(config)
+            request_config["_output_schema"] = contract["schema"]
+            request_config["_output_schema_name"] = contract["version"].replace("-", "_").replace("/", "_")
+            claimed["provider_model"] = config["model"]
+            self.story.set_context_manifest(job_id, manifest)
+            self._provider_enter(config)
+            try:
+                if self.story.get_job(save_id, job_id)["status"] == "cancel_requested":
+                    proposal = None
+                elif job_type in {"turns_to_arc", "arcs_to_arc"}:
+                    proposal = self.provider.generate_story_arc(
+                        request_config, self.secrets.get_api_key(), messages,
+                        lambda result: self.database.set_model_capability(config, result))
+                else:
+                    proposal = self.provider.generate_narrative(
+                        request_config, self.secrets.get_api_key(), messages,
+                        lambda result: self.database.set_model_capability(config, result))
+            finally:
+                self._provider_exit()
+            if proposal is None:
+                self.story.fail(save_id, job_id, "GENERATION_CANCELLED", "生成已取消")
+            elif job_type in {"turns_to_arc", "arcs_to_arc"}:
+                self.story.complete_arc(claimed, validate_story_arc(proposal, contract))
+            else:
+                outcome = self.story.complete_turn(
+                    claimed, validate_gm_response(proposal, job_type, contract))
+                if outcome == "succeeded":
+                    arc_job, created = self.story.create_arc_job(save_id, {}, automatic=True)
+                    if created:
+                        self.schedule_narrative(save_id, arc_job["id"])
+        except ProviderError as exc:
+            self.story.fail(save_id, job_id, exc.code, exc.message, exc.retryable)
+        except ContractError as exc:
+            self.story.fail(save_id, job_id, "MODEL_OUTPUT_FORMAT", str(exc), False)
+        except Exception:
+            self.story.fail(save_id, job_id, "INTERNAL_ERROR", "叙事任务发生内部错误", True)
+        finally:
+            current = threading.current_thread()
+            with self._worker_lock:
+                self._workers.discard(current)
+
+    def wait_for_workers(self, timeout=2):
+        with self._worker_lock:
+            workers = list(self._workers)
+        for worker in workers:
+            worker.join(timeout)
+
+
+class FantasySimulatorHandler(BaseHTTPRequestHandler):
+    server_version = "FantasySimulator/phase-2"
+
+    def log_message(self, format_string, *args):
+        # log_request emits a sanitized line; never log headers, bodies or queries.
+        return
+
+    def log_request(self, code="-", size="-"):
+        path = urllib.parse.urlsplit(self.path).path
+        print(f'{self.client_address[0]} "{self.command} {path}" {code} {size}')
+
+    @property
+    def app(self):
+        return self.server.app_context
+
+    def do_GET(self):
+        self._dispatch("GET")
+
+    def do_POST(self):
+        self._dispatch("POST")
+
+    def do_PUT(self):
+        self._dispatch("PUT")
+
+    def do_PATCH(self):
+        self._dispatch("PATCH")
+
+    def do_DELETE(self):
+        self._dispatch("DELETE")
+
+    def _dispatch(self, method):
+        trace_id = str(uuid.uuid4())
+        try:
+            split = urllib.parse.urlsplit(self.path)
+            self._api_query = {}
+            if split.query and (split.path == "/api" or split.path.startswith("/api/")):
+                if not (method == "GET" and (split.path.endswith("/turns") or
+                                              split.path.endswith("/journals"))):
+                    raise DomainError("INVALID_INPUT", "API不接受查询参数", 400)
+                parsed_query = urllib.parse.parse_qs(split.query, keep_blank_values=True)
+                if set(parsed_query) - {"cursor", "limit"} or any(len(values) != 1 for values in parsed_query.values()):
+                    raise DomainError("INVALID_INPUT", "分页查询参数无效", 400)
+                try:
+                    cursor = int(parsed_query.get("cursor", ["0"])[0])
+                    limit = int(parsed_query.get("limit", ["50"])[0])
+                except ValueError:
+                    raise DomainError("INVALID_INPUT", "cursor和limit必须是整数", 400) from None
+                if cursor < 0 or not 1 <= limit <= 100:
+                    raise DomainError("INVALID_INPUT", "分页范围无效", 400)
+                self._api_query = {"cursor": cursor, "limit": limit, "enabled": True}
+            path = split.path
+            if path == "/api" or path.startswith("/api/"):
+                status, payload, headers = self._route_api(method, path)
+                headers = dict(headers)
+                headers.setdefault("X-Trace-Id", trace_id)
+                self._send_json(status, payload, headers)
+            elif method == "GET":
+                self._serve_static(path)
+            else:
+                raise DomainError("NOT_FOUND", "接口不存在", 404)
+        except DomainError as exc:
+            self._send_error_json(exc.status, exc.code, exc.message, exc.fields, exc.retryable, trace_id)
+        except ProviderError as exc:
+            status = 502
+            if exc.code in {"MODEL_NOT_CONFIGURED", "INVALID_INPUT"}:
+                status = 409 if exc.code == "MODEL_NOT_CONFIGURED" else 400
+            elif exc.code == "MODEL_AUTH_FAILED":
+                status = 401
+            elif exc.code == "MODEL_TIMEOUT":
+                status = 504
+            elif exc.code == "MODEL_RATE_LIMITED":
+                status = 429
+            self._send_error_json(status, exc.code, exc.message, {}, exc.retryable, trace_id)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except Exception:
+            print(f"[{trace_id}] unhandled server error")
+            self._send_error_json(500, "INTERNAL_ERROR", "服务器发生内部错误", {}, True, trace_id)
+
+    def _route_api(self, method, path):
+        db = self.app.database
+        parts = [urllib.parse.unquote(part) for part in path.strip("/").split("/")]
+        if method == "GET" and path == "/api/health":
+            return 200, {"status": "ok", "app_id": APP_ID, "api_version": API_VERSION}, {}
+        if method == "GET" and path == "/api/world/catalog":
+            return 200, CATALOG, {}
+        if method == "GET" and path == "/api/settings":
+            return 200, db.get_settings(bool(self.app.secrets.get_api_key()),
+                                        self.app.secrets.persistence), {}
+        if method == "PUT" and path == "/api/settings/model":
+            body = self._read_json()
+            self.app.validate_response_format_update(body)
+            body.pop("structured_output_probe_token", None)
+            revision = db.write_model_settings_with_secret(body, self.app.secrets)
+            return 200, db.get_settings(bool(self.app.secrets.get_api_key()),
+                                        self.app.secrets.persistence), {"X-Revision": str(revision)}
+        if method == "POST" and path == "/api/settings/model/test":
+            body = self._read_json(optional=True)
+            allowed = {"base_url", "model", "timeout_seconds", "structured_output",
+                       "max_concurrency", "thinking_enabled", "api_key",
+                       "force_thinking_probe", "probe_structured_output",
+                       "force_response_format_probe"}
+            unknown = set(body) - allowed
+            if unknown:
+                raise DomainError("INVALID_INPUT", "存在未知连接测试字段", 400,
+                                  fields={key: "未知字段" for key in unknown})
+            config = db.get_model_config()
+            force_thinking_probe = body.get("force_thinking_probe", False)
+            if type(force_thinking_probe) is not bool:
+                raise DomainError("INVALID_INPUT", "force_thinking_probe必须是布尔值", 400,
+                                  fields={"force_thinking_probe": "必须是布尔值"})
+            for field in ("probe_structured_output", "force_response_format_probe"):
+                if field in body and type(body[field]) is not bool:
+                    raise DomainError("INVALID_INPUT", f"{field}必须是布尔值", 400,
+                                      fields={field: "必须是布尔值"})
+            if "structured_output" in body and type(body["structured_output"]) is not bool:
+                raise DomainError("INVALID_INPUT", "structured_output必须是布尔值", 400,
+                                  fields={"structured_output": "必须是布尔值"})
+            config.update({key: value for key, value in body.items()
+                           if key not in {"api_key", "force_thinking_probe",
+                                          "probe_structured_output",
+                                          "force_response_format_probe"}})
+            api_key = body.get("api_key", self.app.secrets.get_api_key())
+            if (body.get("probe_structured_output", False) or
+                    body.get("force_response_format_probe", False)):
+                response_format = self.app.provider.probe_response_format(config, api_key)
+                response_format = db.set_response_format_capability(config, response_format)
+                thinking = db.get_model_capability(config)
+                result = {
+                    "connected": True,
+                    "model_available": True,
+                    "thinking": thinking,
+                    "structured_output": response_format,
+                    "message": response_format["message"],
+                    "may_have_cost": True,
+                }
+                view = model_test_to_view(result)
+                if response_format["capability"] == "supported":
+                    view["structured_output_probe_token"] = (
+                        self.app.create_response_format_probe(config, api_key, "supported"))
+                return 200, view, {}
+            cached = db.get_model_capability(config)
+            result = self.app.provider.test_connection(
+                config, api_key, cached, force_thinking_probe=force_thinking_probe)
+            thinking = result.get("thinking")
+            if isinstance(thinking, dict) and result.get("thinking_probed", True):
+                result["thinking"] = db.set_model_capability(config, thinking)
+            response_format = db.get_response_format_capability(config)
+            result["structured_output"] = response_format
+            return 200, model_test_to_view(result), {}
+        if method == "PUT" and path == "/api/settings/narration":
+            revision = db.update_narration_settings(self._read_json())
+            return 200, db.get_settings(bool(self.app.secrets.get_api_key()),
+                                        self.app.secrets.persistence), {"X-Revision": str(revision)}
+        if path == "/api/saves":
+            if method == "GET":
+                return 200, {"items": db.list_saves()}, {}
+            if method == "POST":
+                body = self._read_json(optional=True)
+                return 201, db.create_save_from_request(body), {}
+        if path == "/api/saves/import/validate" and method == "POST":
+            preview = db.validate_import(self._read_json())
+            preview.pop("normalized", None)
+            preview["save_name"] = preview.pop("name")
+            return 200, preview, {}
+        if path == "/api/saves/import" and method == "POST":
+            result = db.import_save(self._read_json())
+            return (202 if result.get("status") == "pending" else 201), result, {}
+        if path == "/api/imports/validate" and method == "POST":
+            preview = db.validate_import(self._read_json(max_bytes=MAX_IMPORT_BYTES))
+            preview.pop("normalized", None); preview["save_name"] = preview.pop("name")
+            return 200, preview, {}
+        if path == "/api/imports" and method == "POST":
+            body = self._read_json(max_bytes=MAX_IMPORT_BYTES)
+            if "payload" in body:
+                request = body
+            else:
+                request_id = self.headers.get("X-Request-Id")
+                request = {"request_id": request_id, "payload": body}
+            result = db.import_save(request)
+            return (202 if result.get("status") == "pending" else 201), result, {}
+        if len(parts) == 4 and parts[:2] == ["api", "imports"] and parts[3] == "trust-and-import" and method == "POST":
+            return 201, db.trust_and_import(parts[2], self._read_json()), {}
+
+        if len(parts) >= 3 and parts[:2] == ["api", "saves"]:
+            save_id = parts[2]
+            if len(parts) == 3:
+                if method == "GET":
+                    return 200, db.get_save(save_id), {}
+                if method == "PATCH":
+                    return 200, db.patch_save(save_id, self._read_json()), {}
+                if method == "DELETE":
+                    db.delete_save(save_id, self._read_json())
+                    return 200, {"deleted": True, "save_id": save_id}, {}
+            if len(parts) == 4 and parts[3] == "preferences" and method == "PUT":
+                return 200, db.update_save_preferences(save_id, self._read_json()), {}
+            if len(parts) == 4 and parts[3] == "export" and method == "GET":
+                payload = db.export_save(save_id)
+                filename = f"fantasy-simulator-{save_id}.json"
+                return 200, payload, {"Content-Disposition": f'attachment; filename="{filename}"'}
+            if len(parts) == 4 and parts[3] == "character-draft":
+                if method == "GET":
+                    return 200, draft_to_view(db.get_draft(save_id)), {}
+                if method == "PUT":
+                    result = db.put_draft(save_id, draft_from_view(self._read_json()))
+                    return 200, draft_to_view(result["draft"]), {"X-Save-Revision": str(result["save"]["revision"])}
+            if len(parts) == 4 and parts[3] == "character-generations" and method == "POST":
+                config = db.get_model_config()
+                job, created = db.create_generation(save_id, self._read_json(),
+                                                    bool(config.get("base_url") and config.get("model")))
+                if created:
+                    self.app.schedule(save_id, job["id"])
+                return (202 if created else 200), job, {}
+            if len(parts) == 5 and parts[3] == "character-generations" and method == "GET":
+                return 200, db.get_job(save_id, parts[4]), {}
+            if len(parts) == 6 and parts[3] == "character-generations" and parts[5] == "cancel" and method == "POST":
+                body = self._read_json(optional=True)
+                if set(body) - {"request_id"}:
+                    raise DomainError("INVALID_INPUT", "存在未知取消请求字段", 400)
+                if not isinstance(body.get("request_id"), str) or not body["request_id"]:
+                    raise DomainError("INVALID_INPUT", "request_id不能为空", 400,
+                                      fields={"request_id": "格式无效"})
+                return 200, db.cancel_job(save_id, parts[4]), {}
+            if len(parts) == 4 and parts[3] == "character-candidate" and method == "GET":
+                candidate = db.get_candidate(save_id)
+                return 200, candidate_to_view(candidate, db.get_draft(save_id)["data"]), {}
+            if len(parts) == 5 and parts[3:5] == ["character", "confirm"] and method == "POST":
+                db.confirm_character(save_id, self._read_json())
+                return 200, bootstrap_to_view(db.game_bootstrap(save_id)), {}
+            if len(parts) == 4 and parts[3] == "game-bootstrap" and method == "GET":
+                result = bootstrap_to_view(db.game_bootstrap(save_id))
+                result["story"] = self.app.story.story_view(save_id)
+                result["gm_turns_available"] = True
+                return 200, result, {}
+            if len(parts) == 4 and parts[3] == "story" and method == "GET":
+                return 200, self.app.story.story_view(save_id), {}
+            if len(parts) == 5 and parts[3:5] == ["story", "opening"] and method == "POST":
+                job, created = self.app.story.create_job(save_id, "opening", self._read_json())
+                if created: self.app.schedule_narrative(save_id, job["id"])
+                return (202 if created else 200), job, {}
+            if len(parts) == 5 and parts[3:5] == ["story", "start-prerequisite"] and method == "POST":
+                return 200, self.app.story.resolve_start_prerequisite(save_id, self._read_json()), {}
+            if len(parts) == 4 and parts[3] == "turns":
+                if method == "GET": return 200, self.app.story.list_turns(save_id, **self._api_query), {}
+                if method == "POST":
+                    job, created = self.app.story.create_job(save_id, "turn", self._read_json())
+                    if created: self.app.schedule_narrative(save_id, job["id"])
+                    return (202 if created else 200), job, {}
+            if len(parts) == 5 and parts[3:5] == ["turns", "intervene"] and method == "POST":
+                job, created = self.app.story.create_job(save_id, "intervene", self._read_json())
+                if created: self.app.schedule_narrative(save_id, job["id"])
+                return (202 if created else 200), job, {}
+            if len(parts) == 5 and parts[3] == "turns" and method == "GET":
+                return 200, self.app.story.get_turn(save_id, parts[4]), {}
+            if len(parts) == 6 and parts[3] == "turns" and parts[5] == "reshape" and method == "POST":
+                job, created = self.app.story.create_job(save_id, "reshape", self._read_json(), parts[4])
+                if created: self.app.schedule_narrative(save_id, job["id"])
+                return (202 if created else 200), job, {}
+            if len(parts) == 5 and parts[3] == "narrative-jobs" and method == "GET":
+                return 200, self.app.story.get_job(save_id, parts[4]), {}
+            if len(parts) == 6 and parts[3] == "narrative-jobs" and parts[5] == "cancel" and method == "POST":
+                return 200, self.app.story.cancel(save_id, parts[4], self._read_json()), {}
+            if len(parts) == 4 and parts[3] in {"character-state", "inventory", "quests", "journals",
+                                                            "memory", "memories", "bonds", "reputations"} and method == "GET":
+                return 200, self.app.story.projections(save_id, parts[3], **self._api_query), {}
+            if len(parts) == 4 and parts[3] == "story-arcs" and method == "POST":
+                body = self._read_json(); job, created = self.app.story.create_arc_job(save_id, body)
+                if created: self.app.schedule_narrative(save_id, job["id"])
+                return (202 if created else 200), job, {}
+            if len(parts) == 5 and parts[3:5] == ["story-arcs", "merge"] and method == "POST":
+                body = self._read_json(); job, created = self.app.story.create_arc_job(
+                    save_id, body, body.get("arc_ids"))
+                if created: self.app.schedule_narrative(save_id, job["id"])
+                return (202 if created else 200), job, {}
+        raise DomainError("NOT_FOUND", "接口不存在", 404)
+
+    def _read_json(self, optional=False, max_bytes=MAX_REQUEST_BYTES):
+        content_type = self.headers.get("Content-Type", "")
+        length_text = self.headers.get("Content-Length")
+        if not length_text:
+            if optional:
+                return {}
+            raise DomainError("INVALID_JSON", "请求体不能为空", 400)
+        try:
+            length = int(length_text)
+        except ValueError:
+            raise DomainError("INVALID_JSON", "Content-Length无效", 400) from None
+        if length < 0 or length > max_bytes:
+            raise DomainError("REQUEST_TOO_LARGE", f"请求体超过{max_bytes // (1024 * 1024)}MB限制", 413)
+        if "application/json" not in content_type.lower():
+            raise DomainError("UNSUPPORTED_MEDIA_TYPE", "请求必须使用application/json", 415)
+        try:
+            if max_bytes > MAX_REQUEST_BYTES:
+                with tempfile.SpooledTemporaryFile(max_size=2_000_000, mode="w+b") as temporary:
+                    remaining = length
+                    while remaining:
+                        chunk = self.rfile.read(min(1_048_576, remaining))
+                        if not chunk:
+                            raise ValueError("truncated body")
+                        temporary.write(chunk); remaining -= len(chunk)
+                    temporary.seek(0)
+                    value = json.load(temporary, parse_constant=lambda item: (_ for _ in ()).throw(ValueError(item)))
+            else:
+                value = json.loads(self.rfile.read(length).decode("utf-8"),
+                                   parse_constant=lambda item: (_ for _ in ()).throw(ValueError(item)))
+        except (UnicodeError, ValueError):
+            raise DomainError("INVALID_JSON", "请求体不是有效的UTF-8 JSON", 400) from None
+        if not isinstance(value, dict):
+            raise DomainError("INVALID_JSON", "请求JSON顶层必须是对象", 400)
+        return value
+
+    def _send_json(self, status, payload, extra_headers=None):
+        body = b"" if status == 204 else json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        for key, value in (extra_headers or {}).items():
+            self.send_header(key, value)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_error_json(self, status, code, message, fields, retryable, trace_id):
+        self._send_json(status, {"error": {"code": code, "message": message,
+                                           "fields": fields, "field_errors": fields,
+                                           "retryable": bool(retryable),
+                                           "trace_id": trace_id}}, {"X-Trace-Id": trace_id})
+
+    def _serve_static(self, request_path):
+        static_root = Path(self.app.static_dir).resolve()
+        decoded = urllib.parse.unquote(request_path)
+        relative = posixpath.normpath(decoded.lstrip("/"))
+        if any(part == ".." for part in decoded.replace("\\", "/").split("/")):
+            self.send_error(404)
+            return
+        if relative in {"", "."}:
+            relative = "index.html"
+        requested = (static_root / relative).resolve()
+        try:
+            requested.relative_to(static_root)
+        except ValueError:
+            self.send_error(404)
+            return
+        if not requested.is_file():
+            requested = static_root / "index.html"
+        if not requested.is_file():
+            message = b"Web build not found"
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(message)))
+            self.end_headers()
+            self.wfile.write(message)
+            return
+        body = requested.read_bytes()
+        content_type = mimetypes.guess_type(str(requested))[0] or "application/octet-stream"
+        if content_type.startswith("text/") or content_type in {"application/javascript", "application/json"}:
+            content_type += "; charset=utf-8"
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        if requested.name == "index.html":
+            self.send_header("Cache-Control", "no-cache")
+        else:
+            self.send_header("Cache-Control", "public, max-age=3600")
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def create_server(host="127.0.0.1", port=8000, data_dir=None, static_dir=None, provider=None):
+    api_dir = Path(__file__).resolve().parent
+    workspace = api_dir.parents[1]
+    data_dir = data_dir or str(api_dir / ".data")
+    static_dir = static_dir or str(workspace / "apps" / "web" / "dist")
+    server = ThreadingHTTPServer((host, port), FantasySimulatorHandler)
+    server.daemon_threads = True
+    server.app_context = AppContext(data_dir, static_dir, provider)
+    server.app_context.resume_queued()
+    return server
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Fantasy Simulator phase-one server")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--data-dir")
+    parser.add_argument("--static-dir")
+    args = parser.parse_args()
+    server = create_server(args.host, args.port, args.data_dir, args.static_dir)
+    print(f"Fantasy Simulator listening on http://{args.host}:{server.server_port}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()

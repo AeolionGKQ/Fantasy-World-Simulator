@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fantasy-simulator://schemas/story-arc/1",
+  "title": "Fantasy Simulator Story Arc v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "title", "summary", "key_events", "unresolved"],
+  "properties": {
+    "schema_version": {"const": "story-arc/1"},
+    "title": {"type": "string", "minLength": 1, "maxLength": 20000},
+    "summary": {"type": "string", "minLength": 1, "maxLength": 20000},
+    "key_events": {"type": "array", "maxItems": 100, "items": {"type": "string", "maxLength": 4000}},
+    "unresolved": {"type": "array", "maxItems": 100, "items": {"type": "string", "maxLength": 4000}}
+  },
+  "examples": [{"schema_version": "story-arc/1", "title": "第1—25节点", "summary": "这段旅程的完整摘要。", "key_events": [], "unresolved": []}]
+}

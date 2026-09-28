@@ -1,0 +1,290 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fantasy-simulator://schemas/gm-turn/1",
+  "title": "Fantasy Simulator GM Turn Proposal v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "response_type", "narrative", "scene", "proposals", "memory_candidates", "warnings"],
+  "properties": {
+    "schema_version": {"const": "gm-turn/1"},
+    "response_type": {"enum": ["opening", "turn", "intervene", "reshape"]},
+    "narrative": {
+      "type": "object", "additionalProperties": false,
+      "required": ["title", "body", "chronicle_summary", "suggested_options"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1, "maxLength": 300},
+        "body": {"type": "string", "minLength": 1, "maxLength": 50000},
+        "chronicle_summary": {"type": "string", "maxLength": 2000},
+        "suggested_options": {
+          "type": "array", "minItems": 2, "maxItems": 3,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["id", "text", "intent"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1, "maxLength": 1000},
+              "text": {"type": "string", "minLength": 1, "maxLength": 1000},
+              "intent": {"type": "string", "minLength": 1, "maxLength": 1000}
+            }
+          }
+        }
+      }
+    },
+    "scene": {
+      "type": "object", "additionalProperties": false,
+      "required": ["time_label", "elapsed_minutes", "location", "new_locations", "new_npcs"],
+      "properties": {
+        "time_label": {"enum": ["深夜", "凌晨", "早晨", "上午", "中午", "下午", "黄昏", "夜晚"]},
+        "elapsed_minutes": {"type": "integer", "minimum": 0, "maximum": 5256000},
+        "location": {
+          "type": "object", "additionalProperties": false,
+          "required": ["operation", "location_id", "location_ref", "reason"],
+          "properties": {
+            "operation": {"enum": ["stay", "move"]},
+            "location_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 300},
+            "location_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 300},
+            "reason": {"type": "string", "maxLength": 2000}
+          }
+        },
+        "new_locations": {
+          "type": "array", "maxItems": 10,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["ref", "name", "type", "parent_id", "region_id", "description", "reason"],
+            "properties": {
+              "ref": {"type": "string", "pattern": "^location:new:", "maxLength": 300},
+              "name": {"type": "string", "minLength": 1, "maxLength": 300},
+              "type": {"type": "string", "minLength": 1, "maxLength": 100},
+              "parent_id": {"type": "string", "minLength": 1, "maxLength": 300},
+              "region_id": {"type": "string", "minLength": 1, "maxLength": 300},
+              "description": {"type": "string", "minLength": 1, "maxLength": 4000},
+              "reason": {"type": "string", "minLength": 1, "maxLength": 2000}
+            }
+          }
+        },
+        "new_npcs": {
+          "type": "array", "maxItems": 20,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["ref", "name", "description", "reason"],
+            "properties": {
+              "ref": {"type": "string", "pattern": "^npc:new:", "maxLength": 300},
+              "name": {"type": "string", "minLength": 1, "maxLength": 300},
+              "description": {"type": "string", "minLength": 1, "maxLength": 4000},
+              "reason": {"type": "string", "minLength": 1, "maxLength": 2000}
+            }
+          }
+        }
+      }
+    },
+    "proposals": {
+      "type": "object", "additionalProperties": false,
+      "required": ["resources", "attributes", "experience", "breakthrough", "items", "currency", "quests", "bonds", "reputations", "skills", "talents", "world_flags", "power_modifiers"],
+      "properties": {
+        "resources": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/resource"}},
+        "attributes": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/attribute"}},
+        "experience": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/experience"}},
+        "breakthrough": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/breakthrough"}]},
+        "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/item"}},
+        "currency": {"$ref": "#/$defs/currency"},
+        "quests": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/quest"}},
+        "bonds": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/bond"}},
+        "reputations": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/reputation"}},
+        "skills": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/learnable"}},
+        "talents": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/learnable"}},
+        "world_flags": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/world_flag"}},
+        "power_modifiers": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/power_modifier"}}
+      }
+    },
+    "memory_candidates": {"type": "array", "maxItems": 10, "items": {"$ref": "#/$defs/memory"}},
+    "warnings": {"type": "array", "maxItems": 30, "items": {"type": "string", "maxLength": 4000}}
+  },
+  "$defs": {
+    "reason": {
+      "type": "object", "additionalProperties": false,
+      "required": ["reason", "evidence"],
+      "properties": {
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "evidence": {"type": "string", "minLength": 1, "maxLength": 4000}
+      }
+    },
+    "resource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["key", "delta", "reason", "evidence"],
+      "properties": {
+        "key": {"enum": ["hp", "mp", "sp", "st"]},
+        "delta": {"type": "integer", "minimum": -9999, "maximum": 9999},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "evidence": {"type": "string", "minLength": 1, "maxLength": 4000}
+      }
+    },
+    "attribute": {
+      "type": "object", "additionalProperties": false,
+      "required": ["key", "delta", "long_term_basis", "reason", "evidence"],
+      "properties": {
+        "key": {"enum": ["con", "int", "cha"]},
+        "delta": {"type": "integer", "minimum": -100, "maximum": 100},
+        "long_term_basis": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "evidence": {"type": "string", "minLength": 1, "maxLength": 4000}
+      }
+    },
+    "experience": {
+      "type": "object", "additionalProperties": false,
+      "required": ["amount", "growth_type", "challenge", "novelty", "repetition", "reason", "evidence"],
+      "properties": {
+        "amount": {"type": "integer", "minimum": 0, "maximum": 100000},
+        "growth_type": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "challenge": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "novelty": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "repetition": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "evidence": {"type": "string", "minLength": 1, "maxLength": 4000}
+      }
+    },
+    "breakthrough": {
+      "type": "object", "additionalProperties": false,
+      "required": ["attempted", "success", "method", "preparation", "failure_reason", "improvement", "task_completed_id", "reason", "evidence"],
+      "properties": {
+        "attempted": {"type": "boolean"}, "success": {"type": "boolean"},
+        "method": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "preparation": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "failure_reason": {"type": ["string", "null"], "maxLength": 2000},
+        "improvement": {"type": ["string", "null"], "maxLength": 2000},
+        "task_completed_id": {"type": ["string", "null"], "maxLength": 300},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "evidence": {"type": "string", "minLength": 1, "maxLength": 4000}
+      }
+    },
+    "item": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operation", "item_id", "name", "description", "quantity", "power", "source", "reason", "evidence"],
+      "properties": {
+        "operation": {"enum": ["add", "remove", "equip", "unequip"]},
+        "item_id": {"type": ["string", "null"], "maxLength": 300},
+        "name": {"type": "string", "minLength": 1, "maxLength": 300},
+        "description": {"type": "string", "maxLength": 4000},
+        "quantity": {"type": "integer", "minimum": 1, "maximum": 1000000},
+        "power": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "source": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "evidence": {"type": "string", "minLength": 1, "maxLength": 4000}
+      }
+    },
+    "currency": {
+      "type": "object", "additionalProperties": false,
+      "required": ["copper_delta", "reason", "evidence"],
+      "properties": {
+        "copper_delta": {"type": "integer", "minimum": -1000000000, "maximum": 1000000000},
+        "reason": {"type": "string", "maxLength": 2000},
+        "evidence": {"type": "string", "maxLength": 4000}
+      }
+    },
+    "quest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operation", "quest_id", "name", "description", "status", "progress", "objectives", "quest_kind", "target_rank", "action_evidence", "necessary_nodes", "reason", "evidence"],
+      "properties": {
+        "operation": {"enum": ["create", "transition", "update"]},
+        "quest_id": {"type": ["string", "null"], "maxLength": 300},
+        "name": {"type": ["string", "null"], "maxLength": 4000},
+        "description": {"type": ["string", "null"], "maxLength": 4000},
+        "status": {"enum": ["untriggered", "eligible", "offered", "active", "completed", "declined", "failed", "abandoned"]},
+        "progress": {"type": ["string", "null"], "maxLength": 4000},
+        "objectives": {"type": "array", "maxItems": 30, "items": {"type": "string", "maxLength": 4000}},
+        "quest_kind": {"enum": ["regular", "regional", "breakthrough"]},
+        "target_rank": {"type": ["integer", "null"], "minimum": 1, "maximum": 10},
+        "action_evidence": {"type": "string", "maxLength": 4000},
+        "necessary_nodes": {"type": "array", "maxItems": 30, "items": {"type": "string", "maxLength": 300}},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "evidence": {"type": "string", "minLength": 1, "maxLength": 4000}
+      }
+    },
+    "bond": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operation", "npc_id", "npc_ref", "npc_name", "delta", "relation_type", "admission", "reason", "evidence"],
+      "properties": {
+        "operation": {"enum": ["create_or_join", "adjust", "change_relation_type"]},
+        "npc_id": {"type": ["string", "null"], "maxLength": 300},
+        "npc_ref": {"type": ["string", "null"], "maxLength": 300},
+        "npc_name": {"type": "string", "minLength": 1, "maxLength": 300},
+        "delta": {"type": "integer", "minimum": -200, "maximum": 200},
+        "relation_type": {"type": "string", "minLength": 1, "maxLength": 200},
+        "admission": {"type": ["string", "null"], "enum": ["important_character", "persistent_interaction", "long_term_relationship", "likely_recurring", null]},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "evidence": {"type": "string", "minLength": 1, "maxLength": 4000}
+      }
+    },
+    "reputation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["key", "delta", "public_reason", "evidence"],
+      "properties": {
+        "key": {"enum": ["continental_overall", "court_of_veiled_night", "skycrown_conclave", "holy_see_sacred_radiance", "court_of_sacred_tree", "valkeren_empire", "southern_maritime_federation"]},
+        "delta": {"type": "integer", "minimum": -200, "maximum": 200},
+        "public_reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "evidence": {"type": "string", "minLength": 1, "maxLength": 4000}
+      }
+    },
+    "learnable": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operation", "id", "name", "description", "source", "reason", "evidence"],
+      "properties": {
+        "operation": {"enum": ["add", "remove", "update"]},
+        "id": {"type": ["string", "null"], "maxLength": 300},
+        "name": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "description": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "source": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "evidence": {"type": "string", "minLength": 1, "maxLength": 4000}
+      }
+    },
+    "world_flag": {
+      "type": "object", "additionalProperties": false,
+      "required": ["key", "value", "reason", "evidence"],
+      "properties": {
+        "key": {"type": "string", "minLength": 1, "maxLength": 300},
+        "value": {"type": ["string", "integer", "boolean", "null"]},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "evidence": {"type": "string", "minLength": 1, "maxLength": 4000}
+      }
+    },
+    "power_modifier": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operation", "id", "value", "temporary", "category", "severity", "canonical_exception", "reason", "evidence"],
+      "properties": {
+        "operation": {"enum": ["add", "update", "remove", "expire"]},
+        "id": {"type": "string", "minLength": 1, "maxLength": 300},
+        "value": {"type": ["integer", "null"], "minimum": -1000000, "maximum": 1000000},
+        "temporary": {"type": "boolean"},
+        "category": {"enum": ["environment", "status", "counter", "tactics", "equipment", "other"]},
+        "severity": {"enum": ["minor", "moderate", "major", "extreme"]},
+        "canonical_exception": {"type": ["string", "null"], "maxLength": 1000},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "evidence": {"type": "string", "minLength": 1, "maxLength": 4000}
+      }
+    },
+    "memory": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operation", "memory_id", "kind", "summary", "importance", "people", "locations", "keywords", "facts", "unresolved", "reason", "evidence"],
+      "properties": {
+        "operation": {"enum": ["create", "resolve", "supersede"]},
+        "memory_id": {"type": ["string", "null"], "maxLength": 300},
+        "kind": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 4000, "description": "仅作摘要，不作为权威事实来源；权威原文保存在 evidence、facts 与 unresolved。"},
+        "importance": {"type": "integer", "minimum": 1, "maximum": 100},
+        "people": {"type": "array", "maxItems": 30, "description": "仅填写权威状态中已有或本响应 new_npcs 新建的 NPC 引用。", "items": {"type": "string", "minLength": 1, "maxLength": 4000}},
+        "locations": {"type": "array", "maxItems": 30, "description": "仅填写正典、权威动态地点或本响应 new_locations 的地点引用。", "items": {"type": "string", "minLength": 1, "maxLength": 4000}},
+        "keywords": {"type": "array", "maxItems": 30, "items": {"type": "string", "maxLength": 4000}},
+        "facts": {"type": "array", "maxItems": 30, "description": "可为空；每一项必须与 evidence 完全相同，禁止压缩、改写或推断。", "items": {"type": "string", "minLength": 1, "maxLength": 4000}},
+        "unresolved": {"type": "array", "maxItems": 30, "description": "可为空；每一项必须与 evidence 完全相同，禁止压缩、改写或推断。", "items": {"type": "string", "minLength": 1, "maxLength": 4000}},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "evidence": {"type": "string", "minLength": 8, "maxLength": 4000, "description": "至少8个字符，且去除首尾空白和标点后必须完整等于 narrative.body 中一个以句号、问号、感叹号、分号、逗号或换行分隔的分句。"}
+      }
+    }
+  },
+  "examples": [{
+    "schema_version": "gm-turn/1", "response_type": "turn",
+    "narrative": {"title": "示例节点", "body": "旅人仍站在广场。", "chronicle_summary": "旅人观察了广场。", "suggested_options": [{"id": "observe", "text": "继续观察", "intent": "调查环境"}, {"id": "leave", "text": "离开广场", "intent": "前往别处"}]},
+    "scene": {"time_label": "上午", "elapsed_minutes": 0, "location": {"operation": "stay", "location_id": null, "location_ref": null, "reason": "没有移动"}, "new_locations": [], "new_npcs": []},
+    "proposals": {"resources": [], "attributes": [], "experience": [], "breakthrough": null, "items": [], "currency": {"copper_delta": 0, "reason": "", "evidence": ""}, "quests": [], "bonds": [], "reputations": [], "skills": [], "talents": [], "world_flags": [], "power_modifiers": []},
+    "memory_candidates": [], "warnings": []
+  }]
+}
