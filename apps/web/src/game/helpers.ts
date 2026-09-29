@@ -29,6 +29,31 @@ export function validateArcSelection(arcs: StoryArc[], selectedIds: string[]): {
     : { valid: false, message: "所选故事弧的节点范围必须首尾连续。" };
 }
 
+export function currentArcMerge(arcs: StoryArc[]): {
+  arcIds: string[];
+  valid: boolean;
+  label: string;
+  message: string;
+} {
+  const current = arcs.filter((arc) => arc.status === "current")
+    .sort((a, b) => a.start_sequence - b.start_sequence);
+  const arcIds = current.map((arc) => arc.id);
+  const selection = validateArcSelection(current, arcIds);
+  if (current.length === 0) {
+    return { arcIds, valid: false, label: "暂无可合并的故事弧", message: "故事每积累 25 个可压缩节点会自动生成故事弧。" };
+  }
+  if (current.length === 1) {
+    return { arcIds, valid: false, label: "至少需要两个故事弧", message: "当前只有一个故事弧，继续游玩后可进一步压缩。" };
+  }
+  const range = `第 ${current[0].start_sequence} 至 ${current[current.length - 1].end_sequence} 节`;
+  return {
+    arcIds,
+    valid: selection.valid,
+    label: selection.valid ? `合并当前 ${current.length} 个故事弧` : "当前故事弧无法合并",
+    message: selection.valid ? `将把 ${range} 压缩为一个新的故事弧。` : selection.message,
+  };
+}
+
 export function questProjectionFromResponse(payload: unknown): QuestProjection {
   if (!payload || typeof payload !== "object") return { active: [], state_version: 0 };
   const value = payload as { active?: unknown; state_version?: unknown };

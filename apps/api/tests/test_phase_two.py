@@ -971,6 +971,66 @@ class PhaseTwoApiTest(unittest.TestCase):
             self.assertEqual([1, 2, 3, 4, 5, 6, 7], [row[0] for row in connection.execute(
                 "SELECT version FROM schema_migrations ORDER BY version")])
 
+    def test_manual_merge_combines_all_current_arcs_and_preserves_full_context(self):
+        db = self.server.app_context.database
+        state = self.server.app_context.story.get_state(self.save_id)
+        now = "2026-09-29T00:00:00+00:00"
+        with db.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            for sequence in range(1, 86):
+                turn_id, version_id = f"merge-turn-{sequence}", f"merge-version-{sequence}"
+                connection.execute("INSERT INTO turns VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (turn_id, self.save_id, sequence, version_id, "turn", "{}", f"标题{sequence}",
+                     f"正文{sequence}", f"摘要{sequence}", "[]", "[]", 0, 1, now, now))
+                connection.execute("INSERT INTO turn_snapshots VALUES(?,?,?,?,?)",
+                    (turn_id, self.save_id, "turn-snapshot/1",
+                     json.dumps({"state": state, "memories": []}), now))
+                connection.execute("INSERT INTO turn_versions VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    (version_id, turn_id, self.save_id, 1, "{}", "{}", "[]",
+                     self.server.app_context.content_registry.prompt_version,
+                     state["content_revision_id"], "fake", now))
+            connection.execute(
+                "UPDATE story_states SET current_turn_id='merge-turn-85',state_version=1 WHERE save_id=?",
+                (self.save_id,))
+            connection.commit()
+
+        for index in range(3):
+            job = self.request("POST", f"/api/saves/{self.save_id}/story-arcs", {
+                "request_id": f"base-arc-{index}", "expected_state_version": 1}, 202)
+            self.assertEqual("turns_to_arc", job["type"])
+            self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+
+        memory = self.request("GET", f"/api/saves/{self.save_id}/memory")
+        current = [arc for arc in memory["story_arcs"] if arc["status"] == "current"]
+        self.assertEqual([(1, 25), (26, 50), (51, 75)],
+                         [(arc["start_sequence"], arc["end_sequence"]) for arc in current])
+        merge = self.request("POST", f"/api/saves/{self.save_id}/story-arcs/merge", {
+            "request_id": "merge-all-current-arcs", "expected_state_version": 1,
+            "arc_ids": [arc["id"] for arc in current]}, 202)
+        self.assertEqual("arcs_to_arc", merge["type"])
+        self.assertEqual("succeeded", self.wait_job(self.save_id, merge["id"])["status"])
+
+        dynamic = json.loads(self.provider.messages[-1][1]["content"])
+        required = {"id", "level", "start_sequence", "end_sequence", "title", "summary",
+                    "key_events", "unresolved", "status", "job_id", "created_at"}
+        self.assertEqual(3, len(dynamic["story_arcs"]))
+        self.assertTrue(all(set(arc) == required for arc in dynamic["story_arcs"]))
+        frozen = dynamic["current_action"]["frozen_sources"]
+        self.assertEqual(3, len(frozen))
+        self.assertTrue(all(set(arc) == required for arc in frozen))
+
+        memory = self.request("GET", f"/api/saves/{self.save_id}/memory")
+        current = [arc for arc in memory["story_arcs"] if arc["status"] == "current"]
+        self.assertEqual(1, len(current))
+        self.assertEqual((1, 75, 2), (current[0]["start_sequence"],
+                                     current[0]["end_sequence"], current[0]["level"]))
+        self.assertEqual(3, len([arc for arc in memory["story_arcs"]
+                                if arc["status"] == "superseded"]))
+        automatic, created = self.server.app_context.story.create_arc_job(
+            self.save_id, {}, automatic=True)
+        self.assertIsNone(automatic)
+        self.assertFalse(created)
+
     def test_v2_export_import_round_trip(self):
         self.provider.responses.append(gm_response("opening"))
         job = self.request("POST", f"/api/saves/{self.save_id}/story/opening",

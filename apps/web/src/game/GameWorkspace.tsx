@@ -144,10 +144,12 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
       try {
         const job = await api.getNarrativeJob(requestedId, activeArcJob.id, pollController.signal);
         if (disposed || token !== session.current || job.save_id !== requestedId) return;
-        setData((current) => current && current.bootstrap.save_id === requestedId
-          ? { ...current, story: { ...current.story, active_arc_job: isNarrativeJobActive(job) ? job : null } }
-          : current);
-        if (isNarrativeJobActive(job)) return;
+        if (isNarrativeJobActive(job)) {
+          setData((current) => current && current.bootstrap.save_id === requestedId
+            ? { ...current, story: { ...current.story, active_arc_job: job } }
+            : current);
+          return;
+        }
         if (job.status === "succeeded") {
           setNotice({ id: Date.now(), tone: "info", text: "故事弧已更新。" });
           const nextController = new AbortController();
@@ -156,9 +158,13 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
           const memory = await api.getMemory(requestedId, nextController.signal);
           if (disposed || nextController.signal.aborted || token !== session.current) return;
           setData((current) => current && current.bootstrap.save_id === requestedId
-            ? { ...current, projections: { ...current.projections, memory } }
+            ? { ...current, story: { ...current.story, active_arc_job: null },
+                projections: { ...current.projections, memory } }
             : current);
         } else {
+          setData((current) => current && current.bootstrap.save_id === requestedId
+            ? { ...current, story: { ...current.story, active_arc_job: null } }
+            : current);
           setNotice({ id: Date.now(), tone: "error", text: narrativeJobMessage(job) });
         }
       } catch (reason) {
@@ -308,7 +314,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
       {tab === "inventory" && <InventoryPanel inventory={data.projections.inventory} />}
       {tab === "quests" && <QuestsPanel active={data.projections.quests.active} />}
       {tab === "journals" && <JournalsPanel items={data.projections.journals.items} onRead={(id) => void readJournalTurn(id)} />}
-      {tab === "memory" && <MemoryPanel memory={data.projections.memory} memories={data.projections.memories.items} arcBusy={arcBusy} arcJob={data.story.active_arc_job} onCompress={() => void startArcJob((version, signal) => api.createStoryArc(saveId, version, crypto.randomUUID(), signal))} onMerge={(ids) => void startArcJob((version, signal) => api.mergeStoryArcs(saveId, version, ids, crypto.randomUUID(), signal))} />}
+      {tab === "memory" && <MemoryPanel memory={data.projections.memory} memories={data.projections.memories.items} arcBusy={arcBusy} arcJob={data.story.active_arc_job} onMerge={(ids) => void startArcJob((version, signal) => api.mergeStoryArcs(saveId, version, ids, crypto.randomUUID(), signal))} />}
       {tab === "bonds" && <BondsPanel items={data.projections.bonds.items} />}
       {tab === "reputations" && <ReputationsPanel data={data.projections.reputations} />}
     </section>

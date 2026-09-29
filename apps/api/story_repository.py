@@ -878,12 +878,13 @@ class StoryRepository:
                 source = {"arc_ids": [r["id"] for r in rows], "start": rows[0]["start_sequence"],
                           "end": rows[-1]["end_sequence"]}
             else:
-                covered = {r[0] for r in connection.execute(
-                    "SELECT s.turn_id FROM story_arc_sources s JOIN story_arcs a ON a.id=s.arc_id "
-                    "WHERE a.save_id=? AND a.status='current'", (save_id,)).fetchall()}
+                current_ranges = [(r[0], r[1]) for r in connection.execute(
+                    "SELECT start_sequence,end_sequence FROM story_arcs "
+                    "WHERE save_id=? AND status='current'", (save_id,)).fetchall()]
                 rows = connection.execute(
                     "SELECT * FROM turns WHERE save_id=? ORDER BY sequence", (save_id,)).fetchall()
-                eligible = [r for r in rows[:-10] if r["id"] not in covered]
+                eligible = [r for r in rows[:-10] if not any(
+                    start <= r["sequence"] <= end for start, end in current_ranges)]
                 selected = None
                 for index in range(max(0, len(eligible) - 24)):
                     batch = eligible[index:index + 25]

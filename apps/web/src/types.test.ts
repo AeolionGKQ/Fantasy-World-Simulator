@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "./api";
 import { canMutateModelSettings, canStartSettingRequest, invalidateModelCapabilities, isCurrentModelTestResponse, mergeModelTestCapability, mergeSavedModelSettings, mergeSavedNarrationSettings, modelCapabilityKey, resetStructuredOutputCapability, resolveCompletedGeneration, structuredOutputProbePayload, thinkingCapabilityMessage, thinkingStrategyLabel } from "./App";
-import { formatChange, isNarrativeJobActive, isStoryReadOnly, orderReputations, questProjectionFromResponse, refreshedViewedTurn, reputationNames, resourceCondition, resourceExhaustion, validateArcSelection } from "./game/helpers";
+import { currentArcMerge, formatChange, isNarrativeJobActive, isStoryReadOnly, orderReputations, questProjectionFromResponse, refreshedViewedTurn, reputationNames, resourceCondition, resourceExhaustion, validateArcSelection } from "./game/helpers";
 import {
   appendPreset,
   chineseRankNumeral,
@@ -562,6 +562,25 @@ describe("game workspace helpers", () => {
     expect(validateArcSelection(arcs, ["a"]).valid).toBe(false);
     expect(validateArcSelection(arcs, ["a", "b"])).toEqual({ valid: true, message: "将合并 2 个连续故事弧。" });
     expect(validateArcSelection(arcs, ["a", "c"]).message).toContain("首尾连续");
+  });
+
+  it("手动压缩合并全部连续的当前故事弧", () => {
+    const arcs = [
+      { id: "c", start_sequence: 51, end_sequence: 75, status: "current" },
+      { id: "old", start_sequence: 1, end_sequence: 25, status: "superseded" },
+      { id: "a", start_sequence: 1, end_sequence: 25, status: "current" },
+      { id: "b", start_sequence: 26, end_sequence: 50, status: "current" },
+    ] as Parameters<typeof currentArcMerge>[0];
+    expect(currentArcMerge(arcs)).toEqual({
+      arcIds: ["a", "b", "c"], valid: true, label: "合并当前 3 个故事弧",
+      message: "将把 第 1 至 75 节 压缩为一个新的故事弧。",
+    });
+    expect(currentArcMerge(arcs.slice(1, 3))).toEqual(expect.objectContaining({
+      valid: false, label: "至少需要两个故事弧",
+    }));
+    expect(currentArcMerge([
+      arcs[2], { ...arcs[0], start_sequence: 76 },
+    ])).toEqual(expect.objectContaining({ valid: false, label: "当前故事弧无法合并" }));
   });
 
   it("固定声望键映射到准确中文名称", () => {
