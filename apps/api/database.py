@@ -42,6 +42,25 @@ def loads(value, default=None):
     return default if value is None else json.loads(value)
 
 
+NARRATION_VALUES = {
+    "pace": {"slow", "fast", "dynamic"},
+    "tone": {"casual", "balanced", "combat"},
+    "detail": {"concise", "standard", "detailed"},
+    "player_address": {"full_name", "given_name", "second_person"},
+}
+
+
+def normalize_narration(value):
+    """Add the backward-compatible address default and reject unknown preferences."""
+    if not isinstance(value, dict) or set(value) - set(NARRATION_VALUES):
+        return None
+    result = dict(value)
+    result.setdefault("player_address", NARRATION["defaults"]["player_address"])
+    if any(result.get(key) not in choices for key, choices in NARRATION_VALUES.items()):
+        return None
+    return result
+
+
 class DomainError(Exception):
     def __init__(self, code, message, status=400, fields=None, retryable=False):
         super().__init__(message)
@@ -359,7 +378,7 @@ class Database:
             connection.execute(
                 "INSERT OR IGNORE INTO settings VALUES(1,?,?,?,?,?)",
                 (dumps({"base_url": "", "model": "", "timeout_seconds": 300,
-                        "structured_output": False, "max_concurrency": 1}),
+                        "structured_output": False, "max_concurrency": 2}),
                  dumps(NARRATION["defaults"]), 1, 0, now),
             )
             settings_row = connection.execute(
@@ -388,11 +407,12 @@ class Database:
     @staticmethod
     def _save_dict(row):
         current_step = row["current_step"] if "current_step" in row.keys() else 1
+        narration = normalize_narration(loads(row["preferences_json"], {})) or dict(NARRATION["defaults"])
         return {
             "id": row["id"], "name": row["name"], "phase": row["phase"],
             "revision": row["revision"], "ruleset_version": row["ruleset_version"],
             "current_step": current_step,
-            "narration": loads(row["preferences_json"], {}),
+            "narration": narration,
             "source_save_id": row["source_save_id"], "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
@@ -412,6 +432,7 @@ class Database:
         with self.connect() as connection:
             row = connection.execute("SELECT * FROM settings WHERE id=1").fetchone()
         model = loads(row["model_json"], {})
+        model.setdefault("max_concurrency", 2)
         capability = self.get_model_capability(model)
         response_format = self.get_response_format_capability(model)
         model["structured_output"] = bool(
@@ -433,17 +454,22 @@ class Database:
                       "structured_output_capability": response_format["capability"],
                       "structured_output_message": response_format["message"],
                       "structured_output_probed_at": response_format.get("probed_at")})
-        narration = loads(row["narration_json"], {})
+        narration = normalize_narration(loads(row["narration_json"], {})) or dict(NARRATION["defaults"])
         return {"model": model,
                 "narration": {"pace": narration.get("pace"),
                               "tendency": narration.get("tone"),
-                              "detail": narration.get("detail")},
+                              "detail": narration.get("detail"),
+                              "player_address": narration.get("player_address")},
                 "revision": row["revision"]}
 
     def get_model_config(self):
         with self.connect() as connection:
-            row = connection.execute("SELECT model_json,thinking_enabled FROM settings WHERE id=1").fetchone()
+            row = connection.execute(
+                "SELECT model_json,thinking_enabled,revision FROM settings WHERE id=1"
+            ).fetchone()
         config = loads(row["model_json"], {})
+        config.setdefault("max_concurrency", 2)
+        config["_settings_revision"] = row["revision"]
         capability = self.get_model_capability(config)
         response_format = self.get_response_format_capability(config)
         config["structured_output"] = bool(
@@ -591,7 +617,7 @@ class Database:
             timeout = config.get("timeout_seconds", 300)
             if type(timeout) not in (int, float) or not 1 <= timeout <= 600:
                 fields["timeout_seconds"] = "必须在1至600秒之间"
-            concurrency = config.get("max_concurrency", 1)
+            concurrency = config.get("max_concurrency", 2)
             if type(concurrency) is not int or not 1 <= concurrency <= 16:
                 fields["max_concurrency"] = "必须是1至16的整数"
             if type(config.get("structured_output", False)) is not bool:
@@ -625,6 +651,33 @@ class Database:
             connection.commit()
         return revision
 
+    def downgrade_max_concurrency(self, expected_endpoint, expected_model,
+                                  expected_settings_revision):
+        """CAS max concurrency to one; returns the new revision or None."""
+        expected = (str(expected_endpoint or "").strip().rstrip("/"),
+                    str(expected_model or "").strip())
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT model_json,revision FROM settings WHERE id=1"
+            ).fetchone()
+            config = loads(row["model_json"], {})
+            current = (str(config.get("base_url", "")).strip().rstrip("/"),
+                       str(config.get("model", "")).strip())
+            max_concurrency = config.get("max_concurrency", 2)
+            if (row["revision"] != expected_settings_revision or current != expected or
+                    type(max_concurrency) is not int or max_concurrency <= 1):
+                connection.rollback()
+                return None
+            config["max_concurrency"] = 1
+            revision = row["revision"] + 1
+            connection.execute(
+                "UPDATE settings SET model_json=?,revision=?,updated_at=? WHERE id=1",
+                (dumps(config), revision, utc_now()),
+            )
+            connection.commit()
+        return revision
+
     def write_model_settings_with_secret(self, data, secret_store):
         """Encrypt the credential first, then update settings and secret storage."""
         prepared = secret_store.prepare_api_key(data["api_key"]) if "api_key" in data else None
@@ -635,30 +688,57 @@ class Database:
 
     def update_narration_settings(self, data):
         self._validate_request_id(data)
-        unknown = set(data) - {"request_id", "expected_revision", "pace", "tendency", "detail"}
+        unknown = set(data) - {"request_id", "expected_revision", "pace", "tendency", "detail",
+                               "player_address"}
         if unknown:
             raise DomainError("INVALID_INPUT", "存在未知叙事设置字段",
                               fields={key: "未知字段" for key in unknown})
         if "expected_revision" not in data:
             raise DomainError("INVALID_INPUT", "叙事设置缺少expected_revision",
                               fields={"expected_revision": "缺少字段"})
-        narration = {"pace": data.get("pace"), "tone": data.get("tendency"),
-                     "detail": data.get("detail")}
-        valid = {"pace": {"slow", "fast", "dynamic"}, "tone": {"casual", "balanced", "combat"},
-                 "detail": {"concise", "standard", "detailed"}}
-        fields = {key: "无效枚举值" for key in valid if narration[key] not in valid[key]}
-        if fields:
-            raise DomainError("INVALID_INPUT", "叙事设置无效", fields=fields)
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT revision FROM settings WHERE id=1").fetchone()
+            row = connection.execute("SELECT narration_json,revision FROM settings WHERE id=1").fetchone()
             expected = data.get("expected_revision")
             if expected != row["revision"]:
                 connection.rollback()
                 raise DomainError("REVISION_CONFLICT", "设置已被其他请求修改", 409)
+            current = normalize_narration(loads(row["narration_json"], {})) or dict(NARRATION["defaults"])
+            narration = {"pace": data.get("pace"), "tone": data.get("tendency"),
+                         "detail": data.get("detail"),
+                         "player_address": data.get("player_address", current["player_address"])}
+            fields = {key: "无效枚举值" for key, choices in NARRATION_VALUES.items()
+                      if narration.get(key) not in choices}
+            if fields:
+                connection.rollback()
+                raise DomainError("INVALID_INPUT", "叙事设置无效", fields=fields)
+            active = connection.execute(
+                "SELECT id FROM narrative_jobs WHERE status IN ('queued','running','cancel_requested') "
+                "AND job_type IN ('opening','turn','intervene','reshape') LIMIT 1"
+            ).fetchone()
+            active_generation = connection.execute(
+                "SELECT id FROM generation_jobs WHERE status IN ('queued','running','cancel_requested') LIMIT 1"
+            ).fetchone()
+            if active or active_generation:
+                connection.rollback()
+                raise DomainError("GENERATION_ACTIVE", "生成任务运行期间不能修改全局叙事设置", 409,
+                                  fields={"job_id": (active or active_generation)["id"]}, retryable=True)
             revision = row["revision"] + 1
             connection.execute("UPDATE settings SET narration_json=?, revision=?, updated_at=? WHERE id=1",
                                (dumps(narration), revision, utc_now()))
+            now = utc_now()
+            connection.execute(
+                "UPDATE saves SET preferences_json=?,revision=revision+1,updated_at=?",
+                (dumps(narration), now),
+            )
+            story_rows = connection.execute("SELECT save_id,state_json FROM story_states").fetchall()
+            for story_row in story_rows:
+                state = loads(story_row["state_json"], {})
+                state["narration"] = dict(narration)
+                connection.execute(
+                    "UPDATE story_states SET state_json=?,updated_at=? WHERE save_id=?",
+                    (dumps(state), now, story_row["save_id"]),
+                )
             connection.commit()
         return revision
 
@@ -679,7 +759,9 @@ class Database:
                     raise DomainError("IDEMPOTENCY_CONFLICT", "request_id已用于不同的新建存档请求", 409)
                 connection.commit()
                 return response["result"]
-            narration = loads(connection.execute("SELECT narration_json FROM settings WHERE id=1").fetchone()[0], {})
+            narration = normalize_narration(loads(
+                connection.execute("SELECT narration_json FROM settings WHERE id=1").fetchone()[0], {}
+            )) or dict(NARRATION["defaults"])
             connection.execute("INSERT INTO saves VALUES(?,?,?,?,?,?,?,?,?)",
                                (save_id, name.strip(), "draft", 0, RULESET_VERSION, dumps(narration), None, now, now))
             connection.execute("INSERT INTO drafts VALUES(?,?,?,?,?)", (save_id, "{}", 1, 0, now))
@@ -788,25 +870,48 @@ class Database:
 
     def update_save_preferences(self, save_id, data):
         self._validate_request_id(data)
-        unknown = set(data) - {"request_id", "expected_revision", "pace", "tone", "detail"}
+        unknown = set(data) - {"request_id", "expected_revision", "pace", "tone", "detail",
+                               "player_address"}
         if unknown:
             raise DomainError("INVALID_INPUT", "存在未知存档偏好字段",
                               fields={key: "未知字段" for key in unknown})
         if "expected_revision" not in data:
             raise DomainError("INVALID_INPUT", "存档偏好缺少expected_revision",
                               fields={"expected_revision": "缺少字段"})
-        narration = {key: data.get(key) for key in ("pace", "tone", "detail")}
-        valid = {"pace": {"slow", "fast", "dynamic"}, "tone": {"casual", "balanced", "combat"},
-                 "detail": {"concise", "standard", "detailed"}}
-        fields = {key: "无效枚举值" for key in valid if narration[key] not in valid[key]}
-        if fields:
-            raise DomainError("INVALID_INPUT", "存档叙事偏好无效", fields=fields)
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             save = self.get_save(save_id, connection)
             if data.get("expected_revision") != save["revision"]:
                 connection.rollback()
                 raise DomainError("REVISION_CONFLICT", "存档版本冲突", 409)
+            current = save["narration"]
+            narration = {key: data.get(key) for key in ("pace", "tone", "detail")}
+            narration["player_address"] = data.get("player_address", current["player_address"])
+            fields = {key: "无效枚举值" for key, choices in NARRATION_VALUES.items()
+                      if narration.get(key) not in choices}
+            if fields:
+                connection.rollback()
+                raise DomainError("INVALID_INPUT", "存档叙事偏好无效", fields=fields)
+            active = connection.execute(
+                "SELECT id FROM narrative_jobs WHERE save_id=? "
+                "AND status IN ('queued','running','cancel_requested') "
+                "AND job_type IN ('opening','turn','intervene','reshape') LIMIT 1",
+                (save_id,),
+            ).fetchone()
+            if active:
+                connection.rollback()
+                raise DomainError("NARRATIVE_JOB_ACTIVE", "剧情生成期间不能修改存档叙事偏好", 409,
+                                  fields={"job_id": active["id"]}, retryable=True)
+            story_row = connection.execute(
+                "SELECT state_json FROM story_states WHERE save_id=?", (save_id,)
+            ).fetchone()
+            if story_row:
+                state = loads(story_row["state_json"], {})
+                state["narration"] = dict(narration)
+                connection.execute(
+                    "UPDATE story_states SET state_json=?,updated_at=? WHERE save_id=?",
+                    (dumps(state), utc_now(), save_id),
+                )
             connection.execute("UPDATE saves SET preferences_json=?,revision=revision+1,updated_at=? WHERE id=?",
                                (dumps(narration), utc_now(), save_id))
             connection.commit()
@@ -1357,11 +1462,8 @@ class Database:
                         raise ValueError(derived)
             except (ProviderError, KeyError, TypeError, ValueError):
                 fields["candidate"] = "角色候选不符合输出契约"
-        narration = payload.get("narration")
-        if (not isinstance(narration, dict) or set(narration) != {"pace", "tone", "detail"} or
-                narration.get("pace") not in {"slow", "fast", "dynamic"} or
-                narration.get("tone") not in {"casual", "balanced", "combat"} or
-                narration.get("detail") not in {"concise", "standard", "detailed"}):
+        narration = normalize_narration(payload.get("narration"))
+        if narration is None:
             fields["narration"] = "叙事偏好无效"
         if phase == "draft" and (candidate is not None or payload.get("character") is not None):
             fields["save.phase"] = "draft存档不能包含候选或正式角色"
@@ -1479,6 +1581,26 @@ class Database:
                                if isinstance(character.get("provenance"), dict) and
                                allowed_provenance.issubset(character["provenance"]) else {}),
             }
+        normalized_narrative = loads(dumps(payload.get("narrative")))
+        if isinstance(normalized_narrative, dict):
+            state_row = normalized_narrative.get("story_state")
+            if isinstance(state_row, dict) and isinstance(state_row.get("state_json"), dict):
+                state_narration = normalize_narration(state_row["state_json"].get("narration"))
+                if state_narration is None:
+                    fields["narrative.story_state.narration"] = "叙事偏好无效"
+                elif state_narration.get("player_address") != narration["player_address"]:
+                    fields["narrative.story_state.narration.player_address"] = (
+                        "必须与存档叙事偏好一致")
+                state_row["state_json"]["narration"] = dict(narration)
+            for snapshot in normalized_narrative.get("turn_snapshots", []):
+                if not isinstance(snapshot, dict):
+                    continue
+                frozen = snapshot.get("state_json")
+                frozen_state = frozen.get("state") if isinstance(frozen, dict) else None
+                if isinstance(frozen_state, dict):
+                    frozen_state["narration"] = dict(narration)
+        if fields:
+            raise DomainError("IMPORT_INVALID", "导入存档校验失败", fields=fields)
         pending = self._pending_requirement(payload)
         return {"valid": True, "schema_version": payload.get("schema_version"), "ruleset_version": payload.get("ruleset_version"),
                 "source_save_id": payload.get("source_save_id"),
@@ -1486,12 +1608,12 @@ class Database:
                 "warnings": ["导入时将分配新的本地存档ID"],
                 "confirmation_required": bool(pending), "content_revision": pending,
                 "normalized": {"name": name.strip(), "phase": phase,
-                               "narration": {key: narration[key] for key in ("pace", "tone", "detail")},
+                               "narration": {key: narration[key] for key in NARRATION_VALUES},
                                "draft_data": {key: draft_data[key] for key in draft_data},
                                "current_step": current_step,
                                "candidate": normalized_candidate,
                                "character": normalized_character,
-                               "narrative": loads(dumps(payload.get("narrative")))}}
+                               "narrative": normalized_narrative}}
 
     def import_save(self, request, allow_pending=True):
         if "payload" not in request:
@@ -2064,6 +2186,8 @@ class Database:
             raise DomainError("IMPORT_INVALID", "story state schema无效")
         if type(state.get("state_version")) is not int or state["state_version"] < 0:
             raise DomainError("IMPORT_INVALID", "story state版本无效")
+        if normalize_narration(state.get("narration")) is None:
+            raise DomainError("IMPORT_INVALID", "story state叙事偏好无效")
         character = state.get("character")
         if (not isinstance(character, dict) or not isinstance(character.get("id"), str) or
                 not isinstance(character.get("candidate_id"), str) or

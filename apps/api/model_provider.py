@@ -41,6 +41,7 @@ THINKING_STRATEGIES = (
     "thinking_budget",
 )
 PARAMETER_REJECTION_STATUSES = {400, 422}
+CONCURRENCY_REJECTION_STATUSES = {400, 409, 422, 429}
 MAX_ERROR_BODY_BYTES = 64_000
 _PARAMETER_REJECTION_SEMANTICS = re.compile(
     r"(?:\b(?:unknown|unsupported|unrecognized|unexpected|extra|invalid)\b"
@@ -61,6 +62,9 @@ _CONTEXT_LENGTH_SEMANTICS = re.compile(
     r"too[_\s-]+many[_\s-]+tokens|prompt[_\s-]+too[_\s-]+long|"
     r"max(?:imum)?[_\s-]+tokens).{0,160}(?:exceed|limit|long|maximum|tokens)|"
     r"(?:exceed|over|longer).{0,160}(?:context|token)", re.IGNORECASE)
+_CONCURRENCY_REJECTION_SEMANTICS = re.compile(
+    r"(?:\bconcurrent(?:ly)?\b|\bconcurrency\b|\bsimultaneous(?:ly)?\b|"
+    r"\bparallel(?:ism)?\b|并发|同时请求)", re.IGNORECASE)
 
 
 def thinking_capability_key(config):
@@ -151,6 +155,22 @@ def is_explicit_response_format_rejection(error, response_format_mode):
 def is_context_length_error(error):
     return (isinstance(error, ProviderError) and
             bool(_CONTEXT_LENGTH_SEMANTICS.search(_provider_error_text(error) or error.message)))
+
+
+def _is_explicit_concurrency_details(status, provider_message, provider_code):
+    if status not in CONCURRENCY_REJECTION_STATUSES:
+        return False
+    text = " ".join(str(value) for value in (
+        provider_message, provider_code
+    ) if value)
+    return bool(text and _CONCURRENCY_REJECTION_SEMANTICS.search(text))
+
+
+def is_explicit_concurrency_rejection(error):
+    """Only accept provider errors that explicitly describe concurrent requests."""
+    return (isinstance(error, ProviderError) and
+            _is_explicit_concurrency_details(
+                error.http_status, error.provider_message, error.provider_code))
 
 
 def _reject_json_constant(value):
@@ -252,13 +272,6 @@ def _http_error_details(exc, api_key):
             _sanitize_provider_text(param, api_key)[:1000] if param is not None else None)
 
 
-def _raise_http_error(exc, api_key, retryable):
-    provider_message, provider_code, provider_param = _http_error_details(exc, api_key)
-    status = exc.code
-    exc.close()
-    _raise_http_details(status, provider_message, provider_code, provider_param, retryable)
-
-
 def _raise_http_details(status, provider_message, provider_code, provider_param, retryable):
     details = (provider_message, provider_code, provider_param)
     if _CONTEXT_LENGTH_SEMANTICS.search(" ".join(str(value) for value in details if value)):
@@ -305,25 +318,26 @@ def _request(url, api_key, timeout, method="GET", payload=None, max_retries=2,
                     return None
                 return _strict_json_loads(raw.decode("utf-8"))
         except urllib.error.HTTPError as exc:
-            retryable = exc.code == 429 or exc.code >= 500
-            if retryable:
-                provider_message, provider_code, provider_param = _http_error_details(exc, api_key)
-                if _CONTEXT_LENGTH_SEMANTICS.search(" ".join(
-                        str(value) for value in (provider_message, provider_code, provider_param) if value)):
-                    status = exc.code
-                    exc.close()
-                    _raise_http_details(status, provider_message, provider_code, provider_param, False)
+            status = exc.code
+            retryable = status == 429 or status >= 500
+            provider_message, provider_code, provider_param = _http_error_details(exc, api_key)
+            details_text = " ".join(str(value) for value in (
+                provider_message, provider_code, provider_param
+            ) if value)
+            if (_is_explicit_concurrency_details(status, provider_message, provider_code) or
+                    _CONTEXT_LENGTH_SEMANTICS.search(details_text)):
+                exc.close()
+                _raise_http_details(status, provider_message, provider_code,
+                                    provider_param, False)
             if retryable and attempt < max_retries:
                 retry_after = exc.headers.get("Retry-After") if exc.headers else None
                 delay = _retry_delay(retry_after, attempt)
                 exc.close()
                 time.sleep(delay)
                 continue
-            if retryable:
-                status = exc.code
-                exc.close()
-                _raise_http_details(status, provider_message, provider_code, provider_param, retryable)
-            _raise_http_error(exc, api_key, retryable)
+            exc.close()
+            _raise_http_details(status, provider_message, provider_code,
+                                provider_param, retryable)
         except (TimeoutError, socket.timeout):
             if attempt < max_retries:
                 time.sleep(_retry_delay(None, attempt))

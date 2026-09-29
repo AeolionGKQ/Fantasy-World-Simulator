@@ -5,17 +5,17 @@ import hashlib
 import json
 
 try:
-    from .catalog import EXP_THRESHOLDS, LOCATIONS, POWER_BY_RANK
+    from .catalog import EXP_THRESHOLDS, LOCATIONS, NARRATION, POWER_BY_RANK
     from .content_registry import (TERMINAL_QUEST_STATES, load_revision_documents,
                                    load_revision_manifest)
-    from .database import DomainError, dumps, loads, new_id, utc_now
+    from .database import DomainError, dumps, loads, new_id, normalize_narration, utc_now
     from .narrative_contract import (REPUTATION_KEYS, ContractError, adjudicate,
                                      bond_level, receipt_hash, reputation_level)
 except ImportError:
-    from catalog import EXP_THRESHOLDS, LOCATIONS, POWER_BY_RANK
+    from catalog import EXP_THRESHOLDS, LOCATIONS, NARRATION, POWER_BY_RANK
     from content_registry import (TERMINAL_QUEST_STATES, load_revision_documents,
                                   load_revision_manifest)
-    from database import DomainError, dumps, loads, new_id, utc_now
+    from database import DomainError, dumps, loads, new_id, normalize_narration, utc_now
     from narrative_contract import (REPUTATION_KEYS, ContractError, adjudicate,
                                      bond_level, receipt_hash, reputation_level)
 
@@ -64,7 +64,7 @@ def initial_story_state(character, save, content_revision, quest_specs):
     return {
         "schema_version": "story-state/1", "state_version": 0,
         "content_revision_id": content_revision, "current_turn_id": None,
-        "narration": copy.deepcopy(save["narration"]),
+        "narration": copy.deepcopy(normalize_narration(save["narration"])),
         "time": {"label": "上午", "elapsed_minutes": 0},
         "location": {"id": current_location_id, "name": location["name"],
                      "safeguards": location["safeguards"],
@@ -152,6 +152,8 @@ class StoryRepository:
     def _state_row(row):
         state = loads(row["state_json"], {})
         state.setdefault("npcs", {})
+        state["narration"] = (normalize_narration(state.get("narration", {})) or
+                              copy.deepcopy(NARRATION["defaults"]))
         state["state_version"] = row["state_version"]
         state["current_turn_id"] = row["current_turn_id"]
         state["content_revision_id"] = row["content_revision_id"]
@@ -342,6 +344,8 @@ class StoryRepository:
                 frozen = loads(snapshot["state_json"], {})
                 base_state = frozen["state"]
                 base_state.setdefault("npcs", {})
+                # Narration preferences are user settings, not rollbackable story effects.
+                base_state["narration"] = copy.deepcopy(state["narration"])
                 snapshot_memories = frozen["memories"]
             else:
                 turn = None; base_state = state; snapshot_memories = None

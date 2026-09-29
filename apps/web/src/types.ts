@@ -32,6 +32,7 @@ export interface SaveSummary {
   character_name?: string | null;
   current_step?: number;
   generation?: GenerationSummary | null;
+  narration?: StoryNarrationSettings;
   updated_at?: string;
 }
 
@@ -153,6 +154,14 @@ export interface NarrationSettings {
   pace: "slow" | "fast" | "dynamic";
   tendency: "casual" | "balanced" | "combat";
   detail: "concise" | "standard" | "detailed";
+  player_address: "full_name" | "given_name" | "second_person";
+}
+
+export interface StoryNarrationSettings {
+  pace: NarrationSettings["pace"];
+  tone: NarrationSettings["tendency"];
+  detail: NarrationSettings["detail"];
+  player_address: NarrationSettings["player_address"];
 }
 
 export interface ModelSettings {
@@ -210,9 +219,13 @@ export interface ModelTestResult {
   may_have_cost?: boolean;
 }
 
-type AppSettingsResponse = Omit<AppSettings, "model"> & {
-  model: Omit<ModelSettings, "structured_output_capability"> & {
+type AppSettingsResponse = Omit<AppSettings, "model" | "narration"> & {
+  model: Omit<ModelSettings, "structured_output_capability" | "max_concurrency"> & {
     structured_output_capability?: ModelSettings["structured_output_capability"];
+    max_concurrency?: number;
+  };
+  narration: Omit<NarrationSettings, "player_address"> & {
+    player_address?: NarrationSettings["player_address"];
   };
 };
 
@@ -220,8 +233,13 @@ export function normalizeAppSettings(settings: AppSettingsResponse): AppSettings
   const capability = settings.model.structured_output_capability ?? "unknown";
   return {
     ...settings,
+    narration: {
+      ...settings.narration,
+      player_address: settings.narration.player_address ?? "second_person",
+    },
     model: {
       ...settings.model,
+      max_concurrency: settings.model.max_concurrency ?? 2,
       structured_output: settings.model.structured_output === true && capability === "supported",
       structured_output_capability: capability,
     },
@@ -412,7 +430,7 @@ export interface StoryState {
   state_version: number;
   content_revision_id: string;
   current_turn_id: string | null;
-  narration: Record<string, string>;
+  narration: StoryNarrationSettings;
   time: { label: string; elapsed_minutes: number };
   location: StoryLocation;
   character: CharacterState;

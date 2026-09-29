@@ -651,7 +651,11 @@ NARRATION = {
              {"id": "combat", "name": "战斗"}],
     "detail": [{"id": "concise", "name": "简洁"}, {"id": "standard", "name": "标准"},
                {"id": "detailed", "name": "细致"}],
-    "defaults": {"pace": "dynamic", "tone": "balanced", "detail": "standard"},
+    "player_address": [{"id": "full_name", "name": "全名"},
+                       {"id": "given_name", "name": "名"},
+                       {"id": "second_person", "name": "第二人称"}],
+    "defaults": {"pace": "dynamic", "tone": "balanced", "detail": "standard",
+                 "player_address": "second_person"},
 }
 
 CATALOG = {

@@ -22,7 +22,8 @@ try:
     from .content_registry import ContentRegistry
     from .contract_registry import contract_from_documents
     from .database import Database, DomainError, SecretStore
-    from .model_provider import OpenAICompatibleProvider, ProviderError, validate_candidate
+    from .model_provider import (OpenAICompatibleProvider, ProviderError,
+                                 is_explicit_concurrency_rejection, validate_candidate)
     from .narrative_contract import ContractError, validate_gm_response, validate_story_arc
     from .story_repository import StoryRepository
 except ImportError:  # Direct execution with the isolated embedded runtime.
@@ -33,7 +34,8 @@ except ImportError:  # Direct execution with the isolated embedded runtime.
     from content_registry import ContentRegistry
     from contract_registry import contract_from_documents
     from database import Database, DomainError, SecretStore
-    from model_provider import OpenAICompatibleProvider, ProviderError, validate_candidate
+    from model_provider import (OpenAICompatibleProvider, ProviderError,
+                                is_explicit_concurrency_rejection, validate_candidate)
     from narrative_contract import ContractError, validate_gm_response, validate_story_arc
     from story_repository import StoryRepository
 
@@ -179,6 +181,8 @@ class AppContext:
         self._workers = set()
         self._provider_condition = threading.Condition()
         self._active_provider_calls = 0
+        self._provider_fallback_retries = 0
+        self._effective_provider_limit = {}
         self._response_format_probe_lock = threading.Lock()
         self._response_format_probe_proofs = {}
 
@@ -273,17 +277,114 @@ class AppContext:
         for save_id, job_id in self.story.list_queued():
             self.schedule_narrative(save_id, job_id)
 
-    def _provider_enter(self, config):
-        limit = max(1, min(16, int(config.get("max_concurrency", 1))))
+    @staticmethod
+    def _provider_identity(config):
+        return (str(config.get("base_url", "")).strip().rstrip("/"),
+                str(config.get("model", "")).strip())
+
+    @staticmethod
+    def _configured_provider_limit(config):
+        return max(1, min(16, int(config.get("max_concurrency", 2))))
+
+    def _provider_limit_locked(self, config, identity):
+        configured = self._configured_provider_limit(config)
+        revision = int(config.get("_settings_revision", -1))
+        state = self._effective_provider_limit.get(identity)
+        if state is None or revision > state["revision"]:
+            state = {"configured": configured, "effective": configured,
+                     "revision": revision}
+            self._effective_provider_limit[identity] = state
+        return state
+
+    def sync_provider_limit(self, config):
+        identity = self._provider_identity(config)
         with self._provider_condition:
-            while self._active_provider_calls >= limit:
+            configured = self._configured_provider_limit(config)
+            self._effective_provider_limit[identity] = {
+                "configured": configured, "effective": configured,
+                "revision": int(config.get("_settings_revision", -1)),
+            }
+            self._provider_condition.notify_all()
+
+    def _apply_persisted_downgrade_locked(self, identity, expected_revision, revision):
+        state = self._effective_provider_limit.get(identity)
+        if state is not None and state["revision"] == expected_revision:
+            state.update({"configured": 1, "effective": 1, "revision": revision})
+
+    def _provider_enter(self, config, fallback_retry=False):
+        identity = self._provider_identity(config)
+        with self._provider_condition:
+            while True:
+                state = self._provider_limit_locked(config, identity)
+                if (self._provider_fallback_retries > 0 and fallback_retry and
+                        self._active_provider_calls == 0):
+                    break
+                if (self._provider_fallback_retries == 0 and
+                        self._active_provider_calls < state["effective"]):
+                    break
                 self._provider_condition.wait()
+            overlapped = self._active_provider_calls > 0
             self._active_provider_calls += 1
+            return {"identity": identity, "overlapped": overlapped,
+                    "limit": state["effective"], "revision": state["revision"]}
 
     def _provider_exit(self):
         with self._provider_condition:
-            self._active_provider_calls -= 1
+            self._release_provider_locked()
             self._provider_condition.notify_all()
+
+    def _release_provider_locked(self):
+        if self._active_provider_calls <= 0:
+            raise RuntimeError("provider call counter underflow")
+        self._active_provider_calls -= 1
+
+    def _downgrade_provider_and_exit(self, ticket):
+        with self._provider_condition:
+            self._release_provider_locked()
+            self._provider_fallback_retries += 1
+            self._provider_condition.notify_all()
+
+    def _call_provider_with_concurrency_fallback(self, config, provider_call):
+        ticket = self._provider_enter(config)
+        released = False
+        try:
+            try:
+                return provider_call()
+            except ProviderError as original_error:
+                if (self._configured_provider_limit(config) <= 1 or ticket["limit"] <= 1 or
+                        not ticket["overlapped"] or
+                        not is_explicit_concurrency_rejection(original_error)):
+                    raise
+                frozen_call = provider_call
+                failed_config_revision = int(config.get("_settings_revision", -1))
+                self._downgrade_provider_and_exit(ticket)
+                released = True
+                endpoint, model = ticket["identity"]
+                try:
+                    revision = self.database.downgrade_max_concurrency(
+                        endpoint, model, failed_config_revision)
+                    if revision is not None:
+                        with self._provider_condition:
+                            self._apply_persisted_downgrade_locked(
+                                ticket["identity"], failed_config_revision, revision)
+                except Exception:
+                    print("provider concurrency fallback could not be persisted")
+                self._provider_enter(config, fallback_retry=True)
+                try:
+                    try:
+                        return frozen_call()
+                    except ProviderError:
+                        raise original_error from None
+                finally:
+                    with self._provider_condition:
+                        if self._provider_fallback_retries <= 0:
+                            raise RuntimeError("provider fallback counter underflow")
+                        self._provider_fallback_retries -= 1
+                        self._release_provider_locked()
+                        self._provider_condition.notify_all()
+        finally:
+            if not released:
+                self._provider_exit()
 
     def _run_generation(self, save_id, job_id):
         try:
@@ -291,17 +392,15 @@ class AppContext:
             if claimed is None:
                 return
             config = self.database.get_model_config()
-            self._provider_enter(config)
-            try:
+            api_key = self.secrets.get_api_key()
+            def generate():
                 if self.database.get_job(save_id, job_id)["status"] != "cancel_requested":
-                    proposal = self.provider.generate_character(
-                        config, self.secrets.get_api_key(), claimed["draft"], claimed["feedback"],
+                    return self.provider.generate_character(
+                        config, api_key, claimed["draft"], claimed["feedback"],
                         lambda result: self.database.set_model_capability(config, result)
                     )
-                else:
-                    proposal = None
-            finally:
-                self._provider_exit()
+                return None
+            proposal = self._call_provider_with_concurrency_fallback(config, generate)
             if proposal is None:
                 self.database.fail_job(save_id, job_id, "GENERATION_CANCELLED", "生成已取消")
                 return
@@ -344,20 +443,18 @@ class AppContext:
             request_config["_output_schema_name"] = contract["version"].replace("-", "_").replace("/", "_")
             claimed["provider_model"] = config["model"]
             self.story.set_context_manifest(job_id, manifest)
-            self._provider_enter(config)
-            try:
+            api_key = self.secrets.get_api_key()
+            def generate():
                 if self.story.get_job(save_id, job_id)["status"] == "cancel_requested":
-                    proposal = None
-                elif job_type in {"turns_to_arc", "arcs_to_arc"}:
-                    proposal = self.provider.generate_story_arc(
-                        request_config, self.secrets.get_api_key(), messages,
+                    return None
+                if job_type in {"turns_to_arc", "arcs_to_arc"}:
+                    return self.provider.generate_story_arc(
+                        request_config, api_key, messages,
                         lambda result: self.database.set_model_capability(config, result))
-                else:
-                    proposal = self.provider.generate_narrative(
-                        request_config, self.secrets.get_api_key(), messages,
-                        lambda result: self.database.set_model_capability(config, result))
-            finally:
-                self._provider_exit()
+                return self.provider.generate_narrative(
+                    request_config, api_key, messages,
+                    lambda result: self.database.set_model_capability(config, result))
+            proposal = self._call_provider_with_concurrency_fallback(config, generate)
             if proposal is None:
                 self.story.fail(save_id, job_id, "GENERATION_CANCELLED", "生成已取消")
             elif job_type in {"turns_to_arc", "arcs_to_arc"}:
@@ -481,6 +578,7 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
             self.app.validate_response_format_update(body)
             body.pop("structured_output_probe_token", None)
             revision = db.write_model_settings_with_secret(body, self.app.secrets)
+            self.app.sync_provider_limit(db.get_model_config())
             return 200, db.get_settings(bool(self.app.secrets.get_api_key()),
                                         self.app.secrets.persistence), {"X-Revision": str(revision)}
         if method == "POST" and path == "/api/settings/model/test":

@@ -258,6 +258,44 @@ WHERE COALESCE(json_extract(model_json, '$.base_url'), '')=''
   AND (json_type(model_json, '$.structured_output') IS NULL
        OR json_extract(model_json, '$.structured_output')=1);
 """),
+    (5, """
+UPDATE settings
+SET model_json=json_set(model_json, '$.max_concurrency', 2)
+WHERE revision=0
+  AND COALESCE(json_extract(model_json, '$.base_url'), '')=''
+  AND COALESCE(json_extract(model_json, '$.model'), '')=''
+  AND (json_type(model_json, '$.max_concurrency') IS NULL
+       OR json_extract(model_json, '$.max_concurrency')=1);
+"""),
+    (6, """
+UPDATE settings
+SET narration_json=json_set(narration_json, '$.player_address', 'second_person')
+WHERE json_type(narration_json, '$.player_address') IS NULL;
+UPDATE saves
+SET preferences_json=json_set(preferences_json, '$.player_address', 'second_person')
+WHERE json_type(preferences_json, '$.player_address') IS NULL;
+UPDATE story_states
+SET state_json=json_set(state_json, '$.narration.player_address', 'second_person')
+WHERE json_type(state_json, '$.narration.player_address') IS NULL;
+UPDATE turn_snapshots
+SET state_json=json_set(state_json, '$.state.narration.player_address', 'second_person')
+WHERE json_type(state_json, '$.state.narration.player_address') IS NULL;
+"""),
+    (7, """
+UPDATE saves
+SET preferences_json=(SELECT narration_json FROM settings WHERE id=1),
+    revision=revision+1
+WHERE EXISTS (SELECT 1 FROM settings WHERE id=1)
+  AND COALESCE(json_extract(preferences_json, '$.player_address'), 'second_person')='second_person'
+  AND json_extract((SELECT narration_json FROM settings WHERE id=1), '$.player_address')<>'second_person';
+UPDATE story_states
+SET state_json=json_set(
+    state_json,
+    '$.narration',
+    json((SELECT preferences_json FROM saves WHERE saves.id=story_states.save_id))
+)
+WHERE EXISTS (SELECT 1 FROM saves WHERE saves.id=story_states.save_id);
+"""),
 )
 
 

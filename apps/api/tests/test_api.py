@@ -19,6 +19,7 @@ if str(APPS_DIR) not in sys.path:
 from api.database import SecretStore
 from api.model_provider import (THINKING_CONFIG_VERSION, THINKING_STRATEGIES,
                                 OpenAICompatibleProvider, ProviderError, _request,
+                                is_explicit_concurrency_rejection,
                                 is_explicit_parameter_rejection, thinking_parameters)
 from api.server import AppContext, create_server
 
@@ -92,6 +93,83 @@ class FakeProvider:
         if self.capability_update and on_thinking_capability:
             on_thinking_capability(dict(self.capability_update))
         return json.loads(json.dumps(self.proposal, ensure_ascii=False))
+
+
+class ConcurrentRejectingProvider(FakeProvider):
+    def __init__(self, rejection_message="Too many concurrent requests"):
+        super().__init__()
+        self.lock = threading.Lock()
+        self.first_started = threading.Event()
+        self.second_rejected = threading.Event()
+        self.release_first = threading.Event()
+        self.active = 0
+        self.max_active = 0
+        self.calls_by_name = {}
+        self.rejection_message = rejection_message
+        self.allow_second_rejection = None
+
+    def generate_character(self, config, api_key, draft, feedback="", on_thinking_capability=None):
+        name = draft["name"]
+        with self.lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            self.calls_by_name[name] = self.calls_by_name.get(name, 0) + 1
+            active = self.active
+            attempt = self.calls_by_name[name]
+        try:
+            if active == 1 and not self.first_started.is_set():
+                self.first_started.set()
+                self.release_first.wait(3)
+            elif active > 1 and attempt == 1:
+                self.second_rejected.set()
+                if self.allow_second_rejection is not None:
+                    self.allow_second_rejection.wait(3)
+                raise ProviderError(
+                    "MODEL_RATE_LIMITED", "模型服务请求过于频繁", True, 429,
+                    self.rejection_message)
+            return json.loads(json.dumps(self.proposal, ensure_ascii=False))
+        finally:
+            with self.lock:
+                self.active -= 1
+
+
+class DrainingProvider(FakeProvider):
+    def __init__(self):
+        super().__init__()
+        self.lock = threading.Lock()
+        self.first_started = threading.Event()
+        self.second_started = threading.Event()
+        self.third_started = threading.Event()
+        self.release_first = threading.Event()
+        self.release_third = threading.Event()
+        self.calls = []
+        self.active = 0
+        self.retry_active = None
+
+    def generate_character(self, config, api_key, draft, feedback="", on_thinking_capability=None):
+        name = draft["name"]
+        with self.lock:
+            self.active += 1
+            self.calls.append(name)
+            attempt = self.calls.count(name)
+        try:
+            if name == "first":
+                self.first_started.set()
+                self.release_first.wait(3)
+            elif name == "second" and attempt == 1:
+                self.second_started.set()
+                raise ProviderError("MODEL_RATE_LIMITED", "并发拒绝", True, 429,
+                                    "too many concurrent requests")
+            elif name == "second":
+                with self.lock:
+                    self.retry_active = self.active
+            else:
+                self.third_started.set()
+                self.release_third.wait(3)
+            return json.loads(json.dumps(self.proposal, ensure_ascii=False))
+        finally:
+            with self.lock:
+                self.active -= 1
 
 
 class FakeHttpResponse:
@@ -172,6 +250,27 @@ class ProviderTestCase(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(is_explicit_parameter_rejection(error, fields))
 
+    def test_explicit_concurrency_rejection_is_conservative(self):
+        for status, message, code in (
+                (429, "Too many concurrent requests", None),
+                (400, "Max concurrent requests exceeded", None),
+                (409, "Simultaneous calls are not supported", "concurrency_limit"),
+                (422, "供应商不支持并发，请勿同时请求", None)):
+            error = ProviderError("MODEL_REQUEST_REJECTED", "拒绝", http_status=status,
+                                  provider_message=message, provider_code=code)
+            with self.subTest(status=status, message=message):
+                self.assertTrue(is_explicit_concurrency_rejection(error))
+        for status, message in (
+                (429, "rate limit exceeded"), (429, "quota exceeded"),
+                (429, "requests per minute exceeded"),
+                (429, "tokens per minute exceeded"),
+                (503, "too many concurrent requests"),
+                (429, None)):
+            error = ProviderError("MODEL_RATE_LIMITED", "请求过于频繁", http_status=status,
+                                  provider_message=message)
+            with self.subTest(status=status, message=message):
+                self.assertFalse(is_explicit_concurrency_rejection(error))
+
     def test_generation_retries_without_rejected_response_format_and_keeps_context_small(self):
         proposal_response = {"choices": [{"message": {"content": json.dumps(VALID_PROPOSAL)}}]}
         requests = []
@@ -208,6 +307,39 @@ class ProviderTestCase(unittest.TestCase):
             FakeHttpResponse({"data": []}),
         ]
         with mock.patch("urllib.request.urlopen", side_effect=effects) as call, mock.patch("time.sleep"):
+            self.assertEqual({"data": []}, _request(url, "key", 1))
+        self.assertEqual(3, call.call_count)
+
+    def test_request_stops_retrying_explicit_concurrency_429(self):
+        url = "https://model.example/v1/models"
+        effects = [
+            self.http_error(429, {"error": {
+                "message": "Too many concurrent requests",
+                "code": "concurrency_limit",
+            }}),
+            FakeHttpResponse({"data": []}),
+        ]
+        with mock.patch("urllib.request.urlopen", side_effect=effects) as call, \
+                mock.patch("time.sleep") as sleep:
+            with self.assertRaises(ProviderError) as raised:
+                _request(url, "key", 1)
+        self.assertEqual(1, call.call_count)
+        sleep.assert_not_called()
+        self.assertEqual("MODEL_RATE_LIMITED", raised.exception.code)
+        self.assertEqual("Too many concurrent requests",
+                         raised.exception.provider_message)
+
+    def test_request_retries_ordinary_429_twice_then_succeeds(self):
+        url = "https://model.example/v1/models"
+        effects = [
+            self.http_error(429, {"error": {"message": "quota exceeded"}}),
+            self.http_error(429, {"error": {
+                "message": "requests per minute exceeded",
+            }}),
+            FakeHttpResponse({"data": []}),
+        ]
+        with mock.patch("urllib.request.urlopen", side_effect=effects) as call, \
+                mock.patch("time.sleep"):
             self.assertEqual({"data": []}, _request(url, "key", 1))
         self.assertEqual(3, call.call_count)
 
@@ -526,6 +658,13 @@ class ApiTestCase(unittest.TestCase):
             "api_key": api_key,
         })
 
+    def set_model(self, **changes):
+        current = self.request("GET", "/api/settings")
+        return self.request("PUT", "/api/settings/model", {
+            "request_id": "settings-" + str(time.time_ns()),
+            "expected_revision": current["revision"], **changes,
+        })
+
     def create_save(self, name="测试存档"):
         return self.request("POST", "/api/saves", {
             "name": name, "request_id": "save-" + str(time.time_ns())
@@ -605,7 +744,8 @@ class ApiTestCase(unittest.TestCase):
         self.assertIn("十阶", catalog["rank_system"]["description"])
         self.assertIn("游戏性提示", catalog["rank_system"]["description"])
         self.assertGreaterEqual(len(catalog["rank_system"]["principles"]), 4)
-        self.assertEqual({"pace": "dynamic", "tone": "balanced", "detail": "standard"},
+        self.assertEqual({"pace": "dynamic", "tone": "balanced", "detail": "standard",
+                          "player_address": "second_person"},
                          catalog["narration"]["defaults"])
         self.assertEqual([], catalog["presets"]["appearance"][0]["race_ids"])
         appearance = catalog["presets"]["appearance"]
@@ -761,6 +901,7 @@ class ApiTestCase(unittest.TestCase):
     def test_settings_secret_is_separate_and_connection_test_uses_provider(self):
         initial = self.request("GET", "/api/settings")["model"]
         self.assertEqual(300, initial["timeout_seconds"])
+        self.assertEqual(2, initial["max_concurrency"])
         self.assertFalse(initial["structured_output"])
         self.assertEqual("unknown", initial["structured_output_capability"])
         self.assertIsNone(initial["structured_output_probed_at"])
@@ -1023,6 +1164,32 @@ class ApiTestCase(unittest.TestCase):
         })
         self.assertFalse(blank["structured_output"])
 
+    def test_concurrency_migration_only_changes_unconfigured_legacy_default(self):
+        db = self.server.app_context.database
+
+        def rerun_v5(model, revision):
+            with db.connect() as connection:
+                connection.execute("UPDATE settings SET model_json=?,revision=? WHERE id=1",
+                                   (json.dumps(model), revision))
+                connection.execute("DELETE FROM schema_migrations WHERE version=5")
+            db._initialize()
+            with db.connect() as connection:
+                return json.loads(connection.execute(
+                    "SELECT model_json FROM settings WHERE id=1").fetchone()[0])
+
+        blank = rerun_v5({"base_url": "", "model": "", "timeout_seconds": 300,
+                          "max_concurrency": 1}, 0)
+        self.assertEqual(2, blank["max_concurrency"])
+        configured = rerun_v5({"base_url": "https://legacy.example/v1", "model": "legacy",
+                               "max_concurrency": 1}, 0)
+        self.assertEqual(1, configured["max_concurrency"])
+        explicit = rerun_v5({"base_url": "", "model": "", "timeout_seconds": 300,
+                             "max_concurrency": 1}, 7)
+        self.assertEqual(1, explicit["max_concurrency"])
+        missing = rerun_v5({"base_url": "https://legacy.example/v1", "model": "legacy"}, 0)
+        self.assertNotIn("max_concurrency", missing)
+        self.assertEqual(2, db.get_settings()["model"]["max_concurrency"])
+
     def test_thinking_capability_cache_hits_and_config_changes_invalidate(self):
         first = self.request("POST", "/api/settings/model/test", {
             "base_url": "https://cache.example/v1", "model": "model-a",
@@ -1151,17 +1318,67 @@ class ApiTestCase(unittest.TestCase):
         updated = self.request("PUT", "/api/settings/narration", {
             "request_id": "narration-1", "expected_revision": settings["revision"],
             "pace": "slow", "tendency": "casual", "detail": "detailed",
+            "player_address": "given_name",
         })
         self.assertEqual("slow", updated["narration"]["pace"])
+        self.assertEqual("given_name", updated["narration"]["player_address"])
         save = self.create_save()
-        self.assertEqual({"pace": "slow", "tone": "casual", "detail": "detailed"},
+        self.assertEqual({"pace": "slow", "tone": "casual", "detail": "detailed",
+                          "player_address": "given_name"},
                          save["narration"])
         per_save = self.request("PUT", f"/api/saves/{save['id']}/preferences", {
             "request_id": "save-narration-1", "expected_revision": save["revision"],
             "pace": "fast", "tone": "combat", "detail": "concise",
+            "player_address": "full_name",
         })
         self.assertEqual("fast", per_save["narration"]["pace"])
+        self.assertEqual("full_name", per_save["narration"]["player_address"])
         self.assertEqual("slow", self.request("GET", "/api/settings")["narration"]["pace"])
+
+    def test_global_narration_settings_apply_to_existing_saves(self):
+        save = self.create_save("已有存档")
+        settings = self.request("GET", "/api/settings")
+        updated = self.request("PUT", "/api/settings/narration", {
+            "request_id": "global-address-existing", "expected_revision": settings["revision"],
+            "pace": "dynamic", "tendency": "balanced", "detail": "standard",
+            "player_address": "given_name",
+        })
+        existing = self.request("GET", f"/api/saves/{save['id']}")
+        self.assertEqual("given_name", existing["narration"]["player_address"])
+        self.assertEqual(save["revision"] + 1, existing["revision"])
+        self.assertEqual("given_name", updated["narration"]["player_address"])
+
+    def test_global_narration_settings_are_blocked_during_character_generation(self):
+        self.configure_model()
+        self.provider.block = True
+        save = self.create_save("生成中的存档")
+        draft = self.save_draft(save)
+        save = self.request("GET", f"/api/saves/{save['id']}")
+        job = self.start_generation(save["id"], draft["draft_revision"], save["revision"],
+                                    "global-address-block")
+        self.assertTrue(self.provider.started.wait(1))
+        settings = self.request("GET", "/api/settings")
+        blocked = self.request("PUT", "/api/settings/narration", {
+            "request_id": "global-address-while-generating",
+            "expected_revision": settings["revision"], "pace": "dynamic",
+            "tendency": "balanced", "detail": "standard", "player_address": "given_name",
+        }, 409)
+        self.assertEqual("GENERATION_ACTIVE", blocked["error"]["code"])
+        self.provider.release.set()
+        self.assertEqual("succeeded", self.wait_job(save["id"], job["id"])["status"])
+
+    def test_player_address_migration_backfills_existing_json(self):
+        db = self.server.app_context.database
+        save = self.create_save("旧称呼存档")
+        with db.connect() as connection:
+            connection.execute("UPDATE settings SET narration_json=? WHERE id=1", (
+                json.dumps({"pace": "dynamic", "tone": "balanced", "detail": "standard"}),))
+            connection.execute("UPDATE saves SET preferences_json=? WHERE id=?", (
+                json.dumps({"pace": "slow", "tone": "casual", "detail": "detailed"}), save["id"]))
+            connection.execute("DELETE FROM schema_migrations WHERE version=6")
+        db._initialize()
+        self.assertEqual("second_person", self.request("GET", "/api/settings")["narration"]["player_address"])
+        self.assertEqual("second_person", self.request("GET", f"/api/saves/{save['id']}")["narration"]["player_address"])
 
     def test_model_not_configured_is_explicit(self):
         save = self.create_save()
@@ -1240,6 +1457,253 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual("甲候选", first_candidate["identity"]["name"])
         self.assertEqual("乙候选", second_candidate["identity"]["name"])
         self.assertNotEqual(first_candidate["id"], second_candidate["id"])
+
+    def _start_two_generation_jobs(self):
+        first = self.create_save("生成甲")
+        second = self.create_save("生成乙")
+        first_draft = self.save_draft(first, self.draft("甲候选"))
+        second_draft = self.save_draft(second, self.draft("乙候选"))
+        first = self.request("GET", f"/api/saves/{first['id']}")
+        second = self.request("GET", f"/api/saves/{second['id']}")
+        first_job = self.start_generation(first["id"], first_draft["draft_revision"],
+                                          first["revision"], "concurrent-first")
+        started = getattr(self.server.app_context.provider, "first_started", None)
+        if started is not None:
+            self.assertTrue(started.wait(1))
+        second_job = self.start_generation(second["id"], second_draft["draft_revision"],
+                                           second["revision"], "concurrent-second")
+        return first, first_job, second, second_job
+
+    def test_concurrent_rejection_downgrades_waits_and_retries_once(self):
+        provider = ConcurrentRejectingProvider()
+        self.server.app_context.provider = provider
+        self.configure_model()
+        configured = self.set_model(max_concurrency=2)
+        first, first_job, second, second_job = self._start_two_generation_jobs()
+        self.assertTrue(provider.first_started.wait(1))
+        self.assertTrue(provider.second_rejected.wait(1))
+        time.sleep(0.05)
+        self.assertEqual(1, provider.active)
+        self.assertEqual(1, provider.calls_by_name["乙候选"])
+        provider.release_first.set()
+        first_result = self.wait_job(first["id"], first_job["id"])
+        second_result = self.wait_job(second["id"], second_job["id"])
+        self.assertEqual("succeeded", first_result["status"], first_result)
+        self.assertEqual("succeeded", second_result["status"], second_result)
+        self.assertGreaterEqual(provider.max_active, 2)
+        self.assertEqual(2, provider.calls_by_name["乙候选"])
+        settings = self.request("GET", "/api/settings")
+        self.assertEqual(1, settings["model"]["max_concurrency"])
+        self.assertEqual(configured["revision"] + 1, settings["revision"])
+
+    def test_ordinary_rate_limit_does_not_downgrade_or_retry(self):
+        provider = ConcurrentRejectingProvider("quota exceeded")
+        self.server.app_context.provider = provider
+        self.configure_model()
+        self.set_model(max_concurrency=2)
+        first, first_job, second, second_job = self._start_two_generation_jobs()
+        self.assertTrue(provider.first_started.wait(1))
+        self.assertTrue(provider.second_rejected.wait(1))
+        provider.release_first.set()
+        self.assertEqual("succeeded", self.wait_job(first["id"], first_job["id"])["status"])
+        failed = self.wait_job(second["id"], second_job["id"])
+        self.assertEqual("failed", failed["status"])
+        self.assertEqual(1, provider.calls_by_name["乙候选"])
+        self.assertEqual(2, self.request("GET", "/api/settings")["model"]["max_concurrency"])
+
+    def test_limit_one_never_uses_concurrency_fallback(self):
+        calls = []
+        config = {"base_url": "https://model.example/v1", "model": "model-a",
+                  "max_concurrency": 1, "_settings_revision": 0}
+        context = self.server.app_context
+        entered = threading.Event()
+        release = threading.Event()
+        context._effective_provider_limit[(config["base_url"], config["model"])] = {
+            "configured": 2, "effective": 2, "revision": 0,
+        }
+
+        def active_call():
+            entered.set()
+            release.wait(2)
+
+        active = threading.Thread(target=lambda: context._call_provider_with_concurrency_fallback(
+            {**config, "max_concurrency": 2}, active_call))
+        active.start()
+        self.assertTrue(entered.wait(1))
+
+        def reject():
+            calls.append(1)
+            raise ProviderError("MODEL_RATE_LIMITED", "限流", True, 429,
+                                "too many concurrent requests")
+
+        try:
+            with self.assertRaises(ProviderError):
+                context._call_provider_with_concurrency_fallback(config, reject)
+        finally:
+            release.set()
+        active.join(2)
+        self.assertEqual(1, len(calls))
+        self.assertEqual(2, self.request("GET", "/api/settings")["model"]["max_concurrency"])
+
+    def test_non_overlapped_concurrency_word_does_not_downgrade(self):
+        calls = []
+        config = {"base_url": "https://model.example/v1", "model": "model-a",
+                  "max_concurrency": 2, "_settings_revision": 0}
+
+        def reject():
+            calls.append(1)
+            raise ProviderError("MODEL_RATE_LIMITED", "限流", True, 429,
+                                "too many concurrent requests")
+
+        with self.assertRaises(ProviderError):
+            self.server.app_context._call_provider_with_concurrency_fallback(config, reject)
+        self.assertEqual(1, len(calls))
+        self.assertEqual(2, self.request("GET", "/api/settings")["model"]["max_concurrency"])
+
+    def test_failed_serial_retry_reports_original_concurrency_error(self):
+        context = self.server.app_context
+        config = {"base_url": "https://model.example/v1", "model": "model-a",
+                  "max_concurrency": 2, "_settings_revision": 0}
+        active_entered = threading.Event()
+        release_active = threading.Event()
+
+        def active_call():
+            active_entered.set()
+            release_active.wait(2)
+
+        active = threading.Thread(target=lambda: context._call_provider_with_concurrency_fallback(
+            config, active_call))
+        active.start()
+        self.assertTrue(active_entered.wait(1))
+        calls = []
+        original = ProviderError("MODEL_RATE_LIMITED", "首次并发拒绝", True, 429,
+                                 "too many concurrent requests")
+
+        def reject_twice():
+            calls.append(1)
+            if len(calls) == 1:
+                raise original
+            raise ProviderError("MODEL_TIMEOUT", "串行重试超时", True)
+
+        timer = threading.Timer(0.05, release_active.set)
+        timer.start()
+        try:
+            with self.assertRaises(ProviderError) as raised:
+                context._call_provider_with_concurrency_fallback(config, reject_twice)
+        finally:
+            timer.cancel()
+            release_active.set()
+        active.join(2)
+        self.assertIs(original, raised.exception)
+        self.assertEqual(2, len(calls))
+        self.assertEqual(0, context._active_provider_calls)
+        self.assertEqual(0, context._provider_fallback_retries)
+
+    def test_fallback_retry_runs_before_waiters_admitted_under_limit_one(self):
+        context = self.server.app_context
+        provider = DrainingProvider()
+        context.provider = provider
+        config = {"base_url": "https://model.example/v1", "model": "model-a",
+                  "max_concurrency": 2, "_settings_revision": 0}
+        results = []
+
+        def run(name):
+            results.append(context._call_provider_with_concurrency_fallback(
+                config, lambda: provider.generate_character(config, "key", {"name": name})))
+
+        first = threading.Thread(target=run, args=("first",))
+        second = threading.Thread(target=run, args=("second",))
+        third = threading.Thread(target=run, args=("third",))
+        first.start()
+        self.assertTrue(provider.first_started.wait(1))
+        second.start()
+        self.assertTrue(provider.second_started.wait(1))
+        third.start()
+        time.sleep(0.05)
+        self.assertFalse(provider.third_started.is_set())
+        provider.release_first.set()
+        second.join(2)
+        self.assertEqual(1, provider.retry_active)
+        self.assertEqual(["first", "second", "second"], provider.calls[:3])
+        self.assertTrue(provider.third_started.wait(1))
+        provider.release_third.set()
+        first.join(2)
+        third.join(2)
+        self.assertEqual(3, len(results))
+        self.assertEqual(0, context._active_provider_calls)
+        self.assertEqual(0, context._provider_fallback_retries)
+
+    def test_late_concurrency_rejection_preserves_newer_same_provider_settings(self):
+        context = self.server.app_context
+        db = context.database
+        provider = ConcurrentRejectingProvider()
+        context.provider = provider
+        self.configure_model()
+        old = self.set_model(max_concurrency=3)
+        provider.allow_second_rejection = threading.Event()
+        try:
+            first, first_job, second, second_job = self._start_two_generation_jobs()
+            self.assertTrue(provider.second_rejected.wait(1))
+            newer = self.set_model(max_concurrency=4)
+            provider.allow_second_rejection.set()
+            time.sleep(0.05)
+            self.assertEqual(1, provider.active)
+            self.assertEqual(1, provider.calls_by_name["乙候选"])
+            provider.release_first.set()
+            first_result = self.wait_job(first["id"], first_job["id"])
+            second_result = self.wait_job(second["id"], second_job["id"])
+        finally:
+            provider.allow_second_rejection.set()
+            provider.release_first.set()
+
+        self.assertEqual("succeeded", first_result["status"], first_result)
+        self.assertEqual("succeeded", second_result["status"], second_result)
+        self.assertEqual(2, provider.calls_by_name["乙候选"])
+        settings = self.request("GET", "/api/settings")
+        self.assertEqual(4, settings["model"]["max_concurrency"])
+        self.assertEqual(newer["revision"], settings["revision"])
+        identity = (old["model"]["base_url"], old["model"]["model"])
+        self.assertEqual({"configured": 4, "effective": 4,
+                          "revision": newer["revision"]},
+                         context._effective_provider_limit[identity])
+        self.assertEqual(0, context._provider_fallback_retries)
+
+    def test_story_arc_provider_call_uses_shared_fallback_wrapper(self):
+        context = self.server.app_context
+        calls = []
+        original = context._call_provider_with_concurrency_fallback
+
+        def recording_wrapper(config, provider_call):
+            calls.append((config["base_url"], config["model"]))
+            return original(config, provider_call)
+
+        context._call_provider_with_concurrency_fallback = recording_wrapper
+        claimed = {
+            "job": {"type": "turns_to_arc"}, "input": {}, "context_state": {},
+            "early_summaries": [], "recent_full_turns": [], "memories": [],
+            "arcs": [], "location_nodes": {}, "documents": [],
+            "revision_manifest": {},
+        }
+        context.story.claim = lambda save_id, job_id: claimed
+        context.story.claim_arc = lambda value: []
+        context.story.set_context_manifest = lambda job_id, manifest: None
+        context.story.get_job = lambda save_id, job_id: {"status": "running"}
+        context.story.complete_arc = lambda value, proposal: calls.append("completed")
+        context.database.get_model_config = lambda: {
+            "base_url": "https://arc.example/v1", "model": "arc-model",
+            "max_concurrency": 2, "_settings_revision": 1,
+        }
+        context.content_registry.build_messages = lambda *args: ([], {})
+        context.provider.generate_story_arc = lambda *args: {
+            "schema_version": "story-arc/1", "title": "弧", "summary": "摘要",
+            "key_events": [], "unresolved": [],
+        }
+        with mock.patch("api.server.contract_from_documents", return_value={
+                "schema": {}, "version": "story-arc/1"}), mock.patch(
+                "api.server.validate_story_arc", side_effect=lambda proposal, contract: proposal):
+            context._run_narrative("save", "arc-job")
+        self.assertEqual(("https://arc.example/v1", "arc-model"), calls[0])
+        self.assertEqual("completed", calls[1])
 
     def test_high_rank_is_allowed_with_warning(self):
         self.configure_model()

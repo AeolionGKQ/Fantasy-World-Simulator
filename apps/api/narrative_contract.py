@@ -499,8 +499,8 @@ def _contains_any(text, terms):
 def _validate_regional_transition(quest_id, current, proposal, context_eligibility,
                                   action_text, body, proposals=None):
     target = proposal["status"]
-    if current["status"] == "untriggered" and context_eligibility != "location_matched":
-        raise ContractError("地区任务不能在错误地点从untriggered转移")
+    if current["status"] in {"untriggered", "eligible"} and context_eligibility != "location_matched":
+        raise ContractError("地区任务不能在错误地点从未触发状态转移")
     rule = REGIONAL_TRANSITION_RULES[quest_id]
     evidence = " ".join((action_text, proposal["action_evidence"], proposal["evidence"], body))
     negated_active = _has_negated_action(action_text, REGIONAL_NEGATED_ACTION_TERMS[quest_id])

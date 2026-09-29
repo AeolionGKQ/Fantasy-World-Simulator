@@ -104,6 +104,18 @@ export function isStoryReadOnly(turn: Turn | null, latestTurnId: string | null, 
   return !isLatestTurn(turn, latestTurnId) || isNarrativeJobActive(job);
 }
 
+export function refreshedViewedTurn(
+  turns: Turn[],
+  latestTurn: Turn | null,
+  current: Turn | null,
+  completedTurnId?: string | null,
+): Turn | null {
+  if (completedTurnId) {
+    return turns.find((turn) => turn.id === completedTurnId) ?? latestTurn;
+  }
+  return current ? turns.find((turn) => turn.id === current.id) ?? latestTurn : latestTurn;
+}
+
 export function narrativeJobMessage(job: NarrativeJob): string {
   if (job.error?.code === "MODEL_CONTEXT_LENGTH_EXCEEDED") {
     return "模型上下文长度不足。请在设置中更换支持更长上下文的模型，再重新提交。本次不会自动裁剪或重试。";

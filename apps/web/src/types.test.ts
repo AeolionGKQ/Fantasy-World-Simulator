@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "./api";
-import { canMutateModelSettings, canStartSettingRequest, invalidateModelCapabilities, isCurrentModelTestResponse, mergeModelTestCapability, mergeSavedModelSettings, mergeSavedNarrationSettings, modelCapabilityKey, resetStructuredOutputCapability, structuredOutputProbePayload, thinkingCapabilityMessage, thinkingStrategyLabel } from "./App";
-import { formatChange, isNarrativeJobActive, isStoryReadOnly, orderReputations, questProjectionFromResponse, reputationNames, resourceCondition, resourceExhaustion, validateArcSelection } from "./game/helpers";
+import { canMutateModelSettings, canStartSettingRequest, invalidateModelCapabilities, isCurrentModelTestResponse, mergeModelTestCapability, mergeSavedModelSettings, mergeSavedNarrationSettings, modelCapabilityKey, resetStructuredOutputCapability, resolveCompletedGeneration, structuredOutputProbePayload, thinkingCapabilityMessage, thinkingStrategyLabel } from "./App";
+import { formatChange, isNarrativeJobActive, isStoryReadOnly, orderReputations, questProjectionFromResponse, refreshedViewedTurn, reputationNames, resourceCondition, resourceExhaustion, validateArcSelection } from "./game/helpers";
 import {
   appendPreset,
   chineseRankNumeral,
@@ -62,6 +62,40 @@ describe("saveRoute", () => {
   });
 });
 
+describe("character generation completion", () => {
+  it("先读取候选和存档，再发布成功状态", async () => {
+    const events: string[] = [];
+    let releaseCandidate: (() => void) | undefined;
+    const candidateReady = new Promise<void>((resolve) => { releaseCandidate = resolve; });
+    const completed = resolveCompletedGeneration(
+      { id: "job", save_id: "save", status: "succeeded" },
+      async () => { events.push("candidate-start"); await candidateReady; events.push("candidate-ready"); return { id: "candidate", save_id: "save", draft_revision: 1, attributes: { con: { value: 1 }, int: { value: 1 }, cha: { value: 1 } }, power: { base: 1, effective: 1 }, exp: 0 }; },
+      async () => { events.push("save-ready"); return { id: "save", name: "存档", phase: "review", revision: 2 }; },
+      () => events.push("job-published"),
+    );
+    await Promise.resolve();
+    expect(events).toEqual(["candidate-start", "save-ready"]);
+    releaseCandidate?.();
+    expect(await completed).toEqual(expect.objectContaining({
+      candidate: expect.objectContaining({ id: "candidate" }),
+      save: expect.objectContaining({ phase: "review" }),
+    }));
+    expect(events).toEqual(["candidate-start", "save-ready", "candidate-ready", "job-published"]);
+  });
+
+  it("非成功状态立即发布且不读取候选", async () => {
+    const candidate = vi.fn();
+    const save = vi.fn();
+    const publish = vi.fn();
+    expect(await resolveCompletedGeneration(
+      { id: "job", save_id: "save", status: "running" }, candidate, save, publish,
+    )).toBeNull();
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({ status: "running" }));
+    expect(candidate).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
+});
+
 describe("race catalog helpers", () => {
   const race = {
     image_landscape_path: "/assets/world/races/therian-landscape.webp",
@@ -113,6 +147,19 @@ describe("API DTO contracts", () => {
     expect(normalizeAppSettings(settings).model).toEqual(expect.objectContaining({
       structured_output: false, structured_output_capability: "unknown",
     }));
+    expect(normalizeAppSettings(settings).narration.player_address).toBe("second_person");
+  });
+
+  it("旧后端缺少最大并发字段时默认使用 2", () => {
+    const settings = {
+      model: { base_url: "", model: "", api_key_configured: false,
+        timeout_seconds: 300, structured_output: false, thinking_enabled: true,
+        thinking_capability: "unknown" as const, thinking_strategy: null,
+        thinking_confidence: "unknown" as const },
+      narration: { pace: "dynamic" as const, tendency: "balanced" as const, detail: "standard" as const },
+      revision: 0,
+    };
+    expect(normalizeAppSettings(settings).model.max_concurrency).toBe(2);
   });
 
   it("发送设置修订和页面中的未保存模型值", async () => {
@@ -120,7 +167,8 @@ describe("API DTO contracts", () => {
       model: { base_url: "https://draft.example/v1", model: "draft-model", api_key_configured: false,
         timeout_seconds: 17, structured_output: true, thinking_enabled: false, max_concurrency: 16,
         thinking_capability: "controlled", thinking_strategy: "enable_thinking", thinking_confidence: "verified" },
-      narration: { pace: "dynamic", tendency: "balanced", detail: "standard" }, revision: 4,
+      narration: { pace: "dynamic" as const, tendency: "balanced" as const, detail: "standard" as const,
+        player_address: "given_name" as const }, revision: 4,
     };
     const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify(payload), {
       status: 200, headers: { "Content-Type": "application/json" },
@@ -132,6 +180,10 @@ describe("API DTO contracts", () => {
     await api.updateModel({ base_url: "https://draft.example/v1", model: "draft-model",
       timeout_seconds: 17, structured_output: true, thinking_enabled: false, max_concurrency: 16,
       structured_output_probe_token: "probe-proof" }, 3, "model-request");
+    await api.updateNarration(payload.narration, 4, "narration-request");
+    await api.updateSavePreferences("save", {
+      pace: "dynamic", tone: "balanced", detail: "standard", player_address: "full_name",
+    }, 7, "save-preferences-request");
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(expect.objectContaining({
       base_url: "https://draft.example/v1", model: "draft-model", api_key: "draft-key",
       max_concurrency: 16, structured_output: true, thinking_enabled: false, force_thinking_probe: true,
@@ -140,6 +192,14 @@ describe("API DTO contracts", () => {
       expected_revision: 3, request_id: "model-request",
       structured_output_probe_token: "probe-proof",
     }));
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({
+      pace: "dynamic", tendency: "balanced", detail: "standard", player_address: "given_name",
+      expected_revision: 4, request_id: "narration-request",
+    });
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({
+      pace: "dynamic", tone: "balanced", detail: "standard", player_address: "full_name",
+      expected_revision: 7, request_id: "save-preferences-request",
+    });
   });
 
   it("开启结构化输出时发送立即探测标志和未保存设置", async () => {
@@ -298,7 +358,7 @@ describe("API DTO contracts", () => {
         structured_output_capability: "unknown" as const,
         thinking_capability: "unknown" as const, thinking_strategy: null,
         thinking_confidence: "unknown" as const },
-      narration: { pace: "dynamic" as const, tendency: "balanced" as const, detail: "standard" as const },
+      narration: { pace: "dynamic" as const, tendency: "balanced" as const, detail: "standard" as const, player_address: "second_person" as const },
       revision: 12,
     };
     const result: ModelTestResult = { ok: true, message: "ok", thinking_capability: "controlled",
@@ -319,7 +379,7 @@ describe("API DTO contracts", () => {
         timeout_seconds: 91, structured_output: false, structured_output_capability: "unknown" as const,
         thinking_enabled: false, max_concurrency: 9, thinking_capability: "unknown" as const,
         thinking_strategy: null, thinking_confidence: "unknown" as const },
-      narration: { pace: "dynamic" as const, tendency: "balanced" as const, detail: "standard" as const },
+      narration: { pace: "dynamic" as const, tendency: "balanced" as const, detail: "standard" as const, player_address: "second_person" as const },
       revision: 5,
     };
     const supported: ModelTestResult = { ok: true, message: "ok", thinking_capability: "controlled",
@@ -357,14 +417,14 @@ describe("API DTO contracts", () => {
       thinking_enabled: false, max_concurrency: 2, thinking_capability: "controlled" as const,
       thinking_strategy: "enable_thinking" as const, thinking_confidence: "verified" as const,
     };
-    expect(resetStructuredOutputCapability({ model, narration: { pace: "dynamic", tendency: "balanced", detail: "standard" }, revision: 1 }, "timeout")!.model)
+    expect(resetStructuredOutputCapability({ model, narration: { pace: "dynamic", tendency: "balanced", detail: "standard", player_address: "second_person" }, revision: 1 }, "timeout")!.model)
       .toEqual(expect.objectContaining({ structured_output: false, structured_output_capability: "unknown", structured_output_message: "timeout" }));
     expect(invalidateModelCapabilities({ ...model, base_url: "https://new.example/v1" }))
       .toEqual(expect.objectContaining({ structured_output: false, structured_output_capability: "unknown",
         structured_output_probe_token: undefined }));
     const current = { model: { ...model, base_url: "https://new.example/v1", structured_output: false,
       structured_output_capability: "unknown" as const }, narration: { pace: "dynamic" as const,
-      tendency: "balanced" as const, detail: "standard" as const }, revision: 1 };
+      tendency: "balanced" as const, detail: "standard" as const, player_address: "second_person" as const }, revision: 1 };
     const oldKey = modelCapabilityKey("https://old.example/v1", "model-a");
     expect(isCurrentModelTestResponse(current, oldKey, 4, 4)).toBe(false);
     expect(isCurrentModelTestResponse(current, modelCapabilityKey(current.model.base_url, current.model.model), 3, 4)).toBe(false);
@@ -387,12 +447,12 @@ describe("API DTO contracts", () => {
         timeout_seconds: 45, structured_output: true, structured_output_capability: "supported",
         structured_output_probe_token: "current-probe-token", thinking_enabled: false, max_concurrency: 4,
         thinking_capability: "controlled", thinking_strategy: "enable_thinking", thinking_confidence: "verified" },
-      narration: { pace: "slow", tendency: "casual", detail: "detailed" },
+      narration: { pace: "slow", tendency: "casual", detail: "detailed", player_address: "given_name" },
       revision: 8,
     };
     const modelResponse: AppSettings = {
       model: { ...current.model, model: "saved-model", api_key_mask: "****" },
-      narration: { pace: "fast", tendency: "combat", detail: "concise" },
+      narration: { pace: "fast", tendency: "combat", detail: "concise", player_address: "full_name" },
       revision: 9,
     };
     const savedModel = mergeSavedModelSettings(current, modelResponse);
@@ -402,7 +462,7 @@ describe("API DTO contracts", () => {
 
     const narrationResponse: AppSettings = {
       model: { ...current.model, model: "stale-server-model", structured_output_probe_token: undefined },
-      narration: { pace: "dynamic", tendency: "balanced", detail: "standard" },
+      narration: { pace: "dynamic", tendency: "balanced", detail: "standard", player_address: "second_person" },
       revision: 10,
     };
     const savedNarration = mergeSavedNarrationSettings(current, narrationResponse);
@@ -423,6 +483,16 @@ describe("API DTO contracts", () => {
 });
 
 describe("game workspace helpers", () => {
+  it("剧情任务完成后聚焦新节点，普通刷新仍保留历史浏览位置", () => {
+    const oldTurn = { id: "old", sequence: 1, body: "旧节点" } as Parameters<typeof refreshedViewedTurn>[0][number];
+    const updatedOldTurn = { ...oldTurn, body: "旧节点（刷新后）" };
+    const newTurn = { id: "new", sequence: 2, body: "新节点" } as typeof oldTurn;
+    expect(refreshedViewedTurn([updatedOldTurn, newTurn], newTurn, oldTurn, "new")).toBe(newTurn);
+    expect(refreshedViewedTurn([updatedOldTurn, newTurn], newTurn, oldTurn)).toBe(updatedOldTurn);
+    const reshaped = { ...newTurn, body: "重塑后的节点" };
+    expect(refreshedViewedTurn([updatedOldTurn, reshaped], reshaped, newTurn, "new")).toBe(reshaped);
+  });
+
   it("声望固定排序并只标记当前地区补正", () => {
     const items = [
       { key: "southern_maritime_federation" as const, value: 20, level: "中立" },

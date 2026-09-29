@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 try:
@@ -39,6 +40,8 @@ CONTRACT_DOCUMENTS = (
     ("contract.story_arc.schema", "content/story_arc.schema.json"),
 )
 TERMINAL_QUEST_STATES = {"completed", "declined", "failed", "abandoned"}
+PLAYER_ADDRESS_PROTOCOL_VERSION = "player-address/1"
+PLAYER_ADDRESS_MODES = {"full_name", "given_name", "second_person"}
 
 QUEST_SPECS = (
     {
@@ -155,6 +158,53 @@ def revision_identity(manifest):
     prompt_version = "gm-prompt-v1-" + _sha(
         (revision_id + ":gm-turn/1").encode("utf-8"))[:16]
     return revision_id, prompt_version
+
+
+def player_address_directive(state):
+    """Resolve explicit name forms while preserving unsegmented names verbatim."""
+    identity = state.get("character", {}).get("identity", {})
+    raw_name = identity.get("name", "")
+    full_name = raw_name.strip() if isinstance(raw_name, str) else ""
+    parts = [part.strip() for part in re.split(r"[·・\s\-‐‑‒–—]+", full_name)
+             if part.strip()]
+    given_name = parts[0] if parts else full_name
+    surname = parts[-1] if len(parts) >= 2 else None
+    gender = identity.get("gender", "")
+    normalized_gender = gender.strip().lower() if isinstance(gender, str) else ""
+    title = None
+    if normalized_gender in {"女", "女性", "female", "woman"}:
+        title = "小姐"
+    elif normalized_gender in {"男", "男性", "male", "man"}:
+        title = "先生"
+    formal_address = ((surname if surname else full_name) + title
+                      if full_name and title else None)
+    mode = (state.get("narration") or {}).get("player_address", "second_person")
+    if mode not in PLAYER_ADDRESS_MODES:
+        mode = "second_person"
+    resolved = (full_name if mode == "full_name" else given_name
+                if mode == "given_name" else "你")
+    return {
+        "protocol_version": PLAYER_ADDRESS_PROTOCOL_VERSION,
+        "mode": mode,
+        "gm_narration_address": resolved or "玩家角色",
+        "name_forms": {"full_name": full_name or None, "given_name": given_name or None,
+                       "surname": surname,
+                       "structure": "given_surname_separated" if surname else "unsegmented"},
+        "npc_address_examples": {
+            "formal_or_stranger": formal_address,
+            "friend_or_familiar": given_name or None,
+            "written": full_name or None,
+        },
+        "instructions": [
+            "GM叙述者称呼玩家角色时稳定使用gm_narration_address，不把其他姓名形式当作常规称呼",
+            "本设置仅约束GM叙述者，不得据此改写NPC台词中的称呼",
+            "NPC称呼由关系、场合与其确实知道的身份独立决定：尊称或陌生关系用姓+先生/小姐，朋友或熟悉关系用名，书面场合用全名",
+            "姓名使用“·”“・”、空格或连字符等明确分隔符时按“名+姓”结构拆分，例如菲亚·维洛拉、菲亚 维洛拉、菲亚-维洛拉均识别为名“菲亚”、姓“维洛拉”",
+            "不可拆分或只有名时由NPC结合语境自然调整，尊称可直接使用原始姓名+先生/小姐",
+            "中文名及其他无间隔符姓名必须始终保持玩家输入的原始文字与顺序；不得擅自拆成姓和名、反转顺序或添加“·”，例如王子轩不得改成子轩·王",
+            "性别称谓不适用或NPC不知道姓名时不得臆造性别、姓名或身份信息",
+        ],
+    }
 
 
 class ContentRegistry:
@@ -274,7 +324,7 @@ class ContentRegistry:
 
     @staticmethod
     def location_matches(location_id, root, location_nodes=None):
-        if location_id == root or location_id.startswith(root + "."):
+        if location_id == root:
             return True
         nodes = location_nodes or {}
         seen = set()
@@ -296,6 +346,8 @@ class ContentRegistry:
                 continue
             matched = any(self.location_matches(location_id, root, location_nodes)
                           for root in quest["roots"])
+            if not matched and status not in {"offered", "active"}:
+                continue
             selected.append({
                 "id": quest["id"], "stored_status": status,
                 "context_eligibility": "location_matched" if matched else (
@@ -351,10 +403,60 @@ class ContentRegistry:
         revision_quests = (self.revision_quests(source_documents, revision_manifest)
                            if revision_manifest else self.quests)
         quest_context = self.select_quests(state, location_nodes, revision_quests)
+        visible_quest_ids = {item["id"] for item in quest_context}
+        prompt_state = json.loads(json.dumps(state, ensure_ascii=False))
+        prompt_state["regional_quests"] = {
+            quest_id: quest for quest_id, quest in prompt_state.get("regional_quests", {}).items()
+            if quest_id in visible_quest_ids
+        }
         contract = contract_from_documents(contract_kind, source_documents)
+        address_directive = player_address_directive(state)
         system_parts = []
         for item in by_category.get("protocol", [])[:2]:
             system_parts.append(self._protocol_container(item))
+        if contract_kind == "gm_turn":
+            regional_policy = {
+                "priority": "mandatory",
+                "current_location_id": state.get("location", {}).get("id"),
+                "visible_regional_quests": [{
+                    "id": item["id"],
+                    "context_eligibility": item["context_eligibility"],
+                    "designated_trigger_locations": list(next(
+                        quest["roots"] for quest in revision_quests if quest["id"] == item["id"])),
+                } for item in quest_context],
+                "rules": [
+                    "只有visible_regional_quests列出的任务可用于本次叙事",
+                    "location_matched任务才可首次出现线索、预告、推荐、引导、offered或触发事件，并且仍须满足任务原文触发条件",
+                    "persistent_active仅表示任务此前已offered或active，允许离开指定地点后继续推进",
+                    "同属一个地区、国家、势力或旅行路线不构成触发地点匹配",
+                    "历史节点、故事弧、长期记忆、世界正典或玩家输入若提及未列出的地区任务，必须将其视为当前不可用信息，不得据此提及、暗示、推荐、引导或触发",
+                ],
+            }
+            encoded_regional_policy = json.dumps(
+                regional_policy, ensure_ascii=True, separators=(",", ":")
+            ).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+            system_parts.append(
+                "\n<RUNTIME_REGIONAL_QUEST_POLICY_JSON>\n" +
+                encoded_regional_policy +
+                "\n</RUNTIME_REGIONAL_QUEST_POLICY_JSON>\n"
+            )
+            address_policy = {
+                "priority": "mandatory",
+                "version": PLAYER_ADDRESS_PROTOCOL_VERSION,
+                "mode": address_directive["mode"],
+                "required_gm_narration_address": address_directive["gm_narration_address"],
+                "forbidden_gm_second_person_pronouns": (
+                    ["你", "您", "你们"] if address_directive["mode"] != "second_person" else []),
+                "scope": "只约束GM叙述者；NPC台词不受此项限制",
+            }
+            encoded_address_policy = json.dumps(
+                address_policy, ensure_ascii=True, separators=(",", ":")
+            ).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+            system_parts.append(
+                "\n<RUNTIME_PLAYER_ADDRESS_JSON>\n" +
+                encoded_address_policy +
+                "\n</RUNTIME_PLAYER_ADDRESS_JSON>\n"
+            )
         system_parts.append("\n<完整规则原文>\n")
         system_parts.extend(self._document_container(item) for item in by_category.get("rule", []))
         system_parts.append("\n</完整规则原文>\n<完整世界正典>\n")
@@ -366,9 +468,10 @@ class ContentRegistry:
                             "\n</OUTPUT_CONTRACT>\n")
         dynamic = {
             "active_narration": state.get("narration", {}), "regional_quests": quest_context,
+            "player_address_directive": address_directive,
             "story_arcs": arcs, "early_summaries": early_summaries,
             "long_term_memories": memories, "recent_full_turns": recent_full_turns,
-            "authoritative_state": state, "current_action": action,
+            "authoritative_state": prompt_state, "current_action": action,
             "output_contract_reminder": {"kind": contract_kind, "version": contract["version"],
                                          "schema": contract["schema"]},
         }
@@ -377,6 +480,7 @@ class ContentRegistry:
             "content_revision_id": frozen["revision_id"],
             "prompt_version": frozen["prompt_version"], "contract_kind": contract_kind,
             "contract_version": contract["version"],
+            "player_address_protocol_version": PLAYER_ADDRESS_PROTOCOL_VERSION,
             "state_version": state.get("state_version", 0),
             "documents": [{"document_id": item["document_id"], "category": item["category"],
                            "ordinal": item["ordinal"], "raw_sha256": item["raw_sha256"],

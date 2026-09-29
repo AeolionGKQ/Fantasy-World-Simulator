@@ -114,7 +114,7 @@ export const api = {
     request<AppSettings>("/api/settings/narration", {
       method: "PUT",
       body: { ...settings, expected_revision: expectedRevision, request_id: requestId },
-    }),
+    }).then(normalizeAppSettings),
 
   listSaves: async () => unwrapList(await request<SaveSummary[] | { items: SaveSummary[] }>("/api/saves")),
   getSave: (saveId: string, signal?: AbortSignal) =>
@@ -128,6 +128,11 @@ export const api = {
     request<SaveSummary>(`/api/saves/${encodeURIComponent(saveId)}`, {
       method: "PATCH",
       body: { name, expected_revision: expectedRevision, request_id: requestId },
+    }),
+  updateSavePreferences: (saveId: string, settings: import("./types").StoryNarrationSettings, expectedRevision: number, requestId: string, signal?: AbortSignal) =>
+    request<SaveSummary>(`/api/saves/${encodeURIComponent(saveId)}/preferences`, {
+      method: "PUT", signal,
+      body: { ...settings, expected_revision: expectedRevision, request_id: requestId },
     }),
   deleteSave: (saveId: string, expectedRevision: number, requestId: string) =>
     request<void>(`/api/saves/${encodeURIComponent(saveId)}`, {

@@ -253,10 +253,10 @@ export default function App() {
         <main id="main-content" tabIndex={-1}>
           <Routes>
             <Route path="/" element={<Home saves={saves} loading={loading} onNew={() => setModal("new")} />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings" element={<SettingsPage actions={actions} />} />
             <Route path="/saves/:saveId/create/:step" element={<CharacterWizard actions={actions} />} />
             <Route path="/saves/:saveId/review" element={<ReviewPage actions={actions} />} />
-            <Route path="/saves/:saveId/game" element={<GameWorkspace />} />
+            <Route path="/saves/:saveId/game" element={<GameWorkspace onSaveChanged={refreshSaves} />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
@@ -395,7 +395,7 @@ function ImportSaveModal({ onClose, onImported }: { onClose: () => void; onImpor
   return <Modal title="导入存档" onClose={onClose} labelledBy="import-save-title"><div className="import-flow"><label className="file-picker"><Icon name="upload" /><span><strong>{filename || "选择 JSON 存档"}</strong><small>支持最大 64 MB。导入会分配新的本地存档 ID，不覆盖现有存档。</small></span><input type="file" disabled={busy} accept="application/json,.json" onChange={(e) => void choose(e.target.files?.[0])} /></label>{busy && !preview && <p className="inline-status"><StatusDot state="busy" />正在校验文件…</p>}{preview && !pending && <div className={`import-preview ${preview.valid ? "success" : "error"}`}><strong>{preview.valid ? "文件可以导入" : "文件不兼容"}</strong><dl><div><dt>存档</dt><dd>{preview.save_name || "未命名"}</dd></div><div><dt>阶段</dt><dd>{preview.phase ? phaseLabel[preview.phase] : "未知"}</dd></div><div><dt>角色</dt><dd>{preview.character_name || "尚未确认"}</dd></div><div><dt>规则版本</dt><dd>{preview.ruleset_version || "未知"}</dd></div></dl>{preview.confirmation_required && <p className="warning-text">此存档包含本机尚未信任的内容版本，提交后需要单独确认。</p>}{preview.warnings?.map((warning) => <p className="warning-text" key={warning}>注意：{warning}</p>)}</div>}{pending && <div className="pending-import" role="region" aria-labelledby="pending-import-title"><h3 id="pending-import-title">确认导入内容版本</h3><p>存档携带本机尚未信任的规则与设定快照。哈希已由后端校验，仍需你明确确认后才能安装。</p><dl><div><dt>内容版本</dt><dd>{pending.revision_id}</dd></div><div><dt>提示版本</dt><dd>{pending.content_revision.prompt_version || "未标注"}</dd></div><div><dt>失效时间</dt><dd>{pending.expires_at}</dd></div></dl><ul>{pending.content_revision.documents.map((item) => <li key={item.document_id}><strong>{item.source_path}</strong><span>{item.byte_count.toLocaleString()} 字节</span><code title={item.raw_sha256}>{item.raw_sha256.slice(0, 12)}…</code></li>)}</ul><label className="trust-confirm"><input type="checkbox" checked={trusted} onChange={(event) => { trustIdentity.current = null; setTrusted(event.target.checked); }} /><span>我已核对内容版本和文档哈希摘要，并信任此快照。</span></label></div>}{error && <p className="field-error" role="alert">{error}</p>}<div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose}>取消</button>{pending ? <button className="primary-button" type="button" disabled={!trusted || busy} onClick={() => void trustAndImport()}>{busy ? "正在信任并导入…" : "信任版本并导入"}</button> : <button className="primary-button" type="button" disabled={!preview?.valid || busy} onClick={() => void submit()}>{busy && preview ? "正在导入…" : "确认导入"}</button>}</div></div></Modal>;
 }
 
-function SettingsPage() {
+function SettingsPage({ actions }: { actions: ShellActions }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [loading, setLoading] = useState(true);
@@ -525,6 +525,7 @@ function SettingsPage() {
     try {
       const updated = await api.updateNarration(settings.narration, settings.revision, crypto.randomUUID());
       setSettings((current) => current ? mergeSavedNarrationSettings(current, updated) : current);
+      await actions.refreshSaves();
       setNarrationState("saved");
       window.setTimeout(() => setNarrationState("idle"), 2200);
     } catch (reason) {
@@ -552,7 +553,7 @@ function SettingsPage() {
           <label className="field"><span>模型名称</span><input required disabled={!canMutateModel} placeholder="模型标识" value={settings.model.model} onChange={(e) => invalidateModelTest((model) => ({ ...model, model: e.target.value }))} /></label>
           <label className="field"><span>API Key</span><input type="password" disabled={!canMutateModel} autoComplete="new-password" placeholder={settings.model.api_key_configured ? "已配置，留空则保持不变" : "输入后仅发送一次"} value={apiKey} onChange={(e) => { setApiKey(e.target.value); invalidateModelTest((model) => model); }} aria-describedby="key-help" /><small id="key-help">读取设置时只显示配置状态，不回显任何密钥内容。</small></label>
           <label className="field"><span>请求超时（秒）</span><input type="number" min={5} max={600} required disabled={!canMutateModel} value={settings.model.timeout_seconds} onChange={(e) => setSettings({ ...settings, model: { ...settings.model, timeout_seconds: Number(e.target.value) } })} /></label>
-          <label className="field"><span>最大并发</span><input type="number" min={1} max={16} required disabled={!canMutateModel} value={settings.model.max_concurrency} onChange={(e) => setSettings({ ...settings, model: { ...settings.model, max_concurrency: Number(e.target.value) } })} /></label>
+          <label className="field"><span>最大并发</span><input type="number" min={1} max={16} required disabled={!canMutateModel} value={settings.model.max_concurrency} aria-describedby="max-concurrency-help" onChange={(e) => setSettings({ ...settings, model: { ...settings.model, max_concurrency: Number(e.target.value) } })} /><small id="max-concurrency-help">默认 2。保存后当前有效上限为 {settings.model.max_concurrency}；若供应商明确拒绝真实重叠请求，系统会等待其他请求结束，串行重试一次，并自动保存为 1。</small></label>
           <div className="switch-field full">
             <div><span id="structured-output-label">Response Format（结构化输出）</span><small id="structured-output-help" role="status" aria-live="polite">多数兼容服务可能不支持，默认关闭。开启时会发送一次极小测试请求，可能产生少量费用；关闭不会探测。当前状态：{testState === "probing" ? "正在探测" : capabilityLabel(settings.model.structured_output_capability)}。</small></div>
             <label className="switch"><input type="checkbox" aria-labelledby="structured-output-label" aria-describedby="structured-output-help" aria-busy={testState === "probing"} disabled={!canMutateModel || narrationState === "saving"} checked={settings.model.structured_output} onChange={(e) => { if (e.target.checked) void probeStructuredOutput(); else { testRequestToken.current += 1; setSettings((current) => resetStructuredOutputCapability(current, "结构化输出已关闭。")); setTestResult(null); setStructuredProbeFeedback(null); setTestState("idle"); } }} /><span aria-hidden="true" /></label>
@@ -568,11 +569,13 @@ function SettingsPage() {
         </form>
       </section>
       <section className="settings-section" aria-labelledby="narration-title">
-        <div className="settings-copy"><h2 id="narration-title">叙事默认值</h2><p>新建存档时复制这些偏好，已有存档不会被覆盖。</p></div>
+        <div className="settings-copy"><h2 id="narration-title">叙事设置</h2><p>保存后同步到全部存档；之后仍可在某个存档的“角色”页单独调整GM称呼。</p></div>
         <form className="settings-form narration" onSubmit={(event) => void saveNarration(event)}>
           <SegmentedField label="步进速度" value={settings.narration.pace} options={[{ value: "slow", label: "慢速" }, { value: "fast", label: "快速" }, { value: "dynamic", label: "动态" }]} disabled={narrationState === "saving"} onChange={(pace) => setSettings((current) => current ? { ...current, narration: { ...current.narration, pace } } : current)} />
           <SegmentedField label="叙事倾向" value={settings.narration.tendency} options={[{ value: "casual", label: "日常" }, { value: "balanced", label: "平衡" }, { value: "combat", label: "战斗" }]} disabled={narrationState === "saving"} onChange={(tendency) => setSettings((current) => current ? { ...current, narration: { ...current.narration, tendency } } : current)} />
           <SegmentedField label="内容详细度" value={settings.narration.detail} options={[{ value: "concise", label: "简洁" }, { value: "standard", label: "标准" }, { value: "detailed", label: "详细" }]} disabled={narrationState === "saving"} onChange={(detail) => setSettings((current) => current ? { ...current, narration: { ...current.narration, detail } } : current)} />
+          <SegmentedField label="GM对玩家角色的称呼" value={settings.narration.player_address} options={[{ value: "full_name", label: "全名" }, { value: "given_name", label: "名" }, { value: "second_person", label: "第二人称" }]} disabled={narrationState === "saving"} onChange={(player_address) => setSettings((current) => current ? { ...current, narration: { ...current.narration, player_address } } : current)} />
+          <p className="field-help full">只影响GM叙述者：全名如“菲亚·维洛拉”，名如“菲亚”，第二人称为“你”。NPC仍按关系与场合称呼：陌生或尊称用姓+先生/小姐，熟人用名，书面用全名。</p>
           <div className="form-actions full"><button className="primary-button" disabled={!canSubmitSettingRequest}>{narrationState === "saving" ? "正在保存…" : narrationState === "saved" ? "偏好已保存" : "保存叙事设置"}</button></div>
         </form>
       </section>
@@ -633,6 +636,21 @@ export function structuredOutputProbePayload(payload: Parameters<typeof api.test
 
 export function isCurrentModelTestResponse(current: AppSettings | null, requestedKey: string, requestToken: number, currentToken: number): boolean {
   return requestToken === currentToken && current !== null && modelCapabilityKey(current.model.base_url, current.model.model) === requestedKey;
+}
+
+export async function resolveCompletedGeneration(
+  next: GenerationJob,
+  loadCandidate: () => Promise<CharacterCandidate>,
+  loadSave: () => Promise<SaveSummary>,
+  publishJob: (job: GenerationJob) => void,
+): Promise<{ candidate: CharacterCandidate; save: SaveSummary } | null> {
+  if (next.status !== "succeeded") {
+    publishJob(next);
+    return null;
+  }
+  const [candidate, save] = await Promise.all([loadCandidate(), loadSave()]);
+  publishJob(next);
+  return { candidate, save };
 }
 
 export function resetStructuredOutputCapability(current: AppSettings | null, message?: string): AppSettings | null {
@@ -856,16 +874,17 @@ function CharacterWizard({ actions }: { actions: ShellActions }) {
       try {
         const next = await api.getGeneration(requestedId, jobId, controller.signal);
         if (requestedId !== loadedId.current || next.save_id !== requestedId || next.id !== jobId) return;
-        setJob(next);
-        if (next.status === "succeeded") {
-          const [completedCandidate, completedSave] = await Promise.all([
-            api.getCandidate(requestedId, controller.signal),
-            api.getSave(requestedId, controller.signal),
-          ]);
+        const completed = await resolveCompletedGeneration(
+          next,
+          () => api.getCandidate(requestedId, controller.signal),
+          () => api.getSave(requestedId, controller.signal),
+          setJob,
+        );
+        if (completed) {
           if (controller.signal.aborted || requestedId !== loadedId.current) return;
-          setCandidate(completedCandidate);
-          saveRef.current = completedSave;
-          setSave(completedSave);
+          setCandidate(completed.candidate);
+          saveRef.current = completed.save;
+          setSave(completed.save);
           await actions.refreshSaves();
         }
       } catch (reason) {
