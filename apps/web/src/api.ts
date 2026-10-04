@@ -103,12 +103,12 @@ export const api = {
     request<WorldCatalog>("/api/world/catalog", { signal }),
 
   getSettings: async () => normalizeAppSettings(await request<AppSettings>("/api/settings")),
-  updateModel: (settings: Pick<ModelSettings, "base_url" | "model" | "timeout_seconds" | "structured_output" | "thinking_enabled" | "max_concurrency"> & { api_key?: string; structured_output_probe_token?: string }, expectedRevision: number, requestId: string) =>
+  updateModel: (settings: Pick<ModelSettings, "base_url" | "model" | "timeout_seconds" | "structured_output" | "thinking_enabled" | "max_concurrency"> & { protocol?: ModelSettings["protocol"]; api_key?: string; structured_output_probe_token?: string }, expectedRevision: number, requestId: string) =>
     request<AppSettings>("/api/settings/model", {
       method: "PUT",
       body: { ...settings, expected_revision: expectedRevision, request_id: requestId },
     }).then(normalizeAppSettings),
-  testModel: (settings: Pick<ModelSettings, "base_url" | "model" | "timeout_seconds" | "structured_output" | "thinking_enabled" | "max_concurrency"> & { api_key?: string; force_thinking_probe?: boolean; probe_structured_output?: boolean }) =>
+  testModel: (settings: Pick<ModelSettings, "base_url" | "model" | "timeout_seconds" | "structured_output" | "thinking_enabled" | "max_concurrency"> & { protocol?: ModelSettings["protocol"]; api_key?: string; force_thinking_probe?: boolean; probe_structured_output?: boolean }) =>
     request<ModelTestResult>("/api/settings/model/test", { method: "POST", body: settings }),
   updateNarration: (settings: NarrationSettings, expectedRevision: number, requestId: string) =>
     request<AppSettings>("/api/settings/narration", {

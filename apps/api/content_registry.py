@@ -6,9 +6,15 @@ import re
 from pathlib import Path
 
 try:
+    from .canonical_npcs import canonical_npc_catalog
     from .contract_registry import contract_from_documents
+    from .location_graph import (LOCATION_GRAPH_VERSION, location_catalog,
+                                 location_graph_manifest)
 except ImportError:
+    from canonical_npcs import canonical_npc_catalog
     from contract_registry import contract_from_documents
+    from location_graph import (LOCATION_GRAPH_VERSION, location_catalog,
+                                location_graph_manifest)
 
 
 RULE_DOCUMENTS = (
@@ -151,12 +157,15 @@ def revision_identity(manifest):
         "documents": [(item["document_id"], item["raw_sha256"])
                       for item in manifest["documents"]],
         "quest_cards": [(item["id"], item["normal_context_card"], tuple(item["roots"]),
-                         item.get("rewards", {}))
-                        for item in manifest["quests"]],
+                          item.get("rewards", {}))
+                         for item in manifest["quests"]],
+        "location_graph": manifest.get("location_graph", []),
+        "location_graph_version": manifest.get("location_graph_version"),
+        "canonical_npcs": manifest.get("canonical_npcs", []),
     }, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    revision_id = "content-v1-" + _sha(digest_material)[:24]
-    prompt_version = "gm-prompt-v1-" + _sha(
-        (revision_id + ":gm-turn/1").encode("utf-8"))[:16]
+    revision_id = "content-v2-" + _sha(digest_material)[:24]
+    prompt_version = "gm-prompt-v2-" + _sha(
+        (revision_id + ":gm-turn/2").encode("utf-8"))[:16]
     return revision_id, prompt_version
 
 
@@ -217,7 +226,10 @@ class ContentRegistry:
         self.quests = self._parse_quests(quest_doc["text_content"])
         provisional = {"documents": self._documents, "quests": [
             {"id": item["id"], "normal_context_card": item["normal_context_card"],
-             "roots": list(item["roots"]), "rewards": item["rewards"]} for item in self.quests]}
+             "roots": list(item["roots"]), "rewards": item["rewards"]} for item in self.quests],
+             "location_graph_version": LOCATION_GRAPH_VERSION,
+             "canonical_npcs": canonical_npc_catalog(),
+             "location_graph": location_graph_manifest()}
         self.revision_id, self.prompt_version = revision_identity(provisional)
 
     def _read_sources(self):
@@ -271,6 +283,7 @@ class ContentRegistry:
         return {
             "revision_id": self.revision_id,
             "protocol_version": "content-container/1",
+            "location_graph_version": LOCATION_GRAPH_VERSION,
             "prompt_version": self.prompt_version,
             "documents": [{key: value for key, value in item.items()
                            if key not in {"raw_bytes", "text_content"}}
@@ -283,6 +296,8 @@ class ContentRegistry:
                                      "start_character": q["start_character"],
                                      "end_character": q["end_character"]}}
                        for q in self.quests],
+            "location_graph": location_graph_manifest(),
+            "canonical_npcs": canonical_npc_catalog(),
         }
 
     @property
@@ -395,6 +410,8 @@ class ContentRegistry:
                        location_nodes=None, documents=None, contract_kind="gm_turn",
                        revision_manifest=None):
         source_documents = list(documents or self._documents)
+        frozen_manifest = revision_manifest or self.manifest
+        graph_version = frozen_manifest.get("location_graph_version", LOCATION_GRAPH_VERSION)
         by_category = {}
         for item in source_documents:
             by_category.setdefault(item["category"], []).append(item)
@@ -415,6 +432,67 @@ class ContentRegistry:
         for item in by_category.get("protocol", [])[:2]:
             system_parts.append(self._protocol_container(item))
         if contract_kind == "gm_turn":
+            location_policy = {
+                "priority": "mandatory",
+                "version": graph_version,
+                "rules": [
+                    "GM可在正典未定义的部分自由创建城市、村庄、街区、建筑、遗迹、海域、岛屿与其他地点",
+                    "已有地点只能填入scene.location.location_id；location_ref只用于本响应new_locations中声明的location:new局部引用",
+                    "stay时location_id与location_ref都必须为null；move时必须且只能填写其中一个",
+                    "new_locations的parent必须且只能使用parent_id或parent_ref；parent_ref只能引用本数组中更早声明的新地点",
+                    "scope=region可创建新的地理区域；scope=place表示可实际进入的地点，place必须拥有父级",
+                    "新城市应挂在地理region而不是另一座城市下；南海自由联邦沿海新城可挂region.southern_coast，深海城市可挂region.southern_ocean",
+                    "region_id由程序计算，不得输出；jurisdiction_id必须输出，父节点辖区适用时填相同固定键，否则可为新地点声明固定辖区键或null",
+                    "同属地区或政治辖区不等于地区任务触发地点，地区任务仍只按指定地点的真实父子链匹配",
+                ],
+            }
+            encoded_location_policy = json.dumps(
+                location_policy, ensure_ascii=True, separators=(",", ":")
+            ).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+            system_parts.append(
+                "\n<RUNTIME_LOCATION_GRAPH_POLICY_JSON>\n" +
+                encoded_location_policy +
+                "\n</RUNTIME_LOCATION_GRAPH_POLICY_JSON>\n"
+            )
+            adjudication_policy = {
+                "priority": "mandatory",
+                "rules": [
+                    "玩家可尝试任何行为；客观条件不足时叙述合理失败并继续故事，不要省略尝试本身",
+                    "所有非零状态提案必须用evidence逐字引用正文；正文可以使用自然沉浸式措辞，不必迎合机制关键词",
+                    "重塑只以reshape_guidance作为本次新授权，original_action仅是要被改写的历史上下文",
+                    "普通任务可按世界进展创建为untriggered、eligible或offered；只有玩家本次输入明确接受且action_evidence逐字引用该输入时才能active",
+                    "NPC死亡不等于玩家死亡；scene.player_life_state只描述玩家本人且必须与HP结果一致",
+                    "普通行为只能产生minor或moderate关系影响；major、life_defining或world_shaping必须由正文中的重大长期事件支撑",
+                    "既有正典人物必须使用canonical_npc_catalog稳定ID，不得伪造canon.npc前缀",
+                    "authoritative_state.npcs中的既有动态NPC必须复用其稳定npc_id；scene.new_npcs只声明本响应首次创建的非正典NPC，不得重复创建既有人物",
+                ],
+            }
+            encoded_adjudication_policy = json.dumps(
+                adjudication_policy, ensure_ascii=True, separators=(",", ":")
+            ).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+            system_parts.append(
+                "\n<RUNTIME_ADJUDICATION_POLICY_JSON>\n" + encoded_adjudication_policy +
+                "\n</RUNTIME_ADJUDICATION_POLICY_JSON>\n")
+            memory_policy = {
+                "priority": "mandatory",
+                "rules": [
+                    "长期记忆只保存确有跨回合价值的关键信息、线索、承诺、人物关系变化或事件结果，语言必须精炼",
+                    "不要记录普通动作、场景装饰、重复信息、短期状态或可直接从权威状态读取的内容",
+                    "普通询问若没有得到具体且后续仍有用的新线索，memory_candidates必须返回空数组；不要为了填字段强行创建记忆",
+                    "memory evidence用于简要说明本回合记忆来源，可引用正文、概括正文信息，或引用玩家本次明确要求记住的内容；不要求逐字复制",
+                    "当一条已召回记忆已经使用完、事项已解决、信息过期、失效、被证伪或被新结论替代，使用resolve或supersede删除",
+                    "resolve或supersede时在memory_id填写本次long_term_memories中目标memory_number的十进制字符串，不得使用内部UUID",
+                    "只能删除本次long_term_memories实际出现的编号，不得猜测未召回记忆；删除后编号由程序自动连续重排",
+                ],
+            }
+            encoded_memory_policy = json.dumps(
+                memory_policy, ensure_ascii=True, separators=(",", ":")
+            ).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+            system_parts.append(
+                "\n<RUNTIME_LONG_TERM_MEMORY_POLICY_JSON>\n" +
+                encoded_memory_policy +
+                "\n</RUNTIME_LONG_TERM_MEMORY_POLICY_JSON>\n"
+            )
             regional_policy = {
                 "priority": "mandatory",
                 "current_location_id": state.get("location", {}).get("id"),
@@ -466,21 +544,37 @@ class ContentRegistry:
                             contract["version"] + "\">\n" + contract["text"] + "\nJSON Schema:\n" +
                             json.dumps(contract["schema"], ensure_ascii=False, separators=(",", ":")) +
                             "\n</OUTPUT_CONTRACT>\n")
+        frozen_locations = ({item["id"]: item for item in (revision_manifest or {}).get(
+            "location_graph", [])} if revision_manifest else None)
+        catalog_nodes = dict(location_nodes or {})
+        if frozen_locations:
+            catalog_nodes.update({key: {**value, "location_type": value.get("type")}
+                                  for key, value in frozen_locations.items()})
+        for location_id, status in state.get("location_statuses", {}).items():
+            if location_id in catalog_nodes:
+                catalog_nodes[location_id] = {**catalog_nodes[location_id], **status}
         dynamic = {
             "active_narration": state.get("narration", {}), "regional_quests": quest_context,
             "player_address_directive": address_directive,
             "story_arcs": arcs, "early_summaries": early_summaries,
-            "long_term_memories": memories, "recent_full_turns": recent_full_turns,
+            "long_term_memories": [{key: memory.get(key) for key in (
+                "memory_number", "kind", "summary", "importance", "people", "locations",
+                "keywords", "facts", "unresolved", "recall_reason")}
+                                     for memory in memories],
+            "recent_full_turns": recent_full_turns,
+            "canonical_npc_catalog": frozen_manifest.get("canonical_npcs", []),
+            "location_catalog": location_catalog(catalog_nodes),
             "authoritative_state": prompt_state, "current_action": action,
             "output_contract_reminder": {"kind": contract_kind, "version": contract["version"],
                                          "schema": contract["schema"]},
         }
-        frozen = revision_manifest or self.manifest
+        frozen = frozen_manifest
         manifest = {
             "content_revision_id": frozen["revision_id"],
             "prompt_version": frozen["prompt_version"], "contract_kind": contract_kind,
             "contract_version": contract["version"],
             "player_address_protocol_version": PLAYER_ADDRESS_PROTOCOL_VERSION,
+            "location_graph_version": graph_version,
             "state_version": state.get("state_version", 0),
             "documents": [{"document_id": item["document_id"], "category": item["category"],
                            "ordinal": item["ordinal"], "raw_sha256": item["raw_sha256"],
@@ -494,6 +588,7 @@ class ContentRegistry:
             "recent_full_sequences": [item.get("sequence") for item in recent_full_turns],
             "story_arc_ids": [item.get("id") for item in arcs],
             "memory_ids": [item.get("id") for item in memories],
+            "memory_numbers": [item.get("memory_number") for item in memories],
         }
         return ([{"role": "system", "content": "".join(system_parts)},
                  {"role": "user", "content": json.dumps(dynamic, ensure_ascii=False,

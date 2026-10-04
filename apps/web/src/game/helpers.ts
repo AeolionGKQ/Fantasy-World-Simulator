@@ -89,15 +89,35 @@ export function orderReputations(items: Reputation[], localKey: ReputationKey | 
     .map((item) => ({ ...item, local: item.key === localKey }));
 }
 
-const changeNames: Record<string, string> = {
-  location: "地点", time: "时间", resource: "资源", attribute: "属性", experience: "经验",
-  rank: "阶位", item: "物品", currency: "货币", quest: "任务", bond: "羁绊",
-  reputation: "声望", skill: "技能", talent: "天赋", world_flag: "世界状态",
-};
 const keyNames: Record<string, string> = {
   hp: "生命", mp: "魔力", sp: "精神", st: "精力", con: "体质", int: "智力", cha: "魅力",
-  exp: "EXP", rank: "阶位", current_location_id: "当前地点", time_label: "当前时间", copper: "铜币",
+  exp: "经验", rank: "阶位", copper: "铜币", effective_power: "战力",
 };
+const visibleChangeKinds = new Set([
+  "resource", "attribute", "experience", "rank", "item", "currency", "quest",
+  "bond", "reputation", "skill", "talent", "power", "condition",
+]);
+const valueNames: Record<string, string> = {
+  untriggered: "未触发", eligible: "可触发", offered: "已提供", active: "进行中",
+  completed: "已完成", declined: "已拒绝", failed: "失败", abandoned: "已放弃",
+  add: "获得", remove: "移除", update: "更新", equip: "装备", unequip: "卸下",
+};
+const internalReferencePatterns = [
+  /(?:npc|item|quest|bond|skill|talent|dynamic|location|canon|regional_main|world_flag)[.:][0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi,
+  /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi,
+  /(?:npc|item|quest|bond|skill|talent|dynamic|location|canon|regional_main|world_flag)[.:][a-z0-9_.:-]+/gi,
+  /\b[a-z][a-z0-9_-]*\.[a-z0-9_.:-]*\d[a-z0-9_.:-]*\b/gi,
+];
+
+function cleanDisplayText(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  let result = value;
+  for (const pattern of internalReferencePatterns) result = result.replace(pattern, "");
+  result = result.replace(/\s{2,}/g, " ").replace(/\s+([，。；：、])/g, "$1")
+    .replace(/^(与|和|向|从|由)\s+(?=\S)/, "")
+    .replace(/^\s*[·:：,，;；-]+\s*|\s*[·:：,，;；-]+\s*$/g, "").trim();
+  return result || fallback;
+}
 
 function printable(value: unknown): string {
   if (value === null || value === undefined) return "无";
@@ -107,14 +127,67 @@ function printable(value: unknown): string {
     if (typeof item.name === "string") return `${item.name}${typeof item.quantity === "number" ? ` × ${item.quantity}` : ""}`;
     return "已更新";
   }
+  if (typeof value === "string") return valueNames[value] ?? "已更新";
   return String(value);
 }
 
 export function formatChange(change: AuthoritativeChange): { label: string; value: string; reason: string } {
-  const label = `${changeNames[change.kind] ?? change.kind} · ${keyNames[change.key] ?? reputationNames[change.key as ReputationKey] ?? change.key}`;
-  const oldValue = change.old_level ?? printable(change.old);
-  const newValue = change.new_level ?? printable(change.new);
-  return { label, value: `${oldValue} → ${newValue}`, reason: change.reason };
+  const label = (() => {
+    if (change.kind === "item" && change.key.endsWith(".equipped")) {
+      const name = cleanDisplayText(change.display_name, "物品");
+      return `${name}装备状态`;
+    }
+    if (change.display_name) {
+      const name = cleanDisplayText(change.display_name, "");
+      if (name && change.kind === "bond") return `${name}好感度`;
+      if (name) return name;
+    }
+    if (change.kind === "reputation") {
+      const name = reputationNames[change.key as ReputationKey];
+      return name ? `${name}声望` : "声望";
+    }
+    if (change.kind === "bond") return "羁绊好感度";
+    if (change.kind === "item") return change.key.endsWith(".equipped") ? "装备状态" : "物品";
+    if (change.kind === "quest") return "任务状态";
+    if (change.kind === "skill") return "技能";
+    if (change.kind === "talent") return "天赋";
+    if (change.kind === "condition") return "持续状态";
+    return keyNames[change.key] ?? "数值";
+  })();
+  const oldLevel = cleanDisplayText(change.old_level, "");
+  const newLevel = cleanDisplayText(change.new_level, "");
+  let oldValue = oldLevel
+    ? `${oldLevel}${typeof change.old === "number" ? ` ${change.old}` : ""}`
+    : printable(change.old);
+  let newValue = newLevel
+    ? `${newLevel}${typeof change.new === "number" ? ` ${change.new}` : ""}`
+    : printable(change.new);
+  if (change.kind === "item" && change.key.endsWith(".equipped")) {
+    oldValue = change.old === true ? "已装备" : "未装备";
+    newValue = change.new === true ? "已装备" : "未装备";
+  }
+  if (change.kind === "quest" && change.force_display && oldValue === newValue) {
+    return {
+      label: cleanDisplayText(label, "任务进度"),
+      value: "进度已更新",
+      reason: cleanDisplayText(change.reason, "任务进度已更新"),
+    };
+  }
+  return {
+    label: cleanDisplayText(label, "状态"),
+    value: cleanDisplayText(`${oldValue} → ${newValue}`, "已更新"),
+    reason: cleanDisplayText(change.reason, "状态已更新"),
+  };
+}
+
+export function visibleAuthoritativeChanges(changes: AuthoritativeChange[]) {
+  return changes.filter((change) => visibleChangeKinds.has(change.kind))
+    .map((source) => ({ source, formatted: formatChange(source) }))
+    .filter(({ source, formatted }) => {
+      if (source.force_display) return true;
+      const [oldValue, newValue] = formatted.value.split(" → ");
+      return oldValue === undefined || newValue === undefined || oldValue !== newValue;
+    }).map(({ formatted }) => formatted);
 }
 
 export function isLatestTurn(turn: Turn | null, latestTurnId: string | null): boolean {

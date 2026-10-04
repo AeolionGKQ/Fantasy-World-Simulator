@@ -296,6 +296,42 @@ SET state_json=json_set(
 )
 WHERE EXISTS (SELECT 1 FROM saves WHERE saves.id=story_states.save_id);
 """),
+    (8, """
+DELETE FROM memories WHERE status<>'active';
+"""),
+    (9, """
+DELETE FROM story_arc_parent_sources;
+DELETE FROM mutation_requests;
+DELETE FROM pending_imports;
+DELETE FROM confirmation_requests;
+DELETE FROM narrative_jobs;
+DELETE FROM turns;
+DROP TABLE IF EXISTS location_nodes;
+CREATE TABLE location_nodes (
+    save_id TEXT NOT NULL REFERENCES saves(id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    location_type TEXT NOT NULL,
+    scope TEXT NOT NULL CHECK(scope IN ('world','region','place')),
+    parent_id TEXT,
+    region_id TEXT NOT NULL,
+    jurisdiction_id TEXT,
+    description TEXT NOT NULL,
+    canonical INTEGER NOT NULL,
+    created_turn_version_id TEXT,
+    PRIMARY KEY(save_id, id)
+);
+DELETE FROM story_states;
+DELETE FROM characters;
+DELETE FROM candidates;
+DELETE FROM generation_jobs;
+UPDATE saves SET phase='draft', revision=revision+1, updated_at=CURRENT_TIMESTAMP;
+UPDATE drafts SET current_step=1, revision=revision+1, updated_at=CURRENT_TIMESTAMP;
+"""),
+    (10, """
+ALTER TABLE turn_versions ADD COLUMN action_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE turn_versions ADD COLUMN generated_ids_json TEXT NOT NULL DEFAULT '[]';
+"""),
 )
 
 

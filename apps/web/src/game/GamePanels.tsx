@@ -1,9 +1,9 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import type {
   Bond, CharacterState, InventoryProjection, JournalEntry, MemoryProjection, NarrativeJob,
   Quest, ReputationProjection, StartPrerequisite, StartPrerequisiteResolution, StoryArc, StoryView, Turn, WorldCatalog,
 } from "../types";
-import { currentArcMerge, formatChange, isNarrativeJobActive, isStoryReadOnly, narrativeJobMessage, orderReputations, reputationNames, resourceCondition, resourceExhaustion } from "./helpers";
+import { currentArcMerge, isNarrativeJobActive, isStoryReadOnly, narrativeJobMessage, orderReputations, reputationNames, resourceCondition, resourceExhaustion, visibleAuthoritativeChanges } from "./helpers";
 
 export type GameTab = "story" | "character" | "inventory" | "quests" | "journals" | "memory" | "bonds" | "reputations";
 
@@ -31,7 +31,12 @@ export function StoryPanel({ story, turns, viewedTurn, busy, catalog, onNavigate
   const [mode, setMode] = useState<"action" | "intervene" | "reshape">("action");
   const turn = viewedTurn ?? story.latest_turn;
   const turnIndex = turn ? turns.findIndex((item) => item.id === turn.id) : -1;
+  const displayedChanges = turn ? visibleAuthoritativeChanges(turn.authoritative_changes) : [];
   const readOnly = turn ? isStoryReadOnly(turn, story.latest_turn?.id ?? null, story.active_job) : busy;
+  useEffect(() => {
+    setAction("");
+    setGuidance("");
+  }, [story.latest_turn?.id]);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const value = mode === "action" ? action.trim() : guidance.trim();
@@ -47,7 +52,7 @@ export function StoryPanel({ story, turns, viewedTurn, busy, catalog, onNavigate
       <header className="story-heading"><div className="scene-meta"><span>{story.state.time.label}</span><span>{story.state.location.name}</span><span>节点 {turn.sequence}</span>{readOnly && !isNarrativeJobActive(story.active_job) && <strong>历史只读</strong>}</div><h2>{turn.title}</h2></header>
       <div className="story-body">{turn.body.split(/\n+/).filter(Boolean).map((paragraph, index) => <p key={`${turn.id}-${index}`}>{paragraph}</p>)}</div>
       {turn.warnings && turn.warnings.length > 0 && <section className="gm-warnings" aria-label="叙事提示"><h3>GM 提示</h3>{turn.warnings.map((warning) => <p key={warning}>{warning}</p>)}</section>}
-      {turn.authoritative_changes.length > 0 && <details className="changes" open><summary>权威状态变化 · {turn.authoritative_changes.length}</summary><ul>{turn.authoritative_changes.map((change, index) => { const formatted = formatChange(change); return <li key={`${change.kind}-${change.key}-${index}`}><strong>{formatted.label}</strong><span>{formatted.value}</span><small>{formatted.reason}</small></li>; })}</ul></details>}
+      {displayedChanges.length > 0 && <details className="changes" open><summary>权威状态变化 · {displayedChanges.length}</summary><ul>{displayedChanges.map((change, index) => <li key={`${change.label}-${index}`}><strong>{change.label}</strong><span>{change.value}</span><small>{change.reason}</small></li>)}</ul></details>}
       <nav className="history-nav" aria-label="剧情历史"><button className="secondary-button" type="button" disabled={turnIndex <= 0} onClick={() => { const previous = turns[turnIndex - 1]; if (previous) onNavigate(previous); }}>上一节点</button><span>{turnIndex + 1} / {turns.length}</span><button className="secondary-button" type="button" disabled={turnIndex < 0 || turnIndex >= turns.length - 1} onClick={() => { const next = turns[turnIndex + 1]; if (next) onNavigate(next); }}>下一节点</button></nav>
     </article>
     <aside className="story-actions" aria-label="剧情操作">
@@ -112,7 +117,7 @@ export function JournalsPanel({ items, onRead }: { items: JournalEntry[]; onRead
 export function MemoryPanel({ memory, memories, arcBusy, arcJob, onMerge }: { memory: MemoryProjection; memories: import("../types").MemoryEntry[]; arcBusy: boolean; arcJob: NarrativeJob | null; onMerge: (ids: string[]) => void }) {
   const currentArcs = memory.story_arcs.filter((arc) => arc.status === "current").sort((a, b) => a.start_sequence - b.start_sequence);
   const merge = currentArcMerge(currentArcs);
-  return <div className="projection-page"><header className="projection-header"><div><h2>记忆管理</h2><p>原始历史始终保留，压缩只改变模型上下文的组织方式。</p></div><div className="arc-merge-action"><button className="secondary-button" type="button" disabled={arcBusy || !merge.valid} onClick={() => onMerge(merge.arcIds)}>{arcBusy ? "正在合并故事弧…" : merge.label}</button><small>{merge.message}</small></div></header>{arcJob && isNarrativeJobActive(arcJob) && <JobPanel job={arcJob} onCancel={() => undefined} cancellable={false} />}<div className="memory-policy"><span>近期全文 {memory.recent_full_turns.length} / {memory.policy.recent_full_count}</span><span>摘要缓冲 {memory.summary_buffer.length}</span><span>故事弧 {currentArcs.length}</span></div><section className="plain-section"><div className="section-line"><h3>故事弧</h3></div>{memory.story_arcs.length ? <ul className="arc-list">{memory.story_arcs.map((arc) => <ArcRow key={arc.id} arc={arc} />)}</ul> : <p className="muted-copy">积累连续 25 个可压缩节点后可生成故事弧。</p>}</section><section className="plain-section"><h3>长期记忆</h3>{memories.length ? <ul className="memory-list">{memories.map((item) => <li key={item.id}><div><strong>{item.summary}</strong><span>{item.kind} · 重要度 {item.importance} · {item.status}</span></div>{item.recall_reason && <p className="recall-reason">本回合召回：{item.recall_reason}</p>}{item.facts.length > 0 && <p>{item.facts.join("；")}</p>}{item.unresolved.length > 0 && <small>未决：{item.unresolved.join("；")}</small>}</li>)}</ul> : <p className="muted-copy">叙事中没有需要长期保留的记忆。</p>}</section></div>;
+  return <div className="projection-page"><header className="projection-header"><div><h2>记忆管理</h2><p>原始历史始终保留，压缩只改变模型上下文的组织方式。</p></div><div className="arc-merge-action"><button className="secondary-button" type="button" disabled={arcBusy || !merge.valid} onClick={() => onMerge(merge.arcIds)}>{arcBusy ? "正在合并故事弧…" : merge.label}</button><small>{merge.message}</small></div></header>{arcJob && isNarrativeJobActive(arcJob) && <JobPanel job={arcJob} onCancel={() => undefined} cancellable={false} />}<div className="memory-policy"><span>近期全文 {memory.recent_full_turns.length} / {memory.policy.recent_full_count}</span><span>摘要缓冲 {memory.summary_buffer.length}</span><span>故事弧 {currentArcs.length}</span></div><section className="plain-section"><div className="section-line"><h3>故事弧</h3></div>{memory.story_arcs.length ? <ul className="arc-list">{memory.story_arcs.map((arc) => <ArcRow key={arc.id} arc={arc} />)}</ul> : <p className="muted-copy">积累连续 25 个可压缩节点后可生成故事弧。</p>}</section><section className="plain-section"><h3>长期记忆</h3>{memories.length ? <ol className="memory-list">{memories.map((item) => <li key={item.id}><span className="memory-number" aria-label={`长期记忆 ${item.memory_number}`}>{item.memory_number}</span><div><strong>{item.summary}</strong><span>{item.kind} · 重要度 {item.importance}</span></div>{item.recall_reason && <p className="recall-reason">本回合召回：{item.recall_reason}</p>}{item.facts.length > 0 && <p>{item.facts.join("；")}</p>}{item.unresolved.length > 0 && <small>未决：{item.unresolved.join("；")}</small>}</li>)}</ol> : <p className="muted-copy">当前没有需要长期保留的记忆。</p>}</section></div>;
 }
 
 function ArcRow({ arc }: { arc: StoryArc }) { return <li><div className="record-heading"><strong>{arc.title}</strong><span>第 {arc.start_sequence} 至 {arc.end_sequence} 节 · L{arc.level} · {arc.status === "current" ? "当前" : "已取代"}</span></div><p>{arc.summary}</p>{arc.key_events.length > 0 && <small>关键事件：{arc.key_events.join("；")}</small>}{arc.unresolved.length > 0 && <small>未决：{arc.unresolved.join("；")}</small>}</li>; }

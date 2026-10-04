@@ -22,7 +22,7 @@ try:
     from .content_registry import ContentRegistry
     from .contract_registry import contract_from_documents
     from .database import Database, DomainError, SecretStore
-    from .model_provider import (OpenAICompatibleProvider, ProviderError,
+    from .model_provider import (ModelProvider, ProviderError,
                                  is_explicit_concurrency_rejection, validate_candidate)
     from .narrative_contract import ContractError, validate_gm_response, validate_story_arc
     from .story_repository import StoryRepository
@@ -34,7 +34,7 @@ except ImportError:  # Direct execution with the isolated embedded runtime.
     from content_registry import ContentRegistry
     from contract_registry import contract_from_documents
     from database import Database, DomainError, SecretStore
-    from model_provider import (OpenAICompatibleProvider, ProviderError,
+    from model_provider import (ModelProvider, ProviderError,
                                 is_explicit_concurrency_rejection, validate_candidate)
     from narrative_contract import ContractError, validate_gm_response, validate_story_arc
     from story_repository import StoryRepository
@@ -113,8 +113,10 @@ def candidate_to_view(candidate, draft, confirmed_at=None):
                       "modifiers": data.get("power_modifiers", [])},
             "exp": data["exp"], "next_exp": data.get("exp_to_next"),
             "summary": data.get("summary"), "strengths": data.get("strengths", []),
-            "limitations": data.get("limitations", []), "warnings": data.get("warnings", []),
+            "limitations": data.get("limitations", []),
             "valid": True}
+    if isinstance(data.get("starting_currency"), dict):
+        view["starting_currency"] = data["starting_currency"]
     if confirmed_at is not None:
         view["confirmed_at"] = confirmed_at
     return view
@@ -132,7 +134,12 @@ def bootstrap_to_view(bootstrap):
                           "power_modifiers": data.get("power_modifiers", []),
                           "exp": data["exp"], "exp_to_next": data.get("exp_to_next"),
                           "summary": data.get("summary"), "strengths": data.get("strengths", []),
-                          "limitations": data.get("limitations", []), "warnings": data.get("warnings", [])}}
+                          "limitations": data.get("limitations", [])}}
+    if "initial_currency_copper" in data and "starting_currency_reason" in data:
+        candidate["data"]["starting_currency"] = {
+            "copper": data["initial_currency_copper"],
+            "reason": data["starting_currency_reason"],
+        }
     character = candidate_to_view(candidate, data["identity"], stored["confirmed_at"])
     location = _named_item(LOCATIONS, data["current_location_id"])
     return {"save_id": save["id"], "save_revision": save["revision"],
@@ -176,7 +183,7 @@ class AppContext:
         self.story = StoryRepository(self.database, self.content_registry)
         self.secrets = SecretStore(os.path.join(data_dir, "secrets.dat"))
         self.static_dir = os.path.abspath(static_dir)
-        self.provider = provider or OpenAICompatibleProvider()
+        self.provider = provider or ModelProvider()
         self._worker_lock = threading.Lock()
         self._workers = set()
         self._provider_condition = threading.Condition()
@@ -188,9 +195,10 @@ class AppContext:
 
     @staticmethod
     def _response_format_probe_identity(config):
+        protocol = str(config.get("protocol", "openai"))
         endpoint = str(config.get("base_url", "")).strip().rstrip("/")
         model = str(config.get("model", "")).strip()
-        return endpoint, model
+        return protocol, endpoint, model
 
     @staticmethod
     def _api_key_digest(api_key):
@@ -199,8 +207,9 @@ class AppContext:
     def create_response_format_probe(self, config, api_key, capability):
         token = secrets.token_urlsafe(32)
         now = time.monotonic()
-        endpoint, model = self._response_format_probe_identity(config)
+        protocol, endpoint, model = self._response_format_probe_identity(config)
         proof = {
+            "protocol": protocol,
             "endpoint": endpoint,
             "model": model,
             "api_key_digest": self._api_key_digest(api_key),
@@ -219,7 +228,7 @@ class AppContext:
         if not isinstance(token, str) or not token:
             return False
         now = time.monotonic()
-        endpoint, model = self._response_format_probe_identity(config)
+        protocol, endpoint, model = self._response_format_probe_identity(config)
         digest = self._api_key_digest(api_key)
         with self._response_format_probe_lock:
             proof = self._response_format_probe_proofs.get(token)
@@ -229,6 +238,7 @@ class AppContext:
                 self._response_format_probe_proofs.pop(token, None)
                 return False
             return (proof["capability"] == "supported" and
+                    proof["protocol"] == protocol and
                     proof["endpoint"] == endpoint and proof["model"] == model and
                     hmac.compare_digest(proof["api_key_digest"], digest))
 
@@ -236,7 +246,7 @@ class AppContext:
         current = self.database.get_model_config()
         candidate = dict(current)
         candidate.update({key: body[key] for key in (
-            "base_url", "model", "timeout_seconds", "structured_output", "max_concurrency"
+            "protocol", "base_url", "model", "timeout_seconds", "structured_output", "max_concurrency"
         ) if key in body})
         if not candidate.get("structured_output", False):
             return
@@ -279,7 +289,8 @@ class AppContext:
 
     @staticmethod
     def _provider_identity(config):
-        return (str(config.get("base_url", "")).strip().rstrip("/"),
+        return (str(config.get("protocol", "openai")),
+                str(config.get("base_url", "")).strip().rstrip("/"),
                 str(config.get("model", "")).strip())
 
     @staticmethod
@@ -359,10 +370,10 @@ class AppContext:
                 failed_config_revision = int(config.get("_settings_revision", -1))
                 self._downgrade_provider_and_exit(ticket)
                 released = True
-                endpoint, model = ticket["identity"]
+                protocol, endpoint, model = ticket["identity"]
                 try:
                     revision = self.database.downgrade_max_concurrency(
-                        endpoint, model, failed_config_revision)
+                        protocol, endpoint, model, failed_config_revision)
                     if revision is not None:
                         with self._provider_condition:
                             self._apply_persisted_downgrade_locked(
@@ -373,7 +384,9 @@ class AppContext:
                 try:
                     try:
                         return frozen_call()
-                    except ProviderError:
+                    except ProviderError as retry_error:
+                        if retry_error.code == "MODEL_OUTPUT_FORMAT":
+                            raise
                         raise original_error from None
                 finally:
                     with self._provider_condition:
@@ -394,7 +407,7 @@ class AppContext:
             config = self.database.get_model_config()
             api_key = self.secrets.get_api_key()
             def generate():
-                if self.database.get_job(save_id, job_id)["status"] != "cancel_requested":
+                if self.database.get_job(save_id, job_id)["status"] == "running":
                     return self.provider.generate_character(
                         config, api_key, claimed["draft"], claimed["feedback"],
                         lambda result: self.database.set_model_capability(config, result)
@@ -444,30 +457,62 @@ class AppContext:
             claimed["provider_model"] = config["model"]
             self.story.set_context_manifest(job_id, manifest)
             api_key = self.secrets.get_api_key()
-            def generate():
-                if self.story.get_job(save_id, job_id)["status"] == "cancel_requested":
+            def generate(request_messages):
+                if self.story.get_job(save_id, job_id)["status"] != "running":
                     return None
                 if job_type in {"turns_to_arc", "arcs_to_arc"}:
                     return self.provider.generate_story_arc(
-                        request_config, api_key, messages,
+                        request_config, api_key, request_messages,
                         lambda result: self.database.set_model_capability(config, result))
                 return self.provider.generate_narrative(
-                    request_config, api_key, messages,
+                    request_config, api_key, request_messages,
                     lambda result: self.database.set_model_capability(config, result))
-            proposal = self._call_provider_with_concurrency_fallback(config, generate)
-            if proposal is None:
-                self.story.fail(save_id, job_id, "GENERATION_CANCELLED", "生成已取消")
-            elif job_type in {"turns_to_arc", "arcs_to_arc"}:
-                self.story.complete_arc(claimed, validate_story_arc(proposal, contract))
-            else:
-                outcome = self.story.complete_turn(
-                    claimed, validate_gm_response(proposal, job_type, contract))
-                if outcome == "succeeded":
-                    arc_job, created = self.story.create_arc_job(save_id, {}, automatic=True)
-                    if created:
-                        self.schedule_narrative(save_id, arc_job["id"])
+            first_error = None
+            for attempt in range(2):
+                request_messages = list(messages)
+                if first_error is not None:
+                    request_messages.append({"role": "system", "content": (
+                        "上一份回复未通过程序校验。不要讨论错误，不要添加解释或代码围栏；请重新返回一个完整JSON对象。\n"
+                        "校验失败位置：" + first_error)})
+                try:
+                    proposal = self._call_provider_with_concurrency_fallback(
+                        config, lambda: generate(request_messages))
+                    if proposal is None:
+                        self.story.fail(save_id, job_id, "GENERATION_CANCELLED", "生成已取消")
+                        return
+                    if job_type in {"turns_to_arc", "arcs_to_arc"}:
+                        self.story.complete_arc(claimed, validate_story_arc(proposal, contract))
+                        return
+                    outcome = self.story.complete_turn(
+                        claimed, validate_gm_response(proposal, job_type, contract))
+                    if outcome == "succeeded":
+                        arc_job, created = self.story.create_arc_job(save_id, {}, automatic=True)
+                        if created:
+                            self.schedule_narrative(save_id, arc_job["id"])
+                    return
+                except ProviderError as exc:
+                    if exc.code != "MODEL_OUTPUT_FORMAT":
+                        raise
+                    detail = "JSON解析：" + exc.message
+                except (ContractError, ValueError) as exc:
+                    detail = "回复契约或权威规则：" + str(exc)
+                if attempt == 0:
+                    first_error = detail[:1600]
+                    continue
+                raise ContractError(
+                    "自动修正重试后回复仍不合法。第一次错误：" + first_error +
+                    "；第二次错误：" + detail[:1600])
         except ProviderError as exc:
-            self.story.fail(save_id, job_id, exc.code, exc.message, exc.retryable)
+            if exc.code == "MODEL_TIMEOUT":
+                if claimed and claimed["job"]["type"] in {"turns_to_arc", "arcs_to_arc"}:
+                    message = ("故事弧整理请求已超时，系统不会自动重试。故事弧任务固定开启模型思考；"
+                               "你可以在设置中提高请求超时时长，或更换响应更快的模型后重试。")
+                else:
+                    message = ("剧情生成请求已超时，系统不会自动重试。你可以在设置中提高请求超时时长，"
+                               "或关闭模型思考后重新提交。")
+            else:
+                message = exc.message
+            self.story.fail(save_id, job_id, exc.code, message, exc.retryable)
         except ContractError as exc:
             self.story.fail(save_id, job_id, "MODEL_OUTPUT_FORMAT", str(exc), False)
         except Exception:
@@ -583,7 +628,7 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
                                         self.app.secrets.persistence), {"X-Revision": str(revision)}
         if method == "POST" and path == "/api/settings/model/test":
             body = self._read_json(optional=True)
-            allowed = {"base_url", "model", "timeout_seconds", "structured_output",
+            allowed = {"protocol", "base_url", "model", "timeout_seconds", "structured_output",
                        "max_concurrency", "thinking_enabled", "api_key",
                        "force_thinking_probe", "probe_structured_output",
                        "force_response_format_probe"}
@@ -603,6 +648,25 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
             if "structured_output" in body and type(body["structured_output"]) is not bool:
                 raise DomainError("INVALID_INPUT", "structured_output必须是布尔值", 400,
                                   fields={"structured_output": "必须是布尔值"})
+            protocol = body.get("protocol", config.get("protocol", "openai"))
+            if not isinstance(protocol, str) or protocol not in {"openai", "anthropic"}:
+                raise DomainError("INVALID_INPUT", "protocol必须是openai或anthropic", 400,
+                                  fields={"protocol": "必须是openai或anthropic"})
+            for field in ("base_url", "model"):
+                if field in body and not isinstance(body[field], str):
+                    raise DomainError("INVALID_INPUT", f"{field}必须是文本", 400,
+                                      fields={field: "必须是文本"})
+            if "api_key" in body and not isinstance(body["api_key"], str):
+                raise DomainError("INVALID_INPUT", "api_key必须是文本", 400,
+                                  fields={"api_key": "必须是文本"})
+            timeout = body.get("timeout_seconds", config.get("timeout_seconds", 300))
+            if type(timeout) not in (int, float) or not 1 <= timeout <= 600:
+                raise DomainError("INVALID_INPUT", "timeout_seconds必须在1至600秒之间", 400,
+                                  fields={"timeout_seconds": "必须在1至600秒之间"})
+            concurrency = body.get("max_concurrency", config.get("max_concurrency", 2))
+            if type(concurrency) is not int or not 1 <= concurrency <= 16:
+                raise DomainError("INVALID_INPUT", "max_concurrency必须是1至16的整数", 400,
+                                  fields={"max_concurrency": "必须是1至16的整数"})
             config.update({key: value for key, value in body.items()
                            if key not in {"api_key", "force_thinking_probe",
                                           "probe_structured_output",
@@ -610,7 +674,8 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
             api_key = body.get("api_key", self.app.secrets.get_api_key())
             if (body.get("probe_structured_output", False) or
                     body.get("force_response_format_probe", False)):
-                response_format = self.app.provider.probe_response_format(config, api_key)
+                response_format = self.app._call_provider_with_concurrency_fallback(
+                    config, lambda: self.app.provider.probe_response_format(config, api_key))
                 response_format = db.set_response_format_capability(config, response_format)
                 thinking = db.get_model_capability(config)
                 result = {
@@ -627,8 +692,10 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
                         self.app.create_response_format_probe(config, api_key, "supported"))
                 return 200, view, {}
             cached = db.get_model_capability(config)
-            result = self.app.provider.test_connection(
-                config, api_key, cached, force_thinking_probe=force_thinking_probe)
+            result = self.app._call_provider_with_concurrency_fallback(
+                config, lambda: self.app.provider.test_connection(
+                    config, api_key, cached,
+                    force_thinking_probe=force_thinking_probe))
             thinking = result.get("thinking")
             if isinstance(thinking, dict) and result.get("thinking_probed", True):
                 result["thinking"] = db.set_model_capability(config, thinking)

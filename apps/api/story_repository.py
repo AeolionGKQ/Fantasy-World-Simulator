@@ -5,45 +5,25 @@ import hashlib
 import json
 
 try:
-    from .catalog import EXP_THRESHOLDS, LOCATIONS, NARRATION, POWER_BY_RANK
+    from .catalog import EXP_THRESHOLDS, NARRATION, POWER_BY_RANK
     from .content_registry import (TERMINAL_QUEST_STATES, load_revision_documents,
                                    load_revision_manifest)
     from .database import DomainError, dumps, loads, new_id, normalize_narration, utc_now
+    from .location_graph import canonical_location_map
     from .narrative_contract import (REPUTATION_KEYS, ContractError, adjudicate,
                                      bond_level, receipt_hash, reputation_level)
 except ImportError:
-    from catalog import EXP_THRESHOLDS, LOCATIONS, NARRATION, POWER_BY_RANK
+    from catalog import EXP_THRESHOLDS, NARRATION, POWER_BY_RANK
     from content_registry import (TERMINAL_QUEST_STATES, load_revision_documents,
                                   load_revision_manifest)
     from database import DomainError, dumps, loads, new_id, normalize_narration, utc_now
+    from location_graph import canonical_location_map
     from narrative_contract import (REPUTATION_KEYS, ContractError, adjudicate,
                                      bond_level, receipt_hash, reputation_level)
 
 
-CANONICAL_CHILDREN = (
-    ("selavia_port.adventurers_guild", "塞拉维亚港·冒险者公会", "building", "selavia_port"),
-    ("velansia.central_plaza", "维兰希亚·中央广场", "plaza", "velansia"),
-    ("velansia.central_plaza.celestial_balance_area", "阿尔凯昂天衡附近", "area", "velansia.central_plaza"),
-    ("noxvia.street", "诺克维亚街道", "street", "noxvia"),
-    ("elf_forest.main_settlement", "精灵之森主要聚居地", "settlement", "elf_forest"),
-    ("elf_forest.main_settlement.street", "精灵之森主要聚居地街道", "street", "elf_forest.main_settlement"),
-    ("grand_academy.central_plaza", "大联合学院中央广场", "plaza", "grand_academy"),
-)
 SAFE_PUBLIC_STARTS = ("san_velia", "vargard", "grand_academy", "noxvia",
                       "thousand_furnace", "selavia_port", "sahravia")
-
-
-def canonical_location_map():
-    result = {item["id"]: {"id": item["id"], "name": item["name"], "type": "city",
-                            "parent_id": None, "region_id": item["id"],
-                            "description": item["description"], "canonical": True,
-                            "safeguards": list(item["safeguards"])} for item in LOCATIONS}
-    for location_id, name, kind, parent_id in CANONICAL_CHILDREN:
-        result[location_id] = {"id": location_id, "name": name, "type": kind,
-                               "parent_id": parent_id,
-                               "region_id": result[parent_id]["region_id"],
-                               "description": name, "canonical": True, "safeguards": []}
-    return result
 
 
 def initial_story_state(character, save, content_revision, quest_specs):
@@ -79,14 +59,15 @@ def initial_story_state(character, save, content_revision, quest_specs):
             "breakthrough_eligible": False,
             "base_power": POWER_BY_RANK[source["rank"]],
             "equipment_power": 0, "effective_power": POWER_BY_RANK[source["rank"]],
-            "power_modifiers": [], "profession": None, "growth_path": None,
+            "power_modifiers": [], "conditions": {}, "profession": None, "growth_path": None,
             "talents": ([{"id": "talent.legacy", "name": "初始天赋",
                            "description": talent, "source": "第一阶段正式角色"}] if talent else []),
             "skills": [], "alive": True, "status": "normal",
         },
-        "inventory": {}, "currency_copper": 0, "quests": {}, "npcs": {},
+        "inventory": {}, "currency_copper": source.get("initial_currency_copper", 0),
+        "quests": {}, "npcs": {},
         "regional_quests": regional, "bonds": {}, "reputations": reputations,
-        "locations": {}, "world_flags": {},
+        "locations": {}, "location_statuses": {}, "world_flags": {},
     }
 
 
@@ -104,6 +85,16 @@ def start_prerequisite(identity, location_id):
             "options": ([{"kind": "relocate", "location_ids": list(SAFE_PUBLIC_STARTS)},
                          {"kind": "accept_legacy_protection", "grants": requirements}]
                         if requirements else [])}
+
+
+def number_active_memories(memories):
+    """Assign contiguous display numbers without changing stable memory IDs."""
+    active = [copy.deepcopy(memory) for memory in memories
+              if memory.get("status") == "active"]
+    active.sort(key=lambda memory: (memory.get("updated_at", ""), memory.get("id", "")))
+    for number, memory in enumerate(active, 1):
+        memory["memory_number"] = number
+    return active
 
 
 class StoryRepository:
@@ -133,9 +124,10 @@ class StoryRepository:
                                     dumps(state), now, now))
                 for item in self.canonical_locations.values():
                     connection.execute(
-                        "INSERT OR IGNORE INTO location_nodes VALUES(?,?,?,?,?,?,?,?,?)",
-                        (save_id, item["id"], item["name"], item["type"], item["parent_id"],
-                         item["region_id"], item["description"], 1, None))
+                        "INSERT OR IGNORE INTO location_nodes VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                        (save_id, item["id"], item["name"], item["type"], item["scope"],
+                         item["parent_id"], item["region_id"], item["jurisdiction_id"],
+                         item["description"], 1, None))
                 row = connection.execute("SELECT * FROM story_states WHERE save_id=?", (save_id,)).fetchone()
             if own:
                 connection.commit()
@@ -152,6 +144,8 @@ class StoryRepository:
     def _state_row(row):
         state = loads(row["state_json"], {})
         state.setdefault("npcs", {})
+        state.setdefault("location_statuses", {})
+        state.get("character", {}).setdefault("conditions", {})
         state["narration"] = (normalize_narration(state.get("narration", {})) or
                               copy.deepcopy(NARRATION["defaults"]))
         state["state_version"] = row["state_version"]
@@ -218,6 +212,14 @@ class StoryRepository:
             if previous:
                 if previous["request_fingerprint"] != fingerprint:
                     raise DomainError("IDEMPOTENCY_CONFLICT", "request_id已用于不同叙事请求", 409)
+                if previous["status"] == "interrupted":
+                    connection.execute(
+                        "UPDATE narrative_jobs SET status='queued',error_code=NULL,error_message=NULL,"
+                        "retryable=0,updated_at=? WHERE id=?", (utc_now(), previous["id"]))
+                    previous = connection.execute(
+                        "SELECT * FROM narrative_jobs WHERE id=?", (previous["id"],)).fetchone()
+                    connection.commit()
+                    return self._job_row(previous), True
                 connection.commit()
                 return self._job_row(previous), False
             if state["state_version"] != body["expected_state_version"]:
@@ -354,11 +356,11 @@ class StoryRepository:
                 "WHERE save_id=? AND (? IS NULL OR sequence < ?) ORDER BY sequence",
                 (save_id, turn["sequence"] if turn else None,
                  turn["sequence"] if turn else None)).fetchall()
-            memories = ([copy.deepcopy(item) for item in (snapshot_memories or [])
-                         if item.get("status") == "active"] if job["job_type"] == "reshape" else
-                        [self._memory_row(row) for row in connection.execute(
+            memories = (number_active_memories(snapshot_memories or [])
+                        if job["job_type"] == "reshape" else
+                        number_active_memories([self._memory_row(row) for row in connection.execute(
                             "SELECT * FROM memories WHERE save_id=? AND status='active' "
-                            "ORDER BY updated_at DESC", (save_id,)).fetchall()])
+                            "ORDER BY updated_at,id", (save_id,)).fetchall()]))
             arcs = [self._arc_row(row) for row in connection.execute(
                 "SELECT * FROM story_arcs WHERE save_id=? AND status='current' ORDER BY start_sequence",
                 (save_id,)).fetchall()]
@@ -396,8 +398,15 @@ class StoryRepository:
                             text = text.replace(quest_id, "[terminal-regional-quest]")
                         item[key] = text
             memories = self._recall_memories(context_state, history, memories)
+            claimed_memory_numbers = {
+                memory["memory_number"]: memory["id"] for memory in memories
+            }
             nodes = {row["id"]: dict(row) for row in connection.execute(
                 "SELECT * FROM location_nodes WHERE save_id=?", (save_id,)).fetchall()}
+            if job["job_type"] == "reshape":
+                allowed_dynamic = set(base_state.get("locations", {}))
+                nodes = {key: value for key, value in nodes.items()
+                         if value.get("canonical") or key in allowed_dynamic}
             documents = load_revision_documents(connection, state["content_revision_id"])
             revision_manifest = load_revision_manifest(connection, state["content_revision_id"])
             connection.commit()
@@ -416,10 +425,15 @@ class StoryRepository:
                 "memories": memories, "arcs": arcs, "location_nodes": nodes,
                 "documents": documents, "revision_manifest": revision_manifest,
                 "snapshot_memories": snapshot_memories,
+                "claimed_memory_numbers": claimed_memory_numbers,
                 "old_turn": dict(turn) if turn else None}
 
     @staticmethod
     def _recall_memories(state, history, memories, limit=20):
+        try:
+            from .canonical_npcs import CANONICAL_NPCS
+        except ImportError:
+            from canonical_npcs import CANONICAL_NPCS
         location_id = state.get("location", {}).get("id", "")
         recent_text = " ".join(
             str(value) for item in history[-10:] for value in
@@ -430,7 +444,13 @@ class StoryRepository:
             if location_id and (location_id in memory.get("locations", []) or
                                 any(location_id.startswith(value + ".") for value in memory.get("locations", []))):
                 reasons.append("当前位置相关")
-            people = [person for person in memory.get("people", []) if person and person in recent_text]
+            people = []
+            for person in memory.get("people", []):
+                dynamic = state.get("npcs", {}).get(person, {})
+                bond = state.get("bonds", {}).get(person, {})
+                name = dynamic.get("name") or bond.get("npc_name") or CANONICAL_NPCS.get(person)
+                if person and (person in recent_text or (name and name in recent_text)):
+                    people.append(name or person)
             if people:
                 reasons.append("近期人物相关：" + "、".join(people[:3]))
             keywords = [word for word in memory.get("keywords", []) if word and word in recent_text]
@@ -479,7 +499,7 @@ class StoryRepository:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT status FROM narrative_jobs WHERE id=? AND save_id=?",
                                      (job_id, save_id)).fetchone()
-            if not row:
+            if not row or row["status"] not in {"running", "cancel_requested"}:
                 connection.rollback(); return
             status = "cancelled" if row["status"] == "cancel_requested" else "failed"
             connection.execute(
@@ -500,9 +520,18 @@ class StoryRepository:
                 base_state, claimed["location_nodes"],
                 revision_quests)
             quest_context = {item["id"]: item for item in selected}
-            decision = adjudicate(base_state, response, self.canonical_locations, regional_ids,
+            frozen_locations = {
+                item["id"]: {**item, "safeguards": []}
+                for item in claimed["revision_manifest"].get("location_graph", [])
+            } or self.canonical_locations
+            frozen_canonical_npcs = {
+                item["id"]: item["name"]
+                for item in claimed["revision_manifest"].get("canonical_npcs", [])
+            }
+            decision = adjudicate(base_state, response, frozen_locations, regional_ids,
                                   quest_context, claimed["input"],
-                                  {item["id"]: item for item in revision_quests})
+                                  {item["id"]: item for item in revision_quests},
+                                  canonical_npcs=frozen_canonical_npcs)
         except ContractError:
             raise
         with self.database.connect() as connection:
@@ -556,9 +585,10 @@ class StoryRepository:
                                            (save_id, row["id"]))
                 for location in snapshot_locations.values():
                     connection.execute(
-                        "INSERT OR REPLACE INTO location_nodes VALUES(?,?,?,?,?,?,?,?,?)",
+                        "INSERT OR REPLACE INTO location_nodes VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                         (save_id, location["id"], location["name"], location["type"],
-                         location["parent_id"], location["region_id"], location["description"], 0,
+                         location["scope"], location["parent_id"], location["region_id"],
+                         location.get("jurisdiction_id"), location["description"], 0,
                          location.get("created_turn_version_id")))
                 sequence = turn["sequence"]
             else:
@@ -572,6 +602,7 @@ class StoryRepository:
             for warning in response["warnings"]:
                 changes.append({"kind": "warning", "key": "gm_warning", "old": None,
                                 "new": warning, "reason": "模型识别的规则警告"})
+            changes_json = dumps(changes)
             proposals = response["proposals"]
             narrative = response["narrative"]
             fallback_used = 0
@@ -587,31 +618,35 @@ class StoryRepository:
                      "", "", "[]", "[]", current["state_version"],
                      new_state["state_version"], now, now))
             connection.execute(
-                "INSERT INTO turn_versions VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO turn_versions(id,turn_id,save_id,version_number,raw_response_json,"
+                "proposals_json,authoritative_changes_json,prompt_version,content_revision_id,model,"
+                "created_at,action_json,generated_ids_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (version_id, turn_id, save_id, version_number, dumps(response), dumps(proposals),
-                 dumps(changes), claimed["revision_manifest"]["prompt_version"],
-                 current["content_revision_id"], claimed.get("provider_model", ""), now))
+                 changes_json, claimed["revision_manifest"]["prompt_version"],
+                 current["content_revision_id"], claimed.get("provider_model", ""), now,
+                 dumps(action), dumps(decision["generated_ids"])))
             if job_type == "reshape":
                 connection.execute(
                     "UPDATE turns SET current_version_id=?,title=?,body=?,summary=?,options_json=?,"
                     "changes_json=?,state_version_after=?,updated_at=? WHERE id=?",
                     (version_id, narrative["title"], narrative["body"], narrative["chronicle_summary"],
-                     dumps(narrative["suggested_options"]), dumps(changes), new_state["state_version"],
+                     dumps(narrative["suggested_options"]), changes_json, new_state["state_version"],
                      now, turn_id))
             else:
                 connection.execute(
                     "UPDATE turns SET current_version_id=?,title=?,body=?,summary=?,options_json=?,"
                     "changes_json=?,updated_at=? WHERE id=?",
                     (version_id, narrative["title"], narrative["body"], narrative["chronicle_summary"],
-                     dumps(narrative["suggested_options"]), dumps(changes), now, turn_id))
+                     dumps(narrative["suggested_options"]), changes_json, now, turn_id))
                 connection.execute("INSERT INTO turn_snapshots VALUES(?,?,?,?,?)",
                                    (turn_id, save_id, "turn-snapshot/1", dumps(snapshot), now))
             new_state["current_turn_id"] = turn_id
             for item in decision["new_locations"]:
                 item["created_turn_version_id"] = version_id
-                connection.execute("INSERT INTO location_nodes VALUES(?,?,?,?,?,?,?,?,?)",
-                                   (save_id, item["id"], item["name"], item["type"], item["parent_id"],
-                                    item["region_id"], item["description"], 0, version_id))
+                connection.execute("INSERT INTO location_nodes VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                                   (save_id, item["id"], item["name"], item["type"], item["scope"],
+                                    item["parent_id"], item["region_id"], item.get("jurisdiction_id"),
+                                    item["description"], 0, version_id))
             for item in decision["new_npcs"]:
                 item["created_turn_version_id"] = version_id
                 new_state["npcs"][item["id"]] = item
@@ -624,14 +659,15 @@ class StoryRepository:
                 "title=excluded.title,summary=excluded.summary,location_id=excluded.location_id,"
                 "time_label=excluded.time_label,changes_json=excluded.changes_json,updated_at=excluded.updated_at",
                 (turn_id, save_id, sequence, narrative["title"], narrative["chronicle_summary"],
-                 new_state["location"]["id"], new_state["time"]["label"], dumps(changes),
+                 new_state["location"]["id"], new_state["time"]["label"], changes_json,
                  fallback_used, now))
             for audit in decision["reputation_audit"]:
                 connection.execute("INSERT INTO reputation_change_history VALUES(?,?,?,?,?,?,?,?,?)",
                                    (new_id(), save_id, version_id, audit["key"], audit["old"], audit["new"],
                                     audit["public_reason"], 1, now))
             self._apply_memories(connection, save_id, turn_id, version_id,
-                                 decision["memory_operations"], now)
+                                 decision["memory_operations"], now,
+                                 claimed.get("claimed_memory_numbers", {}))
             connection.execute(
                 "UPDATE story_states SET state_version=?,current_turn_id=?,state_json=?,updated_at=? WHERE save_id=?",
                 (new_state["state_version"], turn_id, dumps(new_state), now, save_id))
@@ -669,9 +705,28 @@ class StoryRepository:
     def _restore_memories(self, connection, save_id, memories):
         connection.execute("DELETE FROM memories WHERE save_id=?", (save_id,))
         for memory in memories:
-            self._insert_memory(connection, memory)
+            restored = copy.deepcopy(memory)
+            restored.pop("memory_number", None)
+            restored["save_id"] = save_id
+            self._insert_memory(connection, restored)
 
-    def _apply_memories(self, connection, save_id, turn_id, version_id, operations, now):
+    def _apply_memories(self, connection, save_id, turn_id, version_id, operations, now,
+                        claimed_memory_numbers=None):
+        if claimed_memory_numbers is None:
+            numbered = number_active_memories([
+                self._memory_row(row) for row in connection.execute(
+                    "SELECT * FROM memories WHERE save_id=? AND status='active' ORDER BY updated_at,id",
+                    (save_id,)).fetchall()
+            ])
+            number_to_id = {memory["memory_number"]: memory["id"] for memory in numbered}
+        else:
+            number_to_id = dict(claimed_memory_numbers)
+        delete_numbers = [int(item["memory_id"]) for item in operations
+                          if item["operation"] != "create"]
+        if len(delete_numbers) != len(set(delete_numbers)):
+            raise ContractError("同一长期记忆编号每轮只能删除一次")
+        if any(number not in number_to_id for number in delete_numbers):
+            raise ContractError("删除编号不是本回合可见的活动长期记忆")
         created = 0
         for item in operations:
             if item["operation"] == "create":
@@ -692,13 +747,9 @@ class StoryRepository:
                           "source_turn_version_id": version_id, "updated_at": now}
                 self._insert_memory(connection, memory)
             else:
-                row = connection.execute("SELECT * FROM memories WHERE id=? AND save_id=?",
-                                         (item["memory_id"], save_id)).fetchone()
-                if not row:
-                    raise ContractError("长期记忆不存在")
-                status = "resolved" if item["operation"] == "resolve" else "superseded"
-                connection.execute("UPDATE memories SET status=?,updated_at=? WHERE id=?",
-                                   (status, now, item["memory_id"]))
+                memory_id = number_to_id[int(item["memory_id"])]
+                connection.execute("DELETE FROM memories WHERE id=? AND save_id=?",
+                                   (memory_id, save_id))
 
     def list_turns(self, save_id, cursor=0, limit=50, enabled=False):
         self.initialize(save_id)
@@ -780,9 +831,10 @@ class StoryRepository:
                         **({"next_cursor": rows[-1]["sequence"] if has_more and rows else None}
                            if enabled else {})}
             if kind == "memories":
-                return {"items": [self._memory_row(r) for r in connection.execute(
-                    "SELECT * FROM memories WHERE save_id=? ORDER BY importance DESC,updated_at DESC",
-                    (save_id,)).fetchall()]}
+                rows = [self._memory_row(r) for r in connection.execute(
+                    "SELECT * FROM memories WHERE save_id=? ORDER BY updated_at,id",
+                    (save_id,)).fetchall()]
+                return {"items": number_active_memories(rows)}
             if kind == "memory":
                 turns = [self._turn_row(r) for r in connection.execute(
                     "SELECT * FROM turns WHERE save_id=? ORDER BY sequence", (save_id,)).fetchall()]
@@ -800,6 +852,8 @@ class StoryRepository:
 
     @staticmethod
     def _local_reputation(location_id):
+        if location_id in REPUTATION_KEYS:
+            return location_id if location_id != "continental_overall" else None
         mapping = {"noxvia": "court_of_veiled_night", "velansia": "skycrown_conclave",
                    "san_velia": "holy_see_sacred_radiance", "elf_forest": "court_of_sacred_tree",
                    "vargard": "valkeren_empire", "selavia_port": "southern_maritime_federation",
@@ -813,14 +867,16 @@ class StoryRepository:
         if direct:
             return direct
         with self.database.connect() as connection:
-            rows = connection.execute("SELECT id,parent_id,region_id FROM location_nodes WHERE save_id=?",
+            rows = connection.execute(
+                "SELECT id,parent_id,region_id,jurisdiction_id FROM location_nodes WHERE save_id=?",
                                       (save_id,)).fetchall()
         nodes = {row["id"]: dict(row) for row in rows}
         current, seen = location_id, set()
         while current and current not in seen:
             seen.add(current)
             node = nodes.get(current, {})
-            for candidate in (node.get("region_id"), node.get("parent_id")):
+            for candidate in (node.get("jurisdiction_id"), node.get("region_id"),
+                              node.get("parent_id")):
                 key = self._local_reputation(candidate or "")
                 if key:
                     return key

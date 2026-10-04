@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 CONTRACT_FILES = {
-    "gm_turn": ("gm-turn/1", "gm_turn.schema.json", "output_contract.txt"),
+    "gm_turn": ("gm-turn/2", "gm_turn.schema.json", "output_contract.txt"),
     "story_arc": ("story-arc/1", "story_arc.schema.json", "story_arc_contract.txt"),
 }
 

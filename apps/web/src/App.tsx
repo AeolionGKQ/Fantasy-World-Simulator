@@ -66,7 +66,7 @@ const steps = [
 
 type SaveStatus = "saved" | "dirty" | "saving" | "error" | "conflict";
 type ModelState = "idle" | "saving" | "saved";
-type ModelTestState = "idle" | "testing" | "probing";
+type ModelTestState = "idle" | "testing" | "thinking" | "probing";
 type NarrationState = "idle" | "saving" | "saved";
 
 function Icon({ name }: { name: "menu" | "plus" | "settings" | "upload" | "download" | "edit" | "trash" | "close" }) {
@@ -241,7 +241,6 @@ export default function App() {
           <button className="icon-button mobile-menu" type="button" onClick={() => setDrawerOpen(true)} aria-label="打开存档列表"><Icon name="menu" /></button>
           <div className="toolbar-context">
             <span>{location.pathname === "/settings" ? "应用设置" : currentSave?.name ?? "档案总览"}</span>
-            {currentSave && <small>修订 {currentSave.revision}</small>}
           </div>
           <div className="toolbar-actions">
             <button className="toolbar-button primary-compact" type="button" onClick={() => setModal("new")}><Icon name="plus" /><span>新建存档</span></button>
@@ -426,6 +425,7 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
   const modelPayload = () => {
     if (!settings) throw new Error("设置尚未载入");
     const model = {
+      protocol: settings.model.protocol ?? "openai",
       base_url: settings.model.base_url,
       model: settings.model.model,
       timeout_seconds: settings.model.timeout_seconds,
@@ -439,7 +439,7 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
   const saveModel = async (event: FormEvent) => {
     event.preventDefault();
     if (!settings || !canStartSettingRequest(modelState, narrationState, testState) || !beginSettingRequest()) return;
-    const requestedKey = modelCapabilityKey(settings.model.base_url, settings.model.model);
+    const requestedKey = modelCapabilityKey(settings.model.protocol, settings.model.base_url, settings.model.model);
     setModelState("saving"); setActionError(""); setTestResult(null); setStructuredProbeFeedback(null);
     try {
       const updated = await api.updateModel({ ...modelPayload(),
@@ -447,7 +447,7 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
           structured_output_probe_token: settings.model.structured_output_probe_token,
         } : {}) }, settings.revision, crypto.randomUUID());
       setSettings((current) => {
-        if (!current || modelCapabilityKey(current.model.base_url, current.model.model) !== requestedKey) return current;
+        if (!current || modelCapabilityKey(current.model.protocol, current.model.base_url, current.model.model) !== requestedKey) return current;
         return mergeSavedModelSettings(current, updated);
       });
       setApiKey(""); setModelState("saved");
@@ -465,9 +465,9 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
   };
   const testModel = async (forceThinkingProbe = false) => {
     if (!settings || !canStartSettingRequest(modelState, narrationState, testState) || !beginSettingRequest()) return;
-    const requestedKey = modelCapabilityKey(settings.model.base_url, settings.model.model);
+    const requestedKey = modelCapabilityKey(settings.model.protocol, settings.model.base_url, settings.model.model);
     const requestToken = ++testRequestToken.current;
-    setTestState("testing"); setActionError(""); setTestResult(null); setStructuredProbeFeedback(null);
+    setTestState(forceThinkingProbe ? "thinking" : "testing"); setActionError(""); setTestResult(null); setStructuredProbeFeedback(null);
     try {
       const result = await api.testModel({ ...modelPayload(), force_thinking_probe: forceThinkingProbe });
       if (!isCurrentModelTestResponse(settings, requestedKey, requestToken, testRequestToken.current)) return;
@@ -486,7 +486,7 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
   };
   const probeStructuredOutput = async () => {
     if (!settings || !canStartSettingRequest(modelState, narrationState, testState) || !beginSettingRequest()) return;
-    const requestedKey = modelCapabilityKey(settings.model.base_url, settings.model.model);
+    const requestedKey = modelCapabilityKey(settings.model.protocol, settings.model.base_url, settings.model.model);
     const requestToken = ++testRequestToken.current;
     setTestState("probing"); setActionError(""); setTestResult(null); setStructuredProbeFeedback(null);
     setSettings((current) => resetStructuredOutputCapability(current, "正在探测 response_format 支持情况…"));
@@ -538,7 +538,7 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
   if (loading) return <div className="page settings-page"><LoadingPanel label="正在载入设置" /></div>;
   if (error || !settings) return <div className="page settings-page"><ErrorPanel error={error} onRetry={() => void load()} title="无法载入设置" /></div>;
   const displayedTestResult = (testResult?.key === modelCapabilityKey(
-    settings.model.base_url, settings.model.model
+    settings.model.protocol, settings.model.base_url, settings.model.model
   )) ? testResult.result : null;
   const canMutateModel = canMutateModelSettings(modelState, testState);
   const canSubmitSettingRequest = canStartSettingRequest(modelState, narrationState, testState);
@@ -547,25 +547,26 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
       <header className="page-header"><div><h1>设置</h1><p>模型配置保存在本机后端，存档导出不会包含 API Key。</p></div></header>
       {actionError && <div className="inline-error" role="alert">{actionError}</div>}
       <section className="settings-section" aria-labelledby="model-settings-title">
-        <div className="settings-copy"><h2 id="model-settings-title">模型服务</h2><p>连接兼容 OpenAI HTTP 协议的服务。自定义地址将由后端访问，请只使用你信任的端点。</p></div>
+        <div className="settings-copy"><h2 id="model-settings-title">模型服务</h2><p>可连接 OpenAI Chat Completions 或 Anthropic Messages 兼容服务。自定义地址将由后端访问，请只使用你信任的端点。</p></div>
         <form className="settings-form" onSubmit={(event) => void saveModel(event)}>
-          <label className="field full"><span>API Base URL</span><input type="url" required disabled={!canMutateModel} placeholder="https://api.example.com/v1" value={settings.model.base_url} onChange={(e) => invalidateModelTest((model) => ({ ...model, base_url: e.target.value }))} /></label>
+          <SegmentedField label="模型协议" value={settings.model.protocol ?? "openai"} options={[{ value: "openai", label: "OpenAI 兼容" }, { value: "anthropic", label: "Anthropic 兼容" }]} disabled={!canMutateModel} onChange={(protocol) => invalidateModelTest((model) => ({ ...model, protocol }))} />
+          <label className="field full"><span>API Base URL</span><input type="url" required disabled={!canMutateModel} placeholder={settings.model.protocol === "anthropic" ? "https://api.anthropic.com/v1" : "https://api.example.com/v1"} value={settings.model.base_url} onChange={(e) => invalidateModelTest((model) => ({ ...model, base_url: e.target.value }))} /><small>{settings.model.protocol === "anthropic" ? "未包含 /v1 时会自动补全；后端请求 /v1/messages，并发送 x-api-key 与 anthropic-version 请求头。" : "后端会请求 /chat/completions，并使用 Bearer 鉴权。"}</small></label>
           <label className="field"><span>模型名称</span><input required disabled={!canMutateModel} placeholder="模型标识" value={settings.model.model} onChange={(e) => invalidateModelTest((model) => ({ ...model, model: e.target.value }))} /></label>
           <label className="field"><span>API Key</span><input type="password" disabled={!canMutateModel} autoComplete="new-password" placeholder={settings.model.api_key_configured ? "已配置，留空则保持不变" : "输入后仅发送一次"} value={apiKey} onChange={(e) => { setApiKey(e.target.value); invalidateModelTest((model) => model); }} aria-describedby="key-help" /><small id="key-help">读取设置时只显示配置状态，不回显任何密钥内容。</small></label>
           <label className="field"><span>请求超时（秒）</span><input type="number" min={5} max={600} required disabled={!canMutateModel} value={settings.model.timeout_seconds} onChange={(e) => setSettings({ ...settings, model: { ...settings.model, timeout_seconds: Number(e.target.value) } })} /></label>
           <label className="field"><span>最大并发</span><input type="number" min={1} max={16} required disabled={!canMutateModel} value={settings.model.max_concurrency} aria-describedby="max-concurrency-help" onChange={(e) => setSettings({ ...settings, model: { ...settings.model, max_concurrency: Number(e.target.value) } })} /><small id="max-concurrency-help">默认 2。保存后当前有效上限为 {settings.model.max_concurrency}；若供应商明确拒绝真实重叠请求，系统会等待其他请求结束，串行重试一次，并自动保存为 1。</small></label>
           <div className="switch-field full">
-            <div><span id="structured-output-label">Response Format（结构化输出）</span><small id="structured-output-help" role="status" aria-live="polite">多数兼容服务可能不支持，默认关闭。开启时会发送一次极小测试请求，可能产生少量费用；关闭不会探测。当前状态：{testState === "probing" ? "正在探测" : capabilityLabel(settings.model.structured_output_capability)}。</small></div>
+            <div><span id="structured-output-label">{settings.model.protocol === "anthropic" ? "Output Config（结构化输出）" : "Response Format（结构化输出）"}</span><small id="structured-output-help" role="status" aria-live="polite">多数兼容服务可能不支持，默认关闭。开启时会发送一次极小测试请求，可能产生少量费用；关闭不会探测。当前状态：{testState === "probing" ? "正在探测" : capabilityLabel(settings.model.structured_output_capability)}。</small></div>
             <label className="switch"><input type="checkbox" aria-labelledby="structured-output-label" aria-describedby="structured-output-help" aria-busy={testState === "probing"} disabled={!canMutateModel || narrationState === "saving"} checked={settings.model.structured_output} onChange={(e) => { if (e.target.checked) void probeStructuredOutput(); else { testRequestToken.current += 1; setSettings((current) => resetStructuredOutputCapability(current, "结构化输出已关闭。")); setTestResult(null); setStructuredProbeFeedback(null); setTestState("idle"); } }} /><span aria-hidden="true" /></label>
           </div>
           {structuredProbeFeedback && <div className={`test-result full ${structuredProbeFeedback.kind}`} role={structuredProbeFeedback.kind === "error" ? "alert" : "status"}><strong>{structuredProbeFeedback.kind === "success" ? "结构化输出探测通过" : "结构化输出未开启"}</strong><p>{structuredProbeFeedback.message}</p></div>}
           <div className="switch-field full">
-            <div><span id="model-thinking-label">模型思考</span><small>{settings.model.thinking_message || thinkingCapabilityMessage(settings.model.thinking_capability, settings.model.thinking_confidence, settings.model.thinking_strategy)}</small></div>
+            <div><span id="model-thinking-label">正式剧情模型思考</span><small>仅控制开场、自由行动、建议选项、干涉与重塑。故事弧整理始终开启思考。{settings.model.thinking_message || thinkingCapabilityMessage(settings.model.thinking_capability, settings.model.thinking_confidence, settings.model.thinking_strategy)}</small></div>
             <label className="switch"><input type="checkbox" aria-labelledby="model-thinking-label" disabled={!canMutateModel || settings.model.thinking_capability !== "controlled"} checked={settings.model.thinking_capability === "controlled" ? settings.model.thinking_enabled : true} onChange={(e) => setSettings({ ...settings, model: { ...settings.model, thinking_enabled: e.target.checked } })} /><span aria-hidden="true" /></label>
           </div>
           {displayedTestResult && <div className={`test-result full ${displayedTestResult.ok ? "success" : "error"}`} role="status"><strong>{displayedTestResult.ok ? "连接测试通过" : "连接测试未通过"}</strong><p>{displayedTestResult.message}</p><div className="capabilities"><span>目标模型：{displayedTestResult.model_available === false ? "不可用" : "可用"}</span>{displayedTestResult.latency_ms !== undefined && <span>响应：{displayedTestResult.latency_ms} ms</span>}<span>思考：{thinkingCapabilityLabel(displayedTestResult.thinking_capability)}</span><span>置信度：{thinkingConfidenceLabel(displayedTestResult.thinking_confidence)}</span>{displayedTestResult.thinking_strategy && <span>识别方式：{thinkingStrategyLabel(displayedTestResult.thinking_strategy)}</span>}<span>结构化输出：{capabilityLabel(displayedTestResult.structured_output_capability)}</span></div><p>{displayedTestResult.thinking_message}</p></div>}
           {settings.model.api_key_persistence === "memory_only" && <p className="warning-text full">当前环境无法使用 Windows DPAPI，API Key 只保存在本进程内存中，服务重启后需重新输入。</p>}
-          <div className="form-actions full"><button className="secondary-button" type="button" disabled={!canSubmitSettingRequest} onClick={() => void testModel()}>{testState === "testing" ? "正在测试连接与思考控制…" : "测试连接"}</button>{settings.model.thinking_capability !== "unknown" && <button className="secondary-button" type="button" disabled={!canSubmitSettingRequest} onClick={() => void testModel(true)}>重新探测思考控制</button>}<span className="cost-note">普通测试复用已缓存能力；结构化输出关闭时不会探测 response_format。强制重测可能产生少量费用。</span><button className="primary-button" disabled={!canSubmitSettingRequest}>{modelState === "saving" ? "正在保存…" : modelState === "saved" ? "设置已保存" : "保存模型设置"}</button></div>
+          <div className="form-actions full"><button className="secondary-button" type="button" disabled={!canSubmitSettingRequest} onClick={() => void testModel()}>{testState === "testing" ? "正在测试连接…" : "测试连接"}</button><button className="secondary-button" type="button" disabled={!canSubmitSettingRequest} onClick={() => void testModel(true)}>{testState === "thinking" ? "正在测试思考…" : "测试思考"}</button><span className="cost-note">连接测试不会探测思考或结构化输出；思考测试会验证开启与关闭参数，可能产生少量费用。</span><button className="primary-button" disabled={!canSubmitSettingRequest}>{modelState === "saving" ? "正在保存…" : modelState === "saved" ? "设置已保存" : "保存模型设置"}</button></div>
         </form>
       </section>
       <section className="settings-section" aria-labelledby="narration-title">
@@ -596,7 +597,7 @@ function thinkingConfidenceLabel(value: "verified" | "accepted_bundle" | "unsupp
 }
 
 export function thinkingStrategyLabel(value: ModelTestResult["thinking_strategy"]) {
-  const labels = { bundle: "七种兼容参数组合", enable_thinking: "enable_thinking", thinking: "thinking.type", reasoning_effort: "reasoning_effort", chat_template_kwargs: "chat_template_kwargs.enable_thinking", reasoning_enabled: "reasoning.enabled", reasoning_effort_nested: "reasoning.effort", thinking_budget: "thinking_config.thinking_budget" };
+  const labels = { bundle: "七种兼容参数组合", enable_thinking: "enable_thinking", thinking: "thinking.type", reasoning_effort: "reasoning_effort", chat_template_kwargs: "chat_template_kwargs.enable_thinking", reasoning_enabled: "reasoning.enabled", reasoning_effort_nested: "reasoning.effort", thinking_budget: "thinking_config.thinking_budget", anthropic_adaptive: "Anthropic adaptive / disabled", anthropic_adaptive_between_tools: "Anthropic adaptive / between_tools", anthropic_enabled: "Anthropic enabled / disabled", anthropic_enabled_between_tools: "Anthropic enabled / between_tools" };
   return value ? labels[value] : "未识别";
 }
 
@@ -606,8 +607,11 @@ export function thinkingCapabilityMessage(capability: "controlled" | "unsupporte
   return confidence === "accepted_bundle" ? "服务接受兼容参数组合，无法逐项证明。" : `已验证思考控制参数：${thinkingStrategyLabel(strategy)}。`;
 }
 
-export function modelCapabilityKey(baseUrl: string, model: string): string {
-  return `${baseUrl.trim().replace(/\/+$/, "")}\n${model.trim()}`;
+export function modelCapabilityKey(protocolOrBaseUrl: AppSettings["model"]["protocol"] | string, baseUrlOrModel: string, maybeModel?: string): string {
+  const protocol = maybeModel === undefined ? "openai" : protocolOrBaseUrl;
+  const baseUrl = maybeModel === undefined ? protocolOrBaseUrl : baseUrlOrModel;
+  const model = maybeModel === undefined ? baseUrlOrModel : maybeModel;
+  return `${protocol ?? "openai"}\n${(baseUrl ?? "").trim().replace(/\/+$/, "")}\n${model.trim()}`;
 }
 
 export function canMutateModelSettings(modelState: ModelState, testState: ModelTestState): boolean {
@@ -635,7 +639,7 @@ export function structuredOutputProbePayload(payload: Parameters<typeof api.test
 }
 
 export function isCurrentModelTestResponse(current: AppSettings | null, requestedKey: string, requestToken: number, currentToken: number): boolean {
-  return requestToken === currentToken && current !== null && modelCapabilityKey(current.model.base_url, current.model.model) === requestedKey;
+  return requestToken === currentToken && current !== null && modelCapabilityKey(current.model.protocol, current.model.base_url, current.model.model) === requestedKey;
 }
 
 export async function resolveCompletedGeneration(
@@ -680,7 +684,7 @@ export function mergeModelTestCapability(
   result: ModelTestResult,
   structuredOutputProbe = false,
 ): AppSettings | null {
-  if (!current || modelCapabilityKey(current.model.base_url, current.model.model) !== requestedKey) {
+  if (!current || modelCapabilityKey(current.model.protocol, current.model.base_url, current.model.model) !== requestedKey) {
     return current;
   }
   const reportedCapability = result.structured_output_capability;
@@ -1145,13 +1149,24 @@ function GenerationStep({ catalog, draft, job, candidate, error, onGenerate, onC
 function RegeneratePanel({ onGenerate }: { onGenerate: (feedback?: string) => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [feedback, setFeedback] = useState("");
-  return <section className="regenerate-panel"><div><h3>需要调整候选？</h3><p>提供明确修改意见会创建新的生成任务，当前候选在新结果完成前仍会保留。</p></div>{open ? <div className="regenerate-form"><label className="field"><span>修改意见</span><textarea rows={4} maxLength={1200} value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="例如：提高魅力，但降低体质，并保留当前背景解释。" /></label><div className="form-actions"><button className="secondary-button" type="button" onClick={() => setOpen(false)}>取消修改</button><button className="primary-button" type="button" disabled={!feedback.trim()} onClick={() => void onGenerate(feedback.trim())}>按意见重新生成</button></div></div> : <button className="secondary-button" type="button" onClick={() => setOpen(true)}>填写修改意见</button>}</section>;
+  const submit = async () => {
+    const requestedFeedback = feedback.trim();
+    if (!requestedFeedback) return;
+    setOpen(false);
+    setFeedback("");
+    await onGenerate(requestedFeedback);
+  };
+  return <section className="regenerate-panel"><div><h3>需要调整候选？</h3><p>提供明确修改意见会创建新的生成任务，当前候选在新结果完成前仍会保留。</p></div>{open ? <div className="regenerate-form"><label className="field"><span>修改意见</span><textarea rows={4} maxLength={1200} value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="例如：提高魅力，但降低体质，并保留当前背景解释。" /></label><div className="form-actions"><button className="secondary-button" type="button" onClick={() => setOpen(false)}>取消修改</button><button className="primary-button" type="button" disabled={!feedback.trim()} onClick={() => void submit()}>按意见重新生成</button></div></div> : <button className="secondary-button" type="button" onClick={() => setOpen(true)}>填写修改意见</button>}</section>;
 }
 
 function CandidatePanel({ candidate, footer }: { candidate: CharacterCandidate; footer?: ReactNode }) {
   const attributes = [["体质 CON", candidate.attributes.con], ["智力 INT", candidate.attributes.int], ["魅力 CHA", candidate.attributes.cha]] as const;
   const resources = candidate.resources ? [["生命 HP", candidate.resources.hp], ["魔力 MP", candidate.resources.mp], ["精神 SP", candidate.resources.sp], ["精力 ST", candidate.resources.st]] as const : [];
-  return <article className="candidate-panel"><header><div><span className="world-label">角色候选</span><h2>{candidate.identity?.name || "未命名角色"}</h2><p>{[candidate.identity?.race_name, candidate.identity?.race_branch_name, candidate.identity?.rank_name, candidate.identity?.location_name].filter(Boolean).join(" · ")}</p><p>{[candidate.identity?.gender, candidate.identity?.age ? `${candidate.identity.age} 岁` : null].filter(Boolean).join(" · ")}</p></div><span className={`candidate-validity ${candidate.valid === false ? "invalid" : "valid"}`}>{candidate.valid === false ? "存在规则冲突" : "规则校验通过"}</span></header>{candidate.warnings?.length ? <div className="candidate-warnings">{candidate.warnings.map((warning) => <p key={warning}><span aria-hidden="true">!</span>{warning}</p>)}</div> : null}{candidate.summary && <section className="candidate-summary"><h3>能力概述</h3><p>{candidate.summary}</p></section>}<section><h3>长期属性</h3><div className="attribute-grid">{attributes.map(([label, attribute]) => <div className="attribute-row" key={label}><div><span>{label}</span><strong>{attribute.value}</strong></div><div className="attribute-meter" aria-label={`${label} ${attribute.value}，满值 100`}><span style={{ width: `${Math.min(100, Math.max(0, attribute.value))}%` }} /></div>{attribute.reason && <p>{attribute.reason}</p>}</div>)}</div></section>{resources.length > 0 && <section><h3>短期资源</h3><div className="resource-list">{resources.map(([label, resource]) => resource && <div key={label}><span>{label}</span><strong>{resource.current} / {resource.max}</strong>{resource.reason && <small>{resource.reason}</small>}</div>)}</div></section>}<section className="power-section"><div><h3>战力</h3><strong className="power-number">{candidate.power.effective.toLocaleString()}</strong><span>基础战力 {candidate.power.base.toLocaleString()}</span></div><div>{candidate.power.modifiers?.length ? <ul>{candidate.power.modifiers.map((modifier) => <li key={`${modifier.label}-${modifier.value}`}><strong>{modifier.label} {modifier.value >= 0 ? "+" : ""}{modifier.value}</strong>{modifier.reason && <span>{modifier.reason}</span>}</li>)}</ul> : <p>当前没有已裁决的战力修正。</p>}{candidate.power.explanation && <p>{candidate.power.explanation}</p>}</div></section><section className="candidate-columns"><div><h3>优势</h3>{candidate.strengths?.length ? <ul>{candidate.strengths.map((item) => <li key={item}>{item}</li>)}</ul> : <p>模型未列出。</p>}</div><div><h3>局限</h3>{candidate.limitations?.length ? <ul>{candidate.limitations.map((item) => <li key={item}>{item}</li>)}</ul> : <p>模型未列出。</p>}</div></section><section className="description-section"><h3>角色描述</h3><dl>{candidate.description?.appearance && <div><dt>外貌</dt><dd>{candidate.description.appearance}</dd></div>}{candidate.description?.personality && <div><dt>性格</dt><dd>{candidate.description.personality}</dd></div>}{candidate.description?.talent && <div><dt>天赋</dt><dd>{candidate.description.talent}</dd></div>}{candidate.description?.background && <div><dt>身世</dt><dd>{candidate.description.background}</dd></div>}{candidate.description?.additional && <div><dt>其他补充</dt><dd>{candidate.description.additional}</dd></div>}</dl></section>{footer}</article>;
+  const currency = candidate.starting_currency;
+  const gold = currency ? Math.floor(currency.copper / 10000) : 0;
+  const silver = currency ? Math.floor((currency.copper % 10000) / 100) : 0;
+  const copper = currency ? currency.copper % 100 : 0;
+  return <article className="candidate-panel"><header><div><span className="world-label">角色候选</span><h2>{candidate.identity?.name || "未命名角色"}</h2><p>{[candidate.identity?.race_name, candidate.identity?.race_branch_name, candidate.identity?.rank_name, candidate.identity?.location_name].filter(Boolean).join(" · ")}</p><p>{[candidate.identity?.gender, candidate.identity?.age ? `${candidate.identity.age} 岁` : null].filter(Boolean).join(" · ")}</p></div><span className={`candidate-validity ${candidate.valid === false ? "invalid" : "valid"}`}>{candidate.valid === false ? "存在规则冲突" : "规则校验通过"}</span></header>{candidate.summary && <section className="candidate-summary"><h3>能力概述</h3><p>{candidate.summary}</p></section>}<section><h3>长期属性</h3><div className="attribute-grid">{attributes.map(([label, attribute]) => <div className="attribute-row" key={label}><div><span>{label}</span><strong>{attribute.value}</strong></div><div className="attribute-meter" aria-label={`${label} ${attribute.value}，满值 100`}><span style={{ width: `${Math.min(100, Math.max(0, attribute.value))}%` }} /></div>{attribute.reason && <p>{attribute.reason}</p>}</div>)}</div></section>{resources.length > 0 && <section><h3>短期资源</h3><div className="resource-list">{resources.map(([label, resource]) => resource && <div key={label}><span>{label}</span><strong>{resource.current} / {resource.max}</strong>{resource.reason && <small>{resource.reason}</small>}</div>)}</div></section>}{currency && <section className="starting-currency"><h3>初始钱财</h3><div className="currency-denominations" aria-label={`初始钱财共 ${currency.copper} 铜币`}><span><strong>{gold.toLocaleString()}</strong>金币</span><span><strong>{silver}</strong>银币</span><span><strong>{copper}</strong>铜币</span></div><p>{currency.reason}</p></section>}<section className="power-section"><div><h3>战力</h3><strong className="power-number">{candidate.power.effective.toLocaleString()}</strong><span>基础战力 {candidate.power.base.toLocaleString()}</span></div><div>{candidate.power.modifiers?.length ? <ul>{candidate.power.modifiers.map((modifier) => <li key={`${modifier.label}-${modifier.value}`}><strong>{modifier.label} {modifier.value >= 0 ? "+" : ""}{modifier.value}</strong>{modifier.reason && <span>{modifier.reason}</span>}</li>)}</ul> : <p>当前没有已裁决的战力修正。</p>}{candidate.power.explanation && <p>{candidate.power.explanation}</p>}</div></section><section className="candidate-columns"><div><h3>优势</h3>{candidate.strengths?.length ? <ul>{candidate.strengths.map((item) => <li key={item}>{item}</li>)}</ul> : <p>模型未列出。</p>}</div><div><h3>局限</h3>{candidate.limitations?.length ? <ul>{candidate.limitations.map((item) => <li key={item}>{item}</li>)}</ul> : <p>模型未列出。</p>}</div></section><section className="description-section"><h3>角色描述</h3><dl>{candidate.description?.appearance && <div><dt>外貌</dt><dd>{candidate.description.appearance}</dd></div>}{candidate.description?.personality && <div><dt>性格</dt><dd>{candidate.description.personality}</dd></div>}{candidate.description?.talent && <div><dt>天赋</dt><dd>{candidate.description.talent}</dd></div>}{candidate.description?.background && <div><dt>身世</dt><dd>{candidate.description.background}</dd></div>}{candidate.description?.additional && <div><dt>其他补充</dt><dd>{candidate.description.additional}</dd></div>}</dl></section>{footer}</article>;
 }
 
 function ReviewPage({ actions }: { actions: ShellActions }) {

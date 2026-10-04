@@ -165,6 +165,7 @@ export interface StoryNarrationSettings {
 }
 
 export interface ModelSettings {
+  protocol?: ModelProtocol;
   base_url: string;
   model: string;
   api_key_configured: boolean;
@@ -185,6 +186,8 @@ export interface ModelSettings {
   max_concurrency: number;
 }
 
+export type ModelProtocol = "openai" | "anthropic";
+
 export type ThinkingStrategy =
   | "bundle"
   | "enable_thinking"
@@ -193,7 +196,11 @@ export type ThinkingStrategy =
   | "chat_template_kwargs"
   | "reasoning_enabled"
   | "reasoning_effort_nested"
-  | "thinking_budget";
+  | "thinking_budget"
+  | "anthropic_adaptive"
+  | "anthropic_adaptive_between_tools"
+  | "anthropic_enabled"
+  | "anthropic_enabled_between_tools";
 export type ThinkingConfidence = "verified" | "accepted_bundle" | "unsupported" | "unknown";
 
 export interface AppSettings {
@@ -220,7 +227,8 @@ export interface ModelTestResult {
 }
 
 type AppSettingsResponse = Omit<AppSettings, "model" | "narration"> & {
-  model: Omit<ModelSettings, "structured_output_capability" | "max_concurrency"> & {
+  model: Omit<ModelSettings, "protocol" | "structured_output_capability" | "max_concurrency"> & {
+    protocol?: ModelProtocol;
     structured_output_capability?: ModelSettings["structured_output_capability"];
     max_concurrency?: number;
   };
@@ -239,6 +247,7 @@ export function normalizeAppSettings(settings: AppSettingsResponse): AppSettings
     },
     model: {
       ...settings.model,
+      protocol: settings.model.protocol ?? "openai",
       max_concurrency: settings.model.max_concurrency ?? 2,
       structured_output: settings.model.structured_output === true && capability === "supported",
       structured_output_capability: capability,
@@ -317,6 +326,10 @@ export interface CharacterCandidate {
     sp?: ResourceValue;
     st?: ResourceValue;
   };
+  starting_currency?: {
+    copper: number;
+    reason: string;
+  };
   power: {
     base: number;
     effective: number;
@@ -328,7 +341,6 @@ export interface CharacterCandidate {
   summary?: string;
   strengths?: string[];
   limitations?: string[];
-  warnings?: string[];
   valid?: boolean;
 }
 
@@ -408,6 +420,14 @@ export interface CharacterState {
   equipment_power: number;
   effective_power: number;
   power_modifiers: PowerModifier[];
+  conditions: Record<string, {
+    id: string;
+    name: string;
+    description: string;
+    temporary: boolean;
+    expires_at: string | null;
+    source: string;
+  }>;
   profession: string | null;
   growth_path: string | null;
   talents: AbilityEntry[];
@@ -420,6 +440,14 @@ export interface CharacterState {
 export interface StoryLocation {
   id: string;
   name: string;
+  type?: string;
+  scope?: "world" | "region" | "place";
+  parent_id?: string | null;
+  region_id?: string;
+  jurisdiction_id?: ReputationKey | null;
+  description?: string;
+  canonical?: boolean;
+  created_turn_version_id?: string | null;
   safeguards?: string[];
   legacy_start_protection?: boolean;
   prerequisite?: StartPrerequisite;
@@ -441,6 +469,12 @@ export interface StoryState {
   bonds: Record<string, Bond>;
   reputations: Record<ReputationKey, Reputation>;
   locations: Record<string, StoryLocation>;
+  location_statuses: Record<string, {
+    status: string;
+    accessible: boolean;
+    description: string;
+    reason: string;
+  }>;
   world_flags: Record<string, string | number | boolean | null>;
 }
 
@@ -456,6 +490,8 @@ export interface AuthoritativeChange {
   old: unknown;
   new: unknown;
   reason: string;
+  display_name?: string;
+  force_display?: boolean;
   old_level?: string;
   new_level?: string;
 }
@@ -523,6 +559,8 @@ export interface InventoryItem {
   description: string;
   quantity: number;
   power: number;
+  power_class: "ordinary" | "high_rank" | "exceptional";
+  power_basis: string;
   equipped: boolean;
   source: string;
 }
@@ -564,6 +602,7 @@ export interface JournalEntry {
 
 export interface MemoryEntry {
   id: string;
+  memory_number: number;
   save_id: string;
   status: "active" | "resolved" | "superseded";
   kind: string;

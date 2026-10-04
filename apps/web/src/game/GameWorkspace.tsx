@@ -296,7 +296,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
   const stateBusy = submittingState || isNarrativeJobActive(data.story.active_job);
   const arcBusy = submittingArc || isNarrativeJobActive(data.story.active_arc_job);
   return <div className="page game-page">
-    <header className="game-header"><div><span className="ready-mark">游戏档案</span><h1>{data.projections.character.identity.name || data.bootstrap.character.identity?.name || "未命名角色"}</h1><p>{data.story.state.time.label} · {data.story.state.location.name} · 状态版本 {data.story.state.state_version}</p></div><div className="revision-mark">存档修订 {data.bootstrap.save_revision}</div></header>
+    <header className="game-header"><div><span className="ready-mark">游戏档案</span><h1>{data.projections.character.identity.name || data.bootstrap.character.identity?.name || "未命名角色"}</h1><p>{data.story.state.time.label} · {data.story.state.location.name}</p></div></header>
     {notice && <div key={notice.id} className={`game-notice ${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}><span aria-hidden="true">{notice.tone === "error" ? "!" : "◇"}</span><p>{notice.text}{notice.traceId && <small>追踪编号：{notice.traceId}</small>}</p><button type="button" onClick={() => setNotice(null)} aria-label="关闭游戏提示">×</button></div>}
     <nav className="game-tabs" role="tablist" aria-label="游戏工作区" onKeyDown={(event) => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;

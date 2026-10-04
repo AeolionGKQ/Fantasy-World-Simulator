@@ -18,9 +18,12 @@ if str(APPS_DIR) not in sys.path:
 
 from api.database import SecretStore
 from api.model_provider import (THINKING_CONFIG_VERSION, THINKING_STRATEGIES,
+                                AnthropicCompatibleProvider, ModelProvider,
                                 OpenAICompatibleProvider, ProviderError, _request,
                                 is_explicit_concurrency_rejection,
-                                is_explicit_parameter_rejection, thinking_parameters)
+                                is_explicit_parameter_rejection, thinking_parameters,
+                                thinking_capability_key, response_format_capability_key,
+                                validate_candidate)
 from api.server import AppContext, create_server
 
 
@@ -36,10 +39,10 @@ VALID_PROPOSAL = {
         "sp": {"max": 180, "reason": "精神状态稳定。"},
         "st": {"max": 260, "reason": "具备持续活动能力。"},
     },
+    "starting_currency": {"copper": 450, "reason": "边境家庭准备了基础旅费。"},
     "summary": "擅长学习与持续探索的均衡角色。",
     "strengths": ["学习迅速", "状态稳定"],
     "limitations": ["缺少高强度实战经验"],
-    "warnings": [],
 }
 
 
@@ -63,8 +66,7 @@ class FakeProvider:
         self.test_calls += 1
         self.test_config = dict(config)
         self.test_api_key = api_key
-        thinking = (cached_capability if not force_thinking_probe and cached_capability and
-                    cached_capability.get("confidence") != "unknown" else {
+        thinking = (cached_capability if not force_thinking_probe else {
                     "capability": "controlled", "strategy": "enable_thinking",
                     "confidence": "verified", "message": "已验证思考控制参数：enable_thinking。",
                 })
@@ -293,11 +295,42 @@ class ProviderTestCase(unittest.TestCase):
         self.assertEqual(VALID_PROPOSAL, result)
         self.assertIn("response_format", requests[0])
         self.assertNotIn("response_format", requests[1])
+        self.assertTrue(all("temperature" not in request for request in requests))
         context = json.loads(requests[1]["messages"][1]["content"])["generation_context"]
         self.assertEqual(320, context["base_power"])
         self.assertEqual("人类", context["race"]["name"])
         self.assertEqual("维尔瑟亚大联合学院", context["start_location"]["name"])
+        self.assertTrue(any("1金币=100银币=10000铜币" in baseline
+                            for baseline in context["world_baselines"]))
+        system_prompt = requests[1]["messages"][0]["content"]
+        self.assertIn("starting_currency", system_prompt)
+        self.assertIn("身世与家世", system_prompt)
+        self.assertIn("regeneration_feedback仅用于指导本次调整", system_prompt)
+        self.assertIn("不要出现‘根据反馈’", system_prompt)
+        self.assertEqual("旅行者", json.loads(requests[1]["messages"][1]["content"])["draft"]["backstory"])
         self.assertLess(len(json.dumps(context, ensure_ascii=False)), 3000)
+
+    def test_starting_currency_is_required_positive_and_explained(self):
+        valid = validate_candidate(json.loads(json.dumps(VALID_PROPOSAL, ensure_ascii=False)), 3)
+        self.assertEqual({"copper": 450, "reason": "边境家庭准备了基础旅费。"},
+                         valid["starting_currency"])
+        self.assertEqual("character-candidate/2", valid["contract_version"])
+        for value in (0, -1, 1.5, True, 1_000_000_001):
+            proposal = json.loads(json.dumps(VALID_PROPOSAL, ensure_ascii=False))
+            proposal["starting_currency"]["copper"] = value
+            with self.subTest(value=value), self.assertRaises(ProviderError):
+                validate_candidate(proposal, 3)
+        for reason in ("", "   ", "x" * 2001):
+            proposal = json.loads(json.dumps(VALID_PROPOSAL, ensure_ascii=False))
+            proposal["starting_currency"]["reason"] = reason
+            with self.subTest(reason_length=len(reason)), self.assertRaises(ProviderError):
+                validate_candidate(proposal, 3)
+        missing = json.loads(json.dumps(VALID_PROPOSAL, ensure_ascii=False))
+        del missing["starting_currency"]
+        with self.assertRaises(ProviderError):
+            validate_candidate(missing, 3)
+        self.assertNotIn("starting_currency",
+                         validate_candidate(missing, 3, allow_legacy_missing_currency=True))
 
     def test_request_retries_429_retry_after_and_5xx(self):
         url = "https://model.example/v1/models"
@@ -308,7 +341,150 @@ class ProviderTestCase(unittest.TestCase):
         ]
         with mock.patch("urllib.request.urlopen", side_effect=effects) as call, mock.patch("time.sleep"):
             self.assertEqual({"data": []}, _request(url, "key", 1))
-        self.assertEqual(3, call.call_count)
+            self.assertEqual(3, call.call_count)
+
+    def test_narrative_generation_disables_hidden_transport_retries(self):
+        provider = OpenAICompatibleProvider()
+        config = self.config()
+        messages = [{"role": "user", "content": "返回JSON"}]
+        with mock.patch("api.model_provider._request", side_effect=ProviderError(
+                "MODEL_TIMEOUT", "模型服务请求超时", True)) as request:
+            with self.assertRaises(ProviderError):
+                provider.generate_narrative(config, "key", messages)
+        self.assertEqual(0, request.call_args.kwargs["max_retries"])
+
+    def test_story_arc_forces_thinking_on_when_narrative_toggle_is_off(self):
+        response = {"choices": [{"message": {"content": json.dumps({
+            "schema_version": "story-arc/1", "title": "弧", "summary": "摘要",
+            "key_events": [], "unresolved": []})}}]}
+        requests = []
+
+        def respond(request, timeout):
+            requests.append(json.loads(request.data.decode("utf-8")))
+            return FakeHttpResponse(response)
+
+        config = {**self.config(), "structured_output": False,
+                  "thinking_strategy": "enable_thinking", "thinking_confidence": "verified",
+                  "thinking_enabled": False}
+        with mock.patch("urllib.request.urlopen", side_effect=respond):
+            OpenAICompatibleProvider().generate_story_arc(config, "key", [])
+        self.assertTrue(requests[0]["enable_thinking"])
+
+    def test_anthropic_messages_request_headers_system_and_text_blocks(self):
+        requests = []
+        response = {"content": [
+            {"type": "thinking", "thinking": "hidden"},
+            {"type": "text", "text": json.dumps(VALID_PROPOSAL, ensure_ascii=False)},
+        ]}
+
+        def respond(request, timeout):
+            requests.append(request)
+            return FakeHttpResponse(response)
+
+        config = {**self.config(), "protocol": "anthropic", "structured_output": False}
+        with mock.patch("urllib.request.urlopen", side_effect=respond):
+            result = ModelProvider().generate_character(config, "secret-key", {"rank": 3})
+        self.assertEqual(VALID_PROPOSAL, result)
+        request = requests[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual("https://model.example/v1/messages", request.full_url)
+        self.assertEqual("secret-key", request.headers["X-api-key"])
+        self.assertEqual("2023-06-01", request.headers["Anthropic-version"])
+        self.assertNotIn("Authorization", request.headers)
+        self.assertIn("角色属性生成器", payload["system"])
+        self.assertEqual(["user"], [message["role"] for message in payload["messages"]])
+        self.assertGreaterEqual(payload["max_tokens"], 4096)
+        self.assertNotIn("temperature", payload)
+
+        requests.clear()
+        config["base_url"] = "https://api.anthropic.com"
+        with mock.patch("urllib.request.urlopen", side_effect=respond):
+            ModelProvider().generate_character(config, "secret-key", {"rank": 3})
+        self.assertEqual("https://api.anthropic.com/v1/messages", requests[0].full_url)
+
+        requests.clear()
+        config["base_url"] = "https://api.anthropic.com/v1/messages"
+        with mock.patch("urllib.request.urlopen", side_effect=respond):
+            ModelProvider().generate_character(config, "secret-key", {"rank": 3})
+        self.assertEqual("https://api.anthropic.com/v1/messages", requests[0].full_url)
+
+        requests.clear()
+        config["base_url"] = "https://model.example/v1"
+        config.update({"structured_output": True,
+                       "structured_output_strategy": "anthropic_json_schema"})
+        with mock.patch("urllib.request.urlopen", side_effect=respond):
+            ModelProvider().generate_character(config, "secret-key", {"rank": 3})
+        schema = json.loads(requests[0].data.decode("utf-8"))["output_config"]["format"]["schema"]
+        self.assertEqual(["con", "int", "cha"], schema["properties"]["attributes"]["required"])
+
+    def test_anthropic_thinking_probe_and_story_arc_controls(self):
+        requests = []
+
+        def accept(request, timeout):
+            requests.append(json.loads(request.data.decode("utf-8")))
+            return FakeHttpResponse({"content": [{"type": "text", "text": json.dumps({
+                "schema_version": "story-arc/1", "title": "弧", "summary": "摘要",
+                "key_events": [], "unresolved": []})}]})
+
+        config = {**self.config(), "protocol": "anthropic", "structured_output": False}
+        provider = AnthropicCompatibleProvider()
+        with mock.patch("urllib.request.urlopen", side_effect=accept):
+            capability = provider._probe_thinking(config, "key", 1)
+        self.assertEqual("anthropic_adaptive", capability["strategy"])
+        self.assertEqual({"type": "disabled"}, requests[0]["thinking"])
+        self.assertEqual({"type": "adaptive"}, requests[1]["thinking"])
+
+        def sonnet_55(request, timeout):
+            payload = json.loads(request.data.decode("utf-8"))
+            requests.append(payload)
+            if payload.get("thinking", {}).get("type") == "disabled":
+                raise self.http_error(400, {"error": {"message": (
+                    'To turn thinking off on this model, send "thinking": '
+                    '{"type": "between_tools"} instead of {"type": "disabled"}.')}})
+            return FakeHttpResponse({"content": [{"type": "text", "text": "OK"}]})
+
+        requests.clear()
+        with mock.patch("urllib.request.urlopen", side_effect=sonnet_55):
+            capability = provider._probe_thinking(config, "key", 1)
+        self.assertEqual("anthropic_adaptive_between_tools", capability["strategy"])
+        self.assertEqual({"type": "between_tools"}, requests[1]["thinking"])
+        self.assertEqual({"type": "adaptive"}, requests[2]["thinking"])
+
+        requests.clear()
+        config.update({"thinking_strategy": "anthropic_enabled",
+                       "thinking_confidence": "verified", "thinking_enabled": False})
+        with mock.patch("urllib.request.urlopen", side_effect=accept):
+            provider.generate_story_arc(config, "key", [{"role": "system", "content": "规则"}])
+        self.assertEqual({"type": "enabled", "budget_tokens": 2048}, requests[0]["thinking"])
+        self.assertNotIn("temperature", requests[0])
+
+    def test_anthropic_connection_and_structured_output_probe(self):
+        requests = []
+
+        def accept(request, timeout):
+            requests.append(json.loads(request.data.decode("utf-8")))
+            payload = requests[-1]
+            text = '{"ok":true}' if "output_config" in payload else "OK"
+            return FakeHttpResponse({"content": [{"type": "text", "text": text}]})
+
+        config = {**self.config(), "protocol": "anthropic"}
+        cached = {"capability": "controlled", "strategy": "anthropic_adaptive",
+                  "confidence": "verified", "message": "ok"}
+        with mock.patch("urllib.request.urlopen", side_effect=accept):
+            connected = AnthropicCompatibleProvider().test_connection(config, "key", cached)
+            structured = AnthropicCompatibleProvider().probe_response_format(config, "key")
+        self.assertTrue(connected["connected"])
+        self.assertEqual("supported", structured["capability"])
+        self.assertEqual("anthropic_json_schema", structured["strategy"])
+        self.assertNotIn("response_format", requests[-1])
+        self.assertEqual("json_schema", requests[-1]["output_config"]["format"]["type"])
+
+    def test_protocol_is_part_of_capability_identity(self):
+        openai = {**self.config(), "protocol": "openai"}
+        anthropic = {**self.config(), "protocol": "anthropic"}
+        self.assertNotEqual(thinking_capability_key(openai), thinking_capability_key(anthropic))
+        self.assertNotEqual(response_format_capability_key(openai),
+                            response_format_capability_key(anthropic))
 
     def test_request_stops_retrying_explicit_concurrency_429(self):
         url = "https://model.example/v1/models"
@@ -351,7 +527,7 @@ class ProviderTestCase(unittest.TestCase):
             result = OpenAICompatibleProvider().test_connection(self.config(), "key")
         self.assertTrue(result["connected"])
         self.assertTrue(result["may_have_cost"])
-        self.assertEqual(3, call.call_count)
+        self.assertEqual(2, call.call_count)
 
     def test_transient_network_error_is_retried(self):
         effects = [urllib.error.URLError("temporary"), FakeHttpResponse({"data": []})]
@@ -441,6 +617,7 @@ class ProviderTestCase(unittest.TestCase):
         self.assertEqual("supported", result["capability"])
         self.assertEqual({"type": "json_object"}, requests[0]["response_format"])
         self.assertEqual(8, requests[0]["max_tokens"])
+        self.assertNotIn("temperature", requests[0])
 
     def test_response_format_probe_only_explicit_rejection_is_unsupported(self):
         provider = OpenAICompatibleProvider()
@@ -455,6 +632,22 @@ class ProviderTestCase(unittest.TestCase):
             with self.subTest(error=error), mock.patch(
                     "urllib.request.urlopen", side_effect=error), self.assertRaises(ProviderError):
                 provider.probe_response_format(self.config(), "key")
+
+    def test_settings_model_checks_cap_timeout_and_disable_transport_retries(self):
+        provider = OpenAICompatibleProvider()
+        config = self.config()
+        config["timeout_seconds"] = 600
+        with mock.patch("api.model_provider._request", return_value={"data": [
+                {"id": config["model"]}]}) as request:
+            provider.test_connection(config, "key", {
+                "confidence": "verified", "capability": "controlled",
+                "strategy": "thinking", "message": "ok"})
+        self.assertEqual(30.0, request.call_args.args[2])
+        self.assertEqual(0, request.call_args.kwargs["max_retries"])
+        with mock.patch("api.model_provider._request", return_value=None) as request:
+            provider.probe_response_format(config, "key")
+        self.assertEqual(30.0, request.call_args.args[2])
+        self.assertEqual(0, request.call_args.kwargs["max_retries"])
 
     def test_generation_uses_control_values_and_falls_back_without_controls(self):
         proposal_response = {"choices": [{"message": {"content": json.dumps(VALID_PROPOSAL)}}]}
@@ -918,9 +1111,10 @@ class ApiTestCase(unittest.TestCase):
             "thinking_enabled": False, "api_key": "unsaved-secret",
         })
         self.assertTrue(result["ok"])
-        self.assertEqual("controlled", result["thinking_capability"])
-        self.assertEqual("enable_thinking", result["thinking_strategy"])
-        self.assertEqual("verified", result["thinking_confidence"])
+        self.assertEqual("unknown", result["thinking_capability"])
+        self.assertIsNone(result["thinking_strategy"])
+        self.assertEqual("unknown", result["thinking_confidence"])
+        self.assertEqual(0, self.provider.probe_calls)
         self.assertEqual("https://unsaved.example/v1", self.provider.test_config["base_url"])
         self.assertEqual("unsaved-model", self.provider.test_config["model"])
         self.assertEqual("unsaved-secret", self.provider.test_api_key)
@@ -1190,21 +1384,37 @@ class ApiTestCase(unittest.TestCase):
         self.assertNotIn("max_concurrency", missing)
         self.assertEqual(2, db.get_settings()["model"]["max_concurrency"])
 
+    def test_memory_cleanup_migration_removes_legacy_inactive_rows(self):
+        db = self.server.app_context.database
+        with db.connect() as connection:
+            connection.execute("PRAGMA foreign_keys=OFF")
+            for status in ("resolved", "superseded"):
+                connection.execute(
+                    "INSERT INTO memories VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    ("legacy-" + status, "missing-save", status, "clue", "旧记忆", 1,
+                     "[]", "[]", "[]", "[]", "[]", None,
+                     "missing-turn", "missing-version", "2026-09-29T00:00:00+00:00"))
+            connection.execute("DELETE FROM schema_migrations WHERE version=8")
+        db._initialize()
+        with db.connect() as connection:
+            self.assertEqual(0, connection.execute(
+                "SELECT COUNT(*) FROM memories WHERE status<>'active'").fetchone()[0])
+
     def test_thinking_capability_cache_hits_and_config_changes_invalidate(self):
         first = self.request("POST", "/api/settings/model/test", {
             "base_url": "https://cache.example/v1", "model": "model-a",
             "timeout_seconds": 10, "structured_output": True,
             "max_concurrency": 1, "thinking_enabled": True,
         })
-        self.assertEqual("verified", first["thinking_confidence"])
+        self.assertEqual("unknown", first["thinking_confidence"])
         second = self.request("POST", "/api/settings/model/test", {
             "base_url": "https://cache.example/v1", "model": "model-a",
             "timeout_seconds": 10, "structured_output": True,
             "max_concurrency": 1, "thinking_enabled": True,
         })
-        self.assertEqual("verified", second["thinking_confidence"])
+        self.assertEqual("unknown", second["thinking_confidence"])
         self.assertEqual(2, self.provider.test_calls)
-        self.assertEqual(1, self.provider.probe_calls)
+        self.assertEqual(0, self.provider.probe_calls)
         forced = self.request("POST", "/api/settings/model/test", {
             "base_url": "https://cache.example/v1", "model": "model-a",
             "timeout_seconds": 10, "structured_output": True,
@@ -1213,7 +1423,7 @@ class ApiTestCase(unittest.TestCase):
         })
         self.assertEqual("verified", forced["thinking_confidence"])
         self.assertEqual(3, self.provider.test_calls)
-        self.assertEqual(2, self.provider.probe_calls)
+        self.assertEqual(1, self.provider.probe_calls)
         capability = self.server.app_context.database.get_model_capability({
             "base_url": "https://cache.example/v1", "model": "model-a"})
         self.assertEqual("controlled", capability["capability"])
@@ -1419,6 +1629,7 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(candidate["power"]["base"], candidate["power"]["effective"])
         self.assertEqual(0, candidate["exp"])
         self.assertEqual(240, candidate["resources"]["hp"]["current"])
+        self.assertEqual(450, candidate["starting_currency"]["copper"])
         conflict = self.start_generation(save["id"], draft["draft_revision"], save["revision"],
                                          "same-request", expected=409, feedback="不同意见")
         self.assertEqual("IDEMPOTENCY_CONFLICT", conflict["error"]["code"])
@@ -1599,6 +1810,42 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(0, context._active_provider_calls)
         self.assertEqual(0, context._provider_fallback_retries)
 
+    def test_serial_concurrency_fallback_preserves_output_format_error(self):
+        context = self.server.app_context
+        config = {"base_url": "https://model.example/v1", "model": "model-a",
+                  "max_concurrency": 2, "_settings_revision": 0}
+        active_entered = threading.Event()
+        release_active = threading.Event()
+
+        def active_call():
+            active_entered.set()
+            release_active.wait(2)
+
+        active = threading.Thread(target=lambda: context._call_provider_with_concurrency_fallback(
+            config, active_call))
+        active.start()
+        self.assertTrue(active_entered.wait(1))
+        calls = []
+
+        def reject_then_bad_output():
+            calls.append(1)
+            if len(calls) == 1:
+                raise ProviderError("MODEL_RATE_LIMITED", "首次并发拒绝", True, 429,
+                                    "too many concurrent requests")
+            raise ProviderError("MODEL_OUTPUT_FORMAT", "JSON第2行无效")
+
+        timer = threading.Timer(0.05, release_active.set)
+        timer.start()
+        try:
+            with self.assertRaises(ProviderError) as raised:
+                context._call_provider_with_concurrency_fallback(config, reject_then_bad_output)
+        finally:
+            timer.cancel()
+            release_active.set()
+        active.join(2)
+        self.assertEqual("MODEL_OUTPUT_FORMAT", raised.exception.code)
+        self.assertIn("第2行", raised.exception.message)
+
     def test_fallback_retry_runs_before_waiters_admitted_under_limit_one(self):
         context = self.server.app_context
         provider = DrainingProvider()
@@ -1662,7 +1909,8 @@ class ApiTestCase(unittest.TestCase):
         settings = self.request("GET", "/api/settings")
         self.assertEqual(4, settings["model"]["max_concurrency"])
         self.assertEqual(newer["revision"], settings["revision"])
-        identity = (old["model"]["base_url"], old["model"]["model"])
+        identity = (old["model"].get("protocol", "openai"),
+                    old["model"]["base_url"], old["model"]["model"])
         self.assertEqual({"configured": 4, "effective": 4,
                           "revision": newer["revision"]},
                          context._effective_provider_limit[identity])
@@ -1715,7 +1963,7 @@ class ApiTestCase(unittest.TestCase):
         candidate = self.request("GET", f"/api/saves/{save['id']}/character-candidate")
         self.assertEqual(100000, candidate["power"]["base"])
         self.assertIsNone(candidate["next_exp"])
-        self.assertTrue(any("七阶及以上" in warning for warning in candidate["warnings"]))
+        self.assertNotIn("warnings", candidate)
 
     def test_invalid_model_output_fails_without_candidate(self):
         self.configure_model()
@@ -1771,6 +2019,7 @@ class ApiTestCase(unittest.TestCase):
         character = bootstrap["character"]
         self.assertEqual(0, character["exp"])
         self.assertEqual(320, character["power"]["base"])
+        self.assertEqual(450, character["starting_currency"]["copper"])
         candidate_id = character["id"]
         # Reusing the same confirmation request is idempotent even after the save becomes ready.
         repeated = self.request("POST", f"/api/saves/{save_id}/character/confirm", {
@@ -1807,10 +2056,51 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual(save_id, imported["source_save_id"])
         imported_bootstrap = self.request("GET", f"/api/saves/{imported['id']}/game-bootstrap")
         self.assertEqual("艾琳", imported_bootstrap["character"]["identity"]["name"])
+        self.assertEqual(450, imported_bootstrap["character"]["starting_currency"]["copper"])
         malicious = json.loads(json.dumps(exported, ensure_ascii=False))
         malicious["api_key"] = "must-not-import"
         rejected = self.request("POST", "/api/saves/import/validate", malicious, 400)
         self.assertEqual("IMPORT_CONTAINS_SECRET", rejected["error"]["code"])
+
+    def test_import_accepts_character_reason_edit_without_matching_candidate(self):
+        save_id, _ = self.ready_save("手工修改角色说明")
+        exported = self.request("GET", f"/api/saves/{save_id}/export")
+        original_candidate_reason = exported["candidate"]["attributes"]["cha"]["reason"]
+        exported["character"]["attributes"]["cha"]["reason"] = "手工修改后的魅力说明。"
+        preview = self.request("POST", "/api/saves/import/validate", exported)
+        self.assertTrue(preview["valid"])
+        imported = self.request("POST", "/api/saves/import", {
+            "request_id": "edited-character-reason", "payload": exported,
+        }, 201)
+        bootstrap = self.request("GET", f"/api/saves/{imported['id']}/game-bootstrap")
+        self.assertEqual("手工修改后的魅力说明。",
+                         bootstrap["character"]["attributes"]["cha"]["reason"])
+        self.assertNotEqual(original_candidate_reason,
+                            bootstrap["character"]["attributes"]["cha"]["reason"])
+
+    def test_legacy_save_without_starting_currency_keeps_zero_balance(self):
+        save_id, _ = self.ready_save("旧版钱财存档")
+        exported = self.request("GET", f"/api/saves/{save_id}/export")
+        exported["candidate"].pop("starting_currency")
+        exported["candidate"].pop("contract_version")
+        exported["character"].pop("initial_currency_copper")
+        exported["character"].pop("starting_currency_reason")
+        exported["character"]["provenance"]["output_contract_version"] = "character-candidate/1"
+        exported["character"]["provenance"]["prompt_version"] = "character-generator/1"
+        self.assertTrue(self.request("POST", "/api/saves/import/validate", exported)["valid"])
+        imported = self.request("POST", "/api/saves/import", {
+            "request_id": "legacy-currency-import", "payload": exported,
+        }, 201)
+        bootstrap = self.request("GET", f"/api/saves/{imported['id']}/game-bootstrap")
+        self.assertNotIn("starting_currency", bootstrap["character"])
+        self.assertEqual(0, bootstrap["story"]["state"]["currency_copper"])
+
+    def test_current_candidate_cannot_drop_starting_currency(self):
+        save_id, _ = self.ready_save("钱财契约防篡改")
+        exported = self.request("GET", f"/api/saves/{save_id}/export")
+        exported["candidate"].pop("starting_currency")
+        rejected = self.request("POST", "/api/saves/import/validate", exported, 400)
+        self.assertIn("candidate", rejected["error"]["fields"])
 
     def test_import_rejects_malformed_nested_data_and_normalizes_storage(self):
         save_id, _ = self.ready_save("严格导入")

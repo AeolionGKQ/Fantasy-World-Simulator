@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "./api";
 import { canMutateModelSettings, canStartSettingRequest, invalidateModelCapabilities, isCurrentModelTestResponse, mergeModelTestCapability, mergeSavedModelSettings, mergeSavedNarrationSettings, modelCapabilityKey, resetStructuredOutputCapability, resolveCompletedGeneration, structuredOutputProbePayload, thinkingCapabilityMessage, thinkingStrategyLabel } from "./App";
-import { currentArcMerge, formatChange, isNarrativeJobActive, isStoryReadOnly, orderReputations, questProjectionFromResponse, refreshedViewedTurn, reputationNames, resourceCondition, resourceExhaustion, validateArcSelection } from "./game/helpers";
+import { currentArcMerge, formatChange, isNarrativeJobActive, isStoryReadOnly, orderReputations, questProjectionFromResponse, refreshedViewedTurn, reputationNames, resourceCondition, resourceExhaustion, validateArcSelection, visibleAuthoritativeChanges } from "./game/helpers";
 import {
   appendPreset,
   chineseRankNumeral,
@@ -145,7 +145,7 @@ describe("API DTO contracts", () => {
       revision: 1,
     };
     expect(normalizeAppSettings(settings).model).toEqual(expect.objectContaining({
-      structured_output: false, structured_output_capability: "unknown",
+      protocol: "openai", structured_output: false, structured_output_capability: "unknown",
     }));
     expect(normalizeAppSettings(settings).narration.player_address).toBe("second_person");
   });
@@ -260,6 +260,7 @@ describe("API DTO contracts", () => {
       "reasoning.enabled", "reasoning.effort", "thinking_config.thinking_budget",
     ]);
     expect(thinkingStrategyLabel("bundle")).toBe("七种兼容参数组合");
+    expect(thinkingStrategyLabel("anthropic_adaptive_between_tools")).toContain("between_tools");
   });
 
   it("叙事写请求始终携带状态版本和请求 ID", async () => {
@@ -433,6 +434,20 @@ describe("API DTO contracts", () => {
     expect(mergeModelTestCapability(current, oldKey, staleResult, true)).toBe(current);
   });
 
+  it("协议参与模型能力身份并隔离过期响应", () => {
+    const openaiKey = modelCapabilityKey("openai", "https://same.example/v1", "same-model");
+    const anthropicKey = modelCapabilityKey("anthropic", "https://same.example/v1", "same-model");
+    expect(openaiKey).not.toBe(anthropicKey);
+    const current = normalizeAppSettings({
+      model: { base_url: "https://same.example/v1", model: "same-model", api_key_configured: false,
+        timeout_seconds: 30, structured_output: false, thinking_enabled: true,
+        thinking_capability: "unknown", thinking_confidence: "unknown", protocol: "anthropic" },
+      narration: { pace: "dynamic", tendency: "balanced", detail: "standard" }, revision: 1,
+    });
+    expect(isCurrentModelTestResponse(current, openaiKey, 1, 1)).toBe(false);
+    expect(isCurrentModelTestResponse(current, anthropicKey, 1, 1)).toBe(true);
+  });
+
   it("模型保存和探测期间锁定所有模型设置变更", () => {
     expect(canMutateModelSettings("idle", "idle")).toBe(true);
     expect(canMutateModelSettings("saved", "idle")).toBe(true);
@@ -508,10 +523,66 @@ describe("game workspace helpers", () => {
 
   it("格式化权威变化中的层级和基础值", () => {
     expect(formatChange({ kind: "resource", key: "hp", old: 100, new: 72, reason: "受伤" })).toEqual({
-      label: "资源 · 生命", value: "100 → 72", reason: "受伤",
+      label: "生命", value: "100 → 72", reason: "受伤",
     });
     expect(formatChange({ kind: "reputation", key: "continental_overall", old: 0, new: 30,
-      old_level: "中立", new_level: "声名良好", reason: "公开善举" }).value).toBe("中立 → 声名良好");
+      old_level: "中立", new_level: "声名良好", reason: "公开善举" }).value).toBe("中立 0 → 声名良好 30");
+  });
+
+  it("每回合只显示主要变化且不暴露后台标识", () => {
+    const uuid = "npc.5d9d0ce7-ea32-4ce1-8550-1ab6f6894a37";
+    const visible = visibleAuthoritativeChanges([
+      { kind: "npc", key: uuid, old: null, new: { name: "伊索尔·维恩" }, reason: "开场角色" },
+      { kind: "location", key: "current_location_id", old: "grand_academy", new: "dynamic.123", reason: "移动" },
+      { kind: "time", key: "time_label", old: "上午", new: "下午", reason: "时间经过" },
+      { kind: "world_flag", key: "internal.system.flag", old: null, new: true, reason: "系统记录" },
+      { kind: "warning", key: "gm_warning", old: null, new: "fallback", reason: "系统提示" },
+      { kind: "item", key: "item.95b776c1", display_name: "旅行短剑", old: null,
+        new: { name: "旅行短剑", quantity: 1 }, reason: "拾取" },
+      { kind: "bond", key: uuid, display_name: "伊索尔·维恩", old: 0, new: 5,
+        old_level: "普通/陌生", new_level: "普通/陌生", reason: "建立信任" },
+      { kind: "quest", key: "quest.internal-id", display_name: "遗失的潮音",
+        old: "offered", new: "active", reason: "接受委托" },
+      { kind: "bond", key: "npc.no-op", display_name: "路人", old: 0, new: 0,
+        old_level: "普通/陌生", new_level: "普通/陌生", reason: "没有变化" },
+    ]);
+    expect(visible).toEqual([
+      { label: "旅行短剑", value: "无 → 旅行短剑 × 1", reason: "拾取" },
+      { label: "伊索尔·维恩好感度", value: "普通/陌生 0 → 普通/陌生 5", reason: "建立信任" },
+      { label: "遗失的潮音", value: "已提供 → 进行中", reason: "接受委托" },
+    ]);
+    expect(JSON.stringify(visible)).not.toContain("5d9d0ce7");
+    expect(JSON.stringify(visible)).not.toContain("quest.internal-id");
+    expect(JSON.stringify(visible)).not.toContain("dynamic.123");
+  });
+
+  it("清理旧剧情主要变化里夹带的内部引用", () => {
+    const visible = visibleAuthoritativeChanges([{
+      kind: "bond", key: "npc.5d9d0ce7-ea32-4ce1-8550-1ab6f6894a37",
+      display_name: "npc.5d9d0ce7-ea32-4ce1-8550-1ab6f6894a37",
+      old: 0, new: 5, old_level: "普通/陌生", new_level: "普通/陌生",
+      reason: "与 npc.5d9d0ce7-ea32-4ce1-8550-1ab6f6894a37 建立信任",
+    }]);
+    expect(visible).toEqual([{
+      label: "羁绊好感度", value: "普通/陌生 0 → 普通/陌生 5", reason: "建立信任",
+    }]);
+    expect(JSON.stringify(visible)).not.toContain("5d9d0ce7");
+  });
+
+  it("保留任务进度更新并用自然语言显示装备状态", () => {
+    expect(visibleAuthoritativeChanges([{
+      kind: "quest", key: "quest.internal.7", display_name: "护送商队",
+      old: "progress_updated", new: "progress_updated", force_display: true,
+      reason: "已抵达中途营地",
+    }])).toEqual([{
+      label: "护送商队", value: "进度已更新", reason: "已抵达中途营地",
+    }]);
+    expect(formatChange({
+      kind: "item", key: "item.internal.7.equipped", display_name: "旅行短剑",
+      old: false, new: true, reason: "准备战斗",
+    })).toEqual({
+      label: "旅行短剑装备状态", value: "未装备 → 已装备", reason: "准备战斗",
+    });
   });
 
   it("历史节点只读，活动任务锁定最新节点", () => {
