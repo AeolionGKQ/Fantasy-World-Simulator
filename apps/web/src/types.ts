@@ -205,8 +205,32 @@ export type ThinkingConfidence = "verified" | "accepted_bundle" | "unsupported" 
 
 export interface AppSettings {
   model: ModelSettings;
+  image_model?: ImageModelSettings;
   narration: NarrationSettings;
   revision: number;
+}
+
+export interface ImageModelSettings {
+  base_url: string;
+  model: "gpt-image-2.5-sunburst";
+  timeout_seconds: number;
+  configured: boolean;
+  api_key_configured: boolean;
+  api_key_mask?: string | null;
+  api_key_persistence?: "windows_dpapi" | "memory_only";
+}
+
+export type ImageSize = "1024x1024" | "1536x1024" | "1024x1536";
+export type ImageQuality = "low" | "medium" | "high" | "xhigh" | "max" | "auto";
+export interface SceneImageSession {
+  id: string; save_id: string; source_turn_id: string; status: "active" | "completing" | "completed";
+  prompt_draft: string | null; prompt_revision: number; selected_size: ImageSize;
+  selected_quality: ImageQuality;
+  prompt_attempt: { id: string; status: string; error?: { code: string; message: string; retryable: boolean } | null } | null;
+  image_attempt: { id: string; status: string; requested_size: ImageSize; requested_quality: ImageQuality;
+    image_available: boolean; error?: { code: string; message: string; retryable: boolean } | null } | null;
+  latest_successful_image?: { id: string; status: string; requested_size: ImageSize;
+    requested_quality: ImageQuality; image_available: boolean } | null;
 }
 
 export interface ModelTestResult {
@@ -226,7 +250,7 @@ export interface ModelTestResult {
   may_have_cost?: boolean;
 }
 
-type AppSettingsResponse = Omit<AppSettings, "model" | "narration"> & {
+type AppSettingsResponse = Omit<AppSettings, "model" | "narration" | "image_model"> & {
   model: Omit<ModelSettings, "protocol" | "structured_output_capability" | "max_concurrency"> & {
     protocol?: ModelProtocol;
     structured_output_capability?: ModelSettings["structured_output_capability"];
@@ -235,6 +259,7 @@ type AppSettingsResponse = Omit<AppSettings, "model" | "narration"> & {
   narration: Omit<NarrationSettings, "player_address"> & {
     player_address?: NarrationSettings["player_address"];
   };
+  image_model?: ImageModelSettings;
 };
 
 export function normalizeAppSettings(settings: AppSettingsResponse): AppSettings {
@@ -251,6 +276,10 @@ export function normalizeAppSettings(settings: AppSettingsResponse): AppSettings
       max_concurrency: settings.model.max_concurrency ?? 2,
       structured_output: settings.model.structured_output === true && capability === "supported",
       structured_output_capability: capability,
+    },
+    image_model: settings.image_model ?? {
+      base_url: "https://api.openai.com/v1", model: "gpt-image-2.5-sunburst",
+      timeout_seconds: 300, configured: false, api_key_configured: false,
     },
   };
 }

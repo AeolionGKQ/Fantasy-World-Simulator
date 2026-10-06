@@ -1,5 +1,6 @@
 """OpenAI- and Anthropic-compatible model adapters using the standard library."""
 
+import base64
 import json
 import re
 import socket
@@ -462,7 +463,7 @@ def _raise_http_details(status, provider_message, provider_code, provider_param,
 
 
 def _request(url, api_key, timeout, method="GET", payload=None, max_retries=2,
-             parse_json=True, request_headers=None):
+             parse_json=True, request_headers=None, max_response_bytes=2_000_000):
     headers = {"Accept": "application/json", **(request_headers or {})}
     if api_key and "Authorization" not in headers and "x-api-key" not in headers:
         headers["Authorization"] = "Bearer " + api_key
@@ -474,10 +475,10 @@ def _request(url, api_key, timeout, method="GET", payload=None, max_retries=2,
         request = urllib.request.Request(url, data=body, headers=headers, method=method)
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
-                if getattr(response, "length", None) and response.length > 2_000_000:
+                if getattr(response, "length", None) and response.length > max_response_bytes:
                     raise ProviderError("MODEL_OUTPUT_TOO_LARGE", "模型响应体过大")
-                raw = response.read(2_000_001)
-                if len(raw) > 2_000_000:
+                raw = response.read(max_response_bytes + 1)
+                if len(raw) > max_response_bytes:
                     raise ProviderError("MODEL_OUTPUT_TOO_LARGE", "模型响应体过大")
                 if not parse_json:
                     return None
@@ -1117,6 +1118,62 @@ class ModelProvider:
 
     def probe_response_format(self, config, *args, **kwargs):
         return self._provider(config).probe_response_format(config, *args, **kwargs)
+
+    def generate_image_prompt(self, config, api_key, messages):
+        request_config = dict(config)
+        request_config["structured_output"] = False
+        request_config["thinking_enabled"] = True
+        request_config["_max_transport_retries"] = 0
+        result = self._provider(request_config)._generate_json(
+            request_config, api_key, messages)
+        if not isinstance(result, dict) or set(result) != {"prompt"} or not isinstance(result["prompt"], str):
+            raise ProviderError("MODEL_OUTPUT_FORMAT", "画面提示词响应必须只包含prompt文本")
+        return result["prompt"]
+
+
+class OpenAIImageProvider:
+    MODEL = "gpt-image-2.5-sunburst"
+
+    @staticmethod
+    def _base(base_url):
+        parsed = urllib.parse.urlparse(base_url)
+        if (parsed.scheme != "https" or parsed.hostname != "api.openai.com" or
+                parsed.username is not None or parsed.password is not None or
+                parsed.query or parsed.fragment):
+            raise ProviderError("INVALID_INPUT", "生图API地址必须是https://api.openai.com")
+        normalized = base_url.rstrip("/")
+        return normalized if normalized.endswith("/v1") else normalized + "/v1"
+
+    def test_connection(self, config, api_key):
+        if config.get("model") != self.MODEL:
+            raise ProviderError("INVALID_INPUT", "当前仅支持gpt-image-2.5-sunburst")
+        _request(self._base(config["base_url"]) + "/models/" + self.MODEL, api_key,
+                 min(float(config.get("timeout_seconds", 300)), 30), max_retries=0)
+        return {"ok": True, "message": "生图模型可见，连接测试通过。"}
+
+    def generate(self, config, api_key, prompt, size, quality):
+        if config.get("model") != self.MODEL:
+            raise ProviderError("INVALID_INPUT", "当前仅支持gpt-image-2.5-sunburst")
+        payload = {"model": self.MODEL, "prompt": prompt, "size": size,
+                   "quality": quality, "output_format": "png", "n": 1,
+                   "moderation": "auto"}
+        response = _request(self._base(config["base_url"]) + "/images/generations",
+                            api_key, float(config.get("timeout_seconds", 300)), "POST",
+                            payload, max_retries=0, max_response_bytes=70 * 1024 * 1024)
+        data = response.get("data") if isinstance(response, dict) else None
+        if not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict):
+            raise ProviderError("MODEL_OUTPUT_FORMAT", "生图服务响应缺少唯一图片")
+        encoded = data[0].get("b64_json")
+        if not isinstance(encoded, str):
+            raise ProviderError("MODEL_OUTPUT_FORMAT", "生图服务未返回b64_json")
+        try:
+            image = base64.b64decode(encoded, validate=True)
+        except (ValueError, TypeError):
+            raise ProviderError("MODEL_OUTPUT_FORMAT", "生图服务返回了无效Base64") from None
+        if len(image) > 50 * 1024 * 1024 or not image.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ProviderError("MODEL_OUTPUT_FORMAT", "生图服务返回的PNG无效或过大")
+        return {"bytes": image, "usage": response.get("usage", {}),
+                "request_id": response.get("id")}
 
 
 def validate_candidate(proposal, rank, allow_legacy_missing_currency=False):

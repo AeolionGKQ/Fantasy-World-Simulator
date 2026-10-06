@@ -19,7 +19,7 @@ if str(APPS_DIR) not in sys.path:
 from api.database import SecretStore
 from api.model_provider import (THINKING_CONFIG_VERSION, THINKING_STRATEGIES,
                                 AnthropicCompatibleProvider, ModelProvider,
-                                OpenAICompatibleProvider, ProviderError, _request,
+                                OpenAICompatibleProvider, OpenAIImageProvider, ProviderError, _request,
                                 is_explicit_concurrency_rejection,
                                 is_explicit_parameter_rejection, thinking_parameters,
                                 thinking_capability_key, response_format_capability_key,
@@ -416,6 +416,27 @@ class ProviderTestCase(unittest.TestCase):
             ModelProvider().generate_character(config, "secret-key", {"rank": 3})
         schema = json.loads(requests[0].data.decode("utf-8"))["output_config"]["format"]["schema"]
         self.assertEqual(["con", "int", "cha"], schema["properties"]["attributes"]["required"])
+
+    def test_openai_image_provider_request_and_png_validation(self):
+        png = b"\x89PNG\r\n\x1a\nfixture"
+        requests = []
+        response = {"id": "image-request", "data": [{"b64_json": __import__("base64").b64encode(png).decode()}],
+                    "usage": {"output_tokens": 1}}
+        def respond(request, timeout):
+            requests.append((request, json.loads(request.data.decode("utf-8"))))
+            return FakeHttpResponse(response)
+        config = {"base_url": "https://api.openai.com", "model": "gpt-image-2.5-sunburst",
+                  "timeout_seconds": 30}
+        with mock.patch("urllib.request.urlopen", side_effect=respond):
+            result = OpenAIImageProvider().generate(config, "image-key", "fantasy scene",
+                                                    "1536x1024", "high")
+        self.assertEqual(png, result["bytes"])
+        request, payload = requests[0]
+        self.assertEqual("https://api.openai.com/v1/images/generations", request.full_url)
+        self.assertEqual("gpt-image-2.5-sunburst", payload["model"])
+        self.assertEqual("1536x1024", payload["size"])
+        self.assertEqual("high", payload["quality"])
+        self.assertNotIn("temperature", payload)
 
     def test_anthropic_thinking_probe_and_story_arc_controls(self):
         requests = []

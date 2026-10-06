@@ -470,6 +470,33 @@ ul, dl { margin: 0; }
 .game-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 28px; padding-bottom: 23px; border-bottom: 1px solid var(--line); }
 .game-header h1 { margin: 5px 0 4px; font-size: 2rem; }
 .game-header p { color: var(--muted); }
+.scene-image-button { flex: none; }
+.scene-image-button.unconfigured { opacity: .62; }
+.image-workspace > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 28px; padding-bottom: 22px; border-bottom: 1px solid var(--line); }
+.image-workspace > header p { max-width: 70ch; color: var(--muted); }
+.image-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.image-progress { display: flex; align-items: center; gap: 18px; min-height: 180px; padding: 26px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+.image-progress > span { display: grid; place-items: center; width: 44px; height: 44px; color: var(--primary); border: 1px solid currentColor; animation: pulse 1.8s infinite; }
+.image-progress p, .image-options p { color: var(--muted); }
+.image-editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 34px; }
+.image-prompt-editor textarea { min-height: 330px; }
+.image-prompt-editor > small { display: block; margin-top: 6px; color: var(--muted); text-align: right; }
+.image-options { display: grid; align-content: start; gap: 18px; }
+.image-options .choice-field > div { display: grid; grid-template-columns: repeat(3, 1fr); }
+.image-options .choice-field label span { min-height: 52px; }
+.image-options .choice-field small { display: block; color: var(--muted); font-size: .68rem; }
+.image-options > button { width: 100%; }
+.cost-confirm { display: flex; align-items: flex-start; gap: 8px; color: var(--warning); font-size: .78rem; }
+.cost-confirm input { margin-top: 3px; }
+.image-result { margin-top: 30px; }
+.image-result > button { display: block; width: 100%; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; cursor: zoom-in; overflow: hidden; }
+.image-result img { display: block; width: 100%; height: auto; }
+.image-result > div { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 12px; }
+.image-result > div > span { margin-right: auto; color: var(--muted); font-size: .82rem; }
+.image-dialog { width: min(94vw, 1500px); max-height: 94vh; padding: 0; background: var(--bg); border: 1px solid var(--line-strong); }
+.image-dialog::backdrop { background: oklch(0.02 0.01 220 / .86); }
+.image-dialog > button { position: sticky; z-index: 1; top: 8px; float: right; width: 44px; height: 44px; margin: 8px; color: var(--ink); background: var(--surface-raised); border: 1px solid var(--line); border-radius: 5px; cursor: pointer; }
+.image-dialog img { display: block; width: 100%; height: auto; }
 .ready-mark { color: var(--success); font-size: .78rem; font-weight: 700; }
 .game-notice { display: grid; grid-template-columns: auto minmax(0, 1fr) 44px; align-items: center; gap: 12px; min-height: 56px; margin: -8px 0 22px; padding: 6px 8px 6px 16px; background: oklch(0.17 0.028 200); border: 1px solid oklch(0.39 0.065 200); border-radius: 6px; }
 .game-notice.error { background: var(--danger-soft); border-color: oklch(0.42 0.09 25); }
@@ -644,6 +671,7 @@ ul, dl { margin: 0; }
   .step-nav button.active { border-color: var(--primary); background: oklch(0.2 0.025 200); }
   .settings-section { grid-template-columns: 1fr; gap: 22px; }
   .story-layout { grid-template-columns: 1fr; gap: 30px; }
+  .image-editor-layout { grid-template-columns: 1fr; }
   .story-actions { max-width: 72ch; }
 }
 
@@ -699,6 +727,9 @@ ul, dl { margin: 0; }
   .candidate-footer { gap: 10px; }
   .candidate-footer > * { flex: 1; }
   .game-header, .projection-header { flex-direction: column; }
+  .image-workspace > header { flex-direction: column; }
+  .image-result > div { flex-wrap: wrap; }
+  .image-result > div > span { width: 100%; }
   .game-tabs { margin-left: -16px; margin-right: -16px; padding-left: 8px; }
   .game-tabs button { min-height: 48px; padding: 0 14px; }
   .game-panel { padding-top: 22px; }

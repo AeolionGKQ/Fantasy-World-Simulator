@@ -18,6 +18,7 @@ import {
 } from "react-router-dom";
 import { api, ApiError, asApiError } from "./api";
 import GameWorkspace from "./game/GameWorkspace";
+import SceneImageWorkspace from "./game/SceneImageWorkspace";
 import {
   appendPreset,
   chineseRankNumeral,
@@ -68,6 +69,7 @@ type SaveStatus = "saved" | "dirty" | "saving" | "error" | "conflict";
 type ModelState = "idle" | "saving" | "saved";
 type ModelTestState = "idle" | "testing" | "thinking" | "probing";
 type NarrationState = "idle" | "saving" | "saved";
+type ImageModelState = "idle" | "saving" | "testing" | "saved";
 
 function Icon({ name }: { name: "menu" | "plus" | "settings" | "upload" | "download" | "edit" | "trash" | "close" }) {
   const paths: Record<typeof name, ReactNode> = {
@@ -256,6 +258,7 @@ export default function App() {
             <Route path="/saves/:saveId/create/:step" element={<CharacterWizard actions={actions} />} />
             <Route path="/saves/:saveId/review" element={<ReviewPage actions={actions} />} />
             <Route path="/saves/:saveId/game" element={<GameWorkspace onSaveChanged={refreshSaves} />} />
+            <Route path="/saves/:saveId/game/image" element={<SceneImageWorkspace />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </main>
@@ -397,10 +400,12 @@ function ImportSaveModal({ onClose, onImported }: { onClose: () => void; onImpor
 function SettingsPage({ actions }: { actions: ShellActions }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [apiKey, setApiKey] = useState("");
+  const [imageApiKey, setImageApiKey] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [modelState, setModelState] = useState<ModelState>("idle");
   const [narrationState, setNarrationState] = useState<NarrationState>("idle");
+  const [imageModelState, setImageModelState] = useState<ImageModelState>("idle");
   const [testState, setTestState] = useState<ModelTestState>("idle");
   const [testResult, setTestResult] = useState<{ key: string; result: ModelTestResult } | null>(null);
   const [structuredProbeFeedback, setStructuredProbeFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
@@ -534,9 +539,35 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
       settingRequestInFlight.current = false;
     }
   };
+  const saveImageModel = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!settings || imageModelState !== "idle") return;
+    setImageModelState("saving"); setActionError("");
+    try {
+      const imageModel = settings.image_model ?? { base_url: "https://api.openai.com/v1", model: "gpt-image-2.5-sunburst" as const, timeout_seconds: 300 };
+      const updated = await api.updateImageModel({ base_url: imageModel.base_url,
+        model: "gpt-image-2.5-sunburst", timeout_seconds: imageModel.timeout_seconds,
+        ...(imageApiKey ? { api_key: imageApiKey } : {}) }, settings.revision, crypto.randomUUID());
+      setSettings(updated); setImageApiKey(""); setImageModelState("saved");
+      window.setTimeout(() => setImageModelState("idle"), 1800);
+    } catch (reason) { setActionError(asApiError(reason).message); setImageModelState("idle"); }
+  };
+  const testImageModel = async () => {
+    if (!settings || imageModelState !== "idle") return;
+    setImageModelState("testing"); setActionError("");
+    try {
+      const imageModel = settings.image_model ?? { base_url: "https://api.openai.com/v1", model: "gpt-image-2.5-sunburst" as const, timeout_seconds: 300 };
+      const result = await api.testImageModel({ base_url: imageModel.base_url,
+        model: "gpt-image-2.5-sunburst", timeout_seconds: imageModel.timeout_seconds,
+        ...(imageApiKey ? { api_key: imageApiKey } : {}) });
+      actions.setNotice(result.message);
+    } catch (reason) { setActionError(asApiError(reason).message); }
+    finally { setImageModelState("idle"); }
+  };
 
   if (loading) return <div className="page settings-page"><LoadingPanel label="正在载入设置" /></div>;
   if (error || !settings) return <div className="page settings-page"><ErrorPanel error={error} onRetry={() => void load()} title="无法载入设置" /></div>;
+  const imageModel = settings.image_model ?? { base_url: "https://api.openai.com/v1", model: "gpt-image-2.5-sunburst" as const, timeout_seconds: 300, configured: false, api_key_configured: false };
   const displayedTestResult = (testResult?.key === modelCapabilityKey(
     settings.model.protocol, settings.model.base_url, settings.model.model
   )) ? testResult.result : null;
@@ -567,6 +598,16 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
           {displayedTestResult && <div className={`test-result full ${displayedTestResult.ok ? "success" : "error"}`} role="status"><strong>{displayedTestResult.ok ? "连接测试通过" : "连接测试未通过"}</strong><p>{displayedTestResult.message}</p><div className="capabilities"><span>目标模型：{displayedTestResult.model_available === false ? "不可用" : "可用"}</span>{displayedTestResult.latency_ms !== undefined && <span>响应：{displayedTestResult.latency_ms} ms</span>}<span>思考：{thinkingCapabilityLabel(displayedTestResult.thinking_capability)}</span><span>置信度：{thinkingConfidenceLabel(displayedTestResult.thinking_confidence)}</span>{displayedTestResult.thinking_strategy && <span>识别方式：{thinkingStrategyLabel(displayedTestResult.thinking_strategy)}</span>}<span>结构化输出：{capabilityLabel(displayedTestResult.structured_output_capability)}</span></div><p>{displayedTestResult.thinking_message}</p></div>}
           {settings.model.api_key_persistence === "memory_only" && <p className="warning-text full">当前环境无法使用 Windows DPAPI，API Key 只保存在本进程内存中，服务重启后需重新输入。</p>}
           <div className="form-actions full"><button className="secondary-button" type="button" disabled={!canSubmitSettingRequest} onClick={() => void testModel()}>{testState === "testing" ? "正在测试连接…" : "测试连接"}</button><button className="secondary-button" type="button" disabled={!canSubmitSettingRequest} onClick={() => void testModel(true)}>{testState === "thinking" ? "正在测试思考…" : "测试思考"}</button><span className="cost-note">连接测试不会探测思考或结构化输出；思考测试会验证开启与关闭参数，可能产生少量费用。</span><button className="primary-button" disabled={!canSubmitSettingRequest}>{modelState === "saving" ? "正在保存…" : modelState === "saved" ? "设置已保存" : "保存模型设置"}</button></div>
+        </form>
+      </section>
+      <section className="settings-section" aria-labelledby="image-model-title">
+        <div className="settings-copy"><h2 id="image-model-title">生图模型</h2><p>为当前剧情画面生成图片。首版仅支持 OpenAI GPT Image 2.5 Sunburst，API Key 独立保存在本机。</p></div>
+        <form className="settings-form" onSubmit={(event) => void saveImageModel(event)}>
+          <label className="field full"><span>API Base URL</span><input type="url" required disabled={imageModelState !== "idle"} value={imageModel.base_url} onChange={(event) => setSettings({ ...settings, image_model: { ...imageModel, base_url: event.target.value } })} /><small>仅支持 https://api.openai.com，未填写 /v1 时后端会自动补全。</small></label>
+          <label className="field"><span>模型名称</span><input readOnly value="gpt-image-2.5-sunburst" /></label>
+          <label className="field"><span>生图 API Key</span><input type="password" autoComplete="new-password" disabled={imageModelState !== "idle"} placeholder={imageModel.api_key_configured ? "已配置，留空保持不变" : "输入 OpenAI API Key"} value={imageApiKey} onChange={(event) => setImageApiKey(event.target.value)} /></label>
+          <label className="field"><span>请求超时（秒）</span><input type="number" min={1} max={600} value={imageModel.timeout_seconds} onChange={(event) => setSettings({ ...settings, image_model: { ...imageModel, timeout_seconds: Number(event.target.value) } })} /></label>
+          <div className="form-actions full"><button className="secondary-button" type="button" disabled={imageModelState !== "idle"} onClick={() => void testImageModel()}>{imageModelState === "testing" ? "正在测试…" : "测试连接"}</button><span className="cost-note">连接测试只检查模型可见性，不生成图片。</span><button className="primary-button" disabled={imageModelState !== "idle"}>{imageModelState === "saving" ? "正在保存…" : imageModelState === "saved" ? "设置已保存" : "保存生图设置"}</button></div>
         </form>
       </section>
       <section className="settings-section" aria-labelledby="narration-title">

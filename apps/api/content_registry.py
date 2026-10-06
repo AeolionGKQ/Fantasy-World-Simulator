@@ -595,6 +595,32 @@ class ContentRegistry:
                                                            separators=(",", ":"))}],
                 manifest)
 
+    def build_image_prompt_messages(self, frozen, size):
+        """Build a non-state-changing visual prompt request from frozen story context."""
+        orientation = {"1536x1024": "横向画幅", "1024x1536": "竖向画幅",
+                       "1024x1024": "方形画幅"}[size]
+        documents = frozen["documents"]
+        by_category = {}
+        for item in documents:
+            by_category.setdefault(item["category"], []).append(item)
+        system = [
+            "你负责为当前奇幻剧情场景编写一段可直接用于文生图的中文提示词。",
+            "提示词正文必须全部使用简体中文，方便玩家阅读和修改；专有名词也优先使用设定中的中文名称。",
+            "只返回一个JSON对象：{\"prompt\":\"...\"}。不得推进剧情、虚构行动，也不要要求图片出现文字、",
+            "字幕、标志、界面元素或水印。保持角色种族、外貌、服饰、装备、地点、时间、天气、情绪和既有世界事实一致。",
+            "按照", orientation, "组织构图。\n<完整规则原文>\n",
+        ]
+        system.extend(self._document_container(item) for item in by_category.get("rule", []))
+        system.append("\n</完整规则原文>\n<完整世界正典>\n")
+        system.extend(self._document_container(item) for item in by_category.get("canon", []))
+        system.append("\n</完整世界正典>\n")
+        payload = {key: frozen[key] for key in (
+            "state", "turn", "early_summaries", "recent_full_turns", "memories", "arcs")}
+        payload["requested_composition"] = orientation
+        return [{"role": "system", "content": "".join(system)},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False,
+                                                         separators=(",", ":"))}]
+
 
 def load_revision_documents(connection, revision_id):
     rows = connection.execute(

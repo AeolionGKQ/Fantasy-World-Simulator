@@ -11,6 +11,10 @@ import type {
   ImportResult,
   NarrativeJob,
   ModelSettings,
+  ImageModelSettings,
+  ImageQuality,
+  ImageSize,
+  SceneImageSession,
   ModelTestResult,
   NarrationSettings,
   SaveSummary,
@@ -115,6 +119,11 @@ export const api = {
       method: "PUT",
       body: { ...settings, expected_revision: expectedRevision, request_id: requestId },
     }).then(normalizeAppSettings),
+  updateImageModel: (settings: Pick<ImageModelSettings, "base_url" | "model" | "timeout_seconds"> & { api_key?: string }, expectedRevision: number, requestId: string) =>
+    request<AppSettings>("/api/settings/image-model", { method: "PUT",
+      body: { ...settings, expected_revision: expectedRevision, request_id: requestId } }).then(normalizeAppSettings),
+  testImageModel: (settings: Pick<ImageModelSettings, "base_url" | "model" | "timeout_seconds"> & { api_key?: string }) =>
+    request<{ ok: boolean; message: string }>("/api/settings/image-model/test", { method: "POST", body: settings }),
 
   listSaves: async () => unwrapList(await request<SaveSummary[] | { items: SaveSummary[] }>("/api/saves")),
   getSave: (saveId: string, signal?: AbortSignal) =>
@@ -223,6 +232,27 @@ export const api = {
 
   getStory: (saveId: string, signal?: AbortSignal) =>
     request<StoryView>(`/api/saves/${encodeURIComponent(saveId)}/story`, { signal }),
+  getImageSession: (saveId: string, signal?: AbortSignal) =>
+    request<{ session: SceneImageSession | null }>(`/api/saves/${encodeURIComponent(saveId)}/image-session`, { signal }),
+  createImageSession: (saveId: string, sourceTurnId: string, stateVersion: number, requestId: string) =>
+    request<SceneImageSession>(`/api/saves/${encodeURIComponent(saveId)}/image-session`, { method: "POST",
+      body: { request_id: requestId, source_turn_id: sourceTurnId, expected_state_version: stateVersion } }),
+  updateImagePrompt: (saveId: string, sessionId: string, prompt: string, revision: number, size: ImageSize, quality: ImageQuality) =>
+    request<SceneImageSession>(`/api/saves/${encodeURIComponent(saveId)}/image-session/${encodeURIComponent(sessionId)}/prompt`, { method: "PATCH",
+      body: { prompt, expected_prompt_revision: revision, size, quality } }),
+  generateSceneImage: (saveId: string, sessionId: string, revision: number, requestId: string) =>
+    request<SceneImageSession["image_attempt"]>(`/api/saves/${encodeURIComponent(saveId)}/image-session/${encodeURIComponent(sessionId)}/generate`, { method: "POST",
+      body: { request_id: requestId, expected_prompt_revision: revision } }),
+  retryImagePrompt: (saveId: string, sessionId: string, requestId: string) =>
+    request<{ attempt_id: string }>(`/api/saves/${encodeURIComponent(saveId)}/image-session/${encodeURIComponent(sessionId)}/retry-prompt`, { method: "POST", body: { request_id: requestId } }),
+  cancelImageSessionJob: (saveId: string, sessionId: string) =>
+    request<SceneImageSession>(`/api/saves/${encodeURIComponent(saveId)}/image-session/${encodeURIComponent(sessionId)}/cancel`, { method: "POST", body: {} }),
+  completeImageSession: (saveId: string, sessionId: string, abandon = false) =>
+    request<void>(`/api/saves/${encodeURIComponent(saveId)}/image-session/${encodeURIComponent(sessionId)}/complete`, { method: "POST", body: { abandon } }),
+  sceneImageUrl: (saveId: string, sessionId: string) =>
+    `/api/saves/${encodeURIComponent(saveId)}/image-session/${encodeURIComponent(sessionId)}/image`,
+  sceneImageDownloadUrl: (saveId: string, sessionId: string) =>
+    `/api/saves/${encodeURIComponent(saveId)}/image-session/${encodeURIComponent(sessionId)}/download`,
   resolveStartPrerequisite: (saveId: string, expectedStateVersion: number, resolution: StartPrerequisiteResolution, locationId: string | null, requestId: string, signal?: AbortSignal) =>
     request<StartPrerequisiteResult>(`/api/saves/${encodeURIComponent(saveId)}/story/start-prerequisite`, {
       method: "POST", signal,

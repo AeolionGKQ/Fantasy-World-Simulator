@@ -1534,7 +1534,9 @@ class PhaseTwoApiTest(unittest.TestCase):
                                          headers={"Content-Type": "application/json"} if data else {}, method=method)
         try:
             with urllib.request.urlopen(request, timeout=4) as response:
-                status = response.status; payload = json.loads(response.read())
+                status = response.status
+                raw = response.read()
+                payload = json.loads(raw) if raw else {}
         except urllib.error.HTTPError as error:
             status = error.code; payload = json.loads(error.read()); error.close()
         self.assertEqual(expected, status, payload); return payload
@@ -1813,7 +1815,7 @@ class PhaseTwoApiTest(unittest.TestCase):
         memory = self.request("GET", f"/api/saves/{self.save_id}/memory")
         self.assertEqual(1, len(memory["story_arcs"])); self.assertEqual(25, memory["story_arcs"][0]["end_sequence"])
         with db.connect() as connection:
-            self.assertEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], [row[0] for row in connection.execute(
+            self.assertEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], [row[0] for row in connection.execute(
                 "SELECT version FROM schema_migrations ORDER BY version")])
 
     def test_manual_merge_combines_all_current_arcs_and_preserves_full_context(self):
@@ -2610,6 +2612,81 @@ class PhaseTwoApiTest(unittest.TestCase):
                                (json.dumps(state, ensure_ascii=False), self.save_id))
         projection = self.request("GET", f"/api/saves/{self.save_id}/reputations")
         self.assertEqual("southern_maritime_federation", projection["local_modifier_key"])
+
+    def test_image_session_prompt_and_fake_generation_flow(self):
+        self.provider.responses.append(gm_response("opening"))
+        opening = self.request("POST", f"/api/saves/{self.save_id}/story/opening", {
+            "request_id": "image-opening", "expected_state_version": 0, "guidance": ""}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, opening["id"])["status"])
+        story = self.request("GET", f"/api/saves/{self.save_id}/story")
+        settings = self.request("GET", "/api/settings")
+        self.request("PUT", "/api/settings/image-model", {
+            "request_id": "image-settings", "expected_revision": settings["revision"],
+            "base_url": "https://api.openai.com/v1", "model": "gpt-image-2.5-sunburst",
+            "timeout_seconds": 30, "api_key": "image-key"})
+        self.provider.responses.append({"prompt": "一名奇幻旅人站在联合学院的庭院中"})
+        self.provider.generate_image_prompt = lambda *args: self.provider.responses.pop(0)["prompt"]
+        session = self.request("POST", f"/api/saves/{self.save_id}/image-session", {
+            "request_id": "image-session", "source_turn_id": story["latest_turn"]["id"],
+            "expected_state_version": story["state"]["state_version"]}, 202)
+        for _ in range(100):
+            session = self.request("GET", f"/api/saves/{self.save_id}/image-session")["session"]
+            if session["prompt_attempt"]["status"] != "running" and session["prompt_attempt"]["status"] != "queued": break
+            time.sleep(.01)
+        self.assertEqual("succeeded", session["prompt_attempt"]["status"])
+        self.assertIn("奇幻旅人", session["prompt_draft"])
+        updated = self.request("PATCH", f"/api/saves/{self.save_id}/image-session/{session['id']}/prompt", {
+            "prompt": session["prompt_draft"], "expected_prompt_revision": session["prompt_revision"],
+            "size": "1024x1536", "quality": "xhigh"})
+        png = b"\x89PNG\r\n\x1a\nfixture"
+        self.server.app_context.image_provider.generate = lambda *args: {
+            "bytes": png, "usage": {}, "request_id": "fake-image"}
+        attempt = self.request("POST", f"/api/saves/{self.save_id}/image-session/{session['id']}/generate", {
+            "request_id": "image-attempt", "expected_prompt_revision": updated["prompt_revision"]}, 202)
+        for _ in range(100):
+            current = self.request("GET", f"/api/saves/{self.save_id}/image-session")["session"]
+            if current["image_attempt"]["status"] not in {"queued", "running"}: break
+            time.sleep(.01)
+        self.assertEqual("succeeded", current["image_attempt"]["status"])
+        self.assertEqual("1024x1536", current["image_attempt"]["requested_size"])
+        self.assertEqual("xhigh", current["image_attempt"]["requested_quality"])
+        self.request("POST", f"/api/saves/{self.save_id}/image-session/{session['id']}/complete", {}, 204)
+        self.assertIsNone(self.request("GET", f"/api/saves/{self.save_id}/image-session")["session"])
+
+    def test_image_prompt_instruction_requires_simplified_chinese(self):
+        registry = ContentRegistry(API_DIR)
+        frozen = {"documents": registry.documents, "state": {}, "turn": {},
+                  "early_summaries": [], "recent_full_turns": [], "memories": [], "arcs": []}
+        messages = registry.build_image_prompt_messages(frozen, "1024x1536")
+        self.assertIn("提示词正文必须全部使用简体中文", messages[0]["content"])
+        self.assertIn("竖向画幅", messages[0]["content"])
+
+    def test_abandon_image_session_resets_while_prompt_is_running(self):
+        self.provider.responses.append(gm_response("opening"))
+        opening = self.request("POST", f"/api/saves/{self.save_id}/story/opening", {
+            "request_id": "abandon-opening", "expected_state_version": 0, "guidance": ""}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, opening["id"])["status"])
+        story = self.request("GET", f"/api/saves/{self.save_id}/story")
+        settings = self.request("GET", "/api/settings")
+        self.request("PUT", "/api/settings/image-model", {
+            "request_id": "abandon-image-settings", "expected_revision": settings["revision"],
+            "base_url": "https://api.openai.com/v1", "model": "gpt-image-2.5-sunburst",
+            "timeout_seconds": 30, "api_key": "image-key"})
+        session, _ = self.server.app_context.images.create(self.save_id, {
+            "request_id": "abandon-session", "source_turn_id": story["latest_turn"]["id"],
+            "expected_state_version": story["state"]["state_version"]},
+            self.server.app_context.database.get_model_config())
+        abandoned = self.request("POST",
+            f"/api/saves/{self.save_id}/image-session/{session['id']}/complete",
+            {"abandon": True}, 204)
+        self.assertEqual({}, abandoned)
+        self.assertIsNone(self.request("GET", f"/api/saves/{self.save_id}/image-session")["session"])
+        replacement, attempt_id = self.server.app_context.images.create(self.save_id, {
+            "request_id": "replacement-session", "source_turn_id": story["latest_turn"]["id"],
+            "expected_state_version": story["state"]["state_version"]},
+            self.server.app_context.database.get_model_config())
+        self.assertNotEqual(session["id"], replacement["id"])
+        self.assertIsNotNone(attempt_id)
 
     def test_pagination_and_query_whitelist(self):
         state = self.server.app_context.story.get_state(self.save_id)

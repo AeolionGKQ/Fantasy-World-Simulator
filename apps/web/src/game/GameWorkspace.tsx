@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, asApiError } from "../api";
 import type { ApiProblem, GameBootstrap, GameProjections, NarrativeJob, SaveSummary, StartPrerequisiteResolution, StoryView, Turn, WorldCatalog } from "../types";
 import {
@@ -15,6 +15,8 @@ interface GameData {
   story: StoryView;
   turns: Turn[];
   projections: GameProjections;
+  imageConfigured: boolean;
+  imageSessionId: string | null;
 }
 
 function LoadingGame() {
@@ -28,17 +30,21 @@ function ProblemPanel({ problem, onRetry }: { problem: ApiProblem; onRetry: () =
 }
 
 async function getAllGameData(saveId: string, signal?: AbortSignal): Promise<GameData> {
-  const [save, bootstrap, catalog, story, turns, character, inventory, quests, journals, memory, memories, bonds, reputations] = await Promise.all([
+  const [save, bootstrap, catalog, story, turns, character, inventory, quests, journals, memory, memories, bonds, reputations, settings, imageSession] = await Promise.all([
     api.getSave(saveId, signal), api.getGameBootstrap(saveId, signal), api.getCatalog(signal), api.getStory(saveId, signal), api.listTurns(saveId, signal),
     api.getCharacterState(saveId, signal), api.getInventory(saveId, signal), api.getQuests(saveId, signal),
     api.getJournals(saveId, signal), api.getMemory(saveId, signal), api.getMemories(saveId, signal),
     api.getBonds(saveId, signal), api.getReputations(saveId, signal),
+    api.getSettings(), api.getImageSession(saveId, signal),
   ]);
-  return { save, bootstrap, catalog, story, turns: turns.items, projections: { character, inventory, quests, journals, memory, memories, bonds, reputations } };
+  return { save, bootstrap, catalog, story, turns: turns.items, imageConfigured: settings.image_model?.configured ?? false,
+    imageSessionId: imageSession.session?.id ?? null,
+    projections: { character, inventory, quests, journals, memory, memories, bonds, reputations } };
 }
 
 export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => Promise<void> }) {
   const { saveId = "" } = useParams();
+  const navigate = useNavigate();
   const [data, setData] = useState<GameData | null>(null);
   const [tab, setTab] = useState<GameTab>("story");
   const [viewedTurn, setViewedTurn] = useState<Turn | null>(null);
@@ -48,6 +54,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
   const [submittingState, setSubmittingState] = useState(false);
   const [submittingArc, setSubmittingArc] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
+  const [startingImage, setStartingImage] = useState(false);
   const session = useRef(0);
   const controller = useRef<AbortController | null>(null);
   const stateActionController = useRef<AbortController | null>(null);
@@ -288,6 +295,20 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
       }
     } finally { if (token === session.current) setSavingPreferences(false); }
   };
+  const startImageSession = async () => {
+    if (!data?.story.latest_turn) return;
+    if (!data.imageConfigured) {
+      setNotice({ id: Date.now(), tone: "error", text: "请先在设置中配置生图模型和 OpenAI API Key。" });
+      return;
+    }
+    setStartingImage(true);
+    try {
+      await api.createImageSession(saveId, data.story.latest_turn.id,
+        data.story.state.state_version, crypto.randomUUID());
+      navigate(`/saves/${saveId}/game/image`);
+    } catch (reason) { showProblem(reason); }
+    finally { setStartingImage(false); }
+  };
 
   if (loading && !data) return <LoadingGame />;
   if (problem && !data) return <div className="page game-page"><ProblemPanel problem={problem} onRetry={() => void refresh()} /></div>;
@@ -296,7 +317,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
   const stateBusy = submittingState || isNarrativeJobActive(data.story.active_job);
   const arcBusy = submittingArc || isNarrativeJobActive(data.story.active_arc_job);
   return <div className="page game-page">
-    <header className="game-header"><div><span className="ready-mark">游戏档案</span><h1>{data.projections.character.identity.name || data.bootstrap.character.identity?.name || "未命名角色"}</h1><p>{data.story.state.time.label} · {data.story.state.location.name}</p></div></header>
+    <header className="game-header"><div><span className="ready-mark">游戏档案</span><h1>{data.projections.character.identity.name || data.bootstrap.character.identity?.name || "未命名角色"}</h1><p>{data.story.state.time.label} · {data.story.state.location.name}</p></div>{data.imageSessionId ? <Link className="secondary-button scene-image-button" to={`/saves/${saveId}/game/image`}>查看图片任务</Link> : <button className={`secondary-button scene-image-button ${data.imageConfigured ? "" : "unconfigured"}`} type="button" disabled={!data.story.latest_turn || startingImage} onClick={() => void startImageSession()}>{startingImage ? "正在创建…" : "生成此刻图片"}</button>}</header>
     {notice && <div key={notice.id} className={`game-notice ${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}><span aria-hidden="true">{notice.tone === "error" ? "!" : "◇"}</span><p>{notice.text}{notice.traceId && <small>追踪编号：{notice.traceId}</small>}</p><button type="button" onClick={() => setNotice(null)} aria-label="关闭游戏提示">×</button></div>}
     <nav className="game-tabs" role="tablist" aria-label="游戏工作区" onKeyDown={(event) => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;

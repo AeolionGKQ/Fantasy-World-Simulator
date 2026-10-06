@@ -21,8 +21,9 @@ try:
     from .catalog import CATALOG, LOCATIONS, RACES
     from .content_registry import ContentRegistry
     from .contract_registry import contract_from_documents
-    from .database import Database, DomainError, SecretStore
-    from .model_provider import (ModelProvider, ProviderError,
+    from .database import Database, DomainError, NamedSecretStore, SecretStore
+    from .image_repository import ImageRepository
+    from .model_provider import (ModelProvider, OpenAIImageProvider, ProviderError,
                                  is_explicit_concurrency_rejection, validate_candidate)
     from .narrative_contract import ContractError, validate_gm_response, validate_story_arc
     from .story_repository import StoryRepository
@@ -33,8 +34,9 @@ except ImportError:  # Direct execution with the isolated embedded runtime.
     from catalog import CATALOG, LOCATIONS, RACES
     from content_registry import ContentRegistry
     from contract_registry import contract_from_documents
-    from database import Database, DomainError, SecretStore
-    from model_provider import (ModelProvider, ProviderError,
+    from database import Database, DomainError, NamedSecretStore, SecretStore
+    from image_repository import ImageRepository
+    from model_provider import (ModelProvider, OpenAIImageProvider, ProviderError,
                                 is_explicit_concurrency_rejection, validate_candidate)
     from narrative_contract import ContractError, validate_gm_response, validate_story_arc
     from story_repository import StoryRepository
@@ -182,6 +184,11 @@ class AppContext:
                                  self.content_registry)
         self.story = StoryRepository(self.database, self.content_registry)
         self.secrets = SecretStore(os.path.join(data_dir, "secrets.dat"))
+        self.image_secrets = NamedSecretStore(os.path.join(data_dir, "image-secrets.dat"))
+        self.images = ImageRepository(self.database, self.content_registry)
+        self.image_provider = OpenAIImageProvider()
+        self.image_root = os.path.abspath(os.path.join(data_dir, "images"))
+        self._image_semaphore = threading.Semaphore(1)
         self.static_dir = os.path.abspath(static_dir)
         self.provider = provider or ModelProvider()
         self._worker_lock = threading.Lock()
@@ -281,11 +288,63 @@ class AppContext:
             self._workers.add(worker)
         worker.start()
 
+    def schedule_image(self, attempt_id, kind):
+        worker = threading.Thread(target=self._run_image_task, args=(attempt_id, kind),
+                                  name=f"image-{kind}-{attempt_id}", daemon=True)
+        with self._worker_lock:
+            self._workers.add(worker)
+        worker.start()
+
     def resume_queued(self):
         for save_id, job_id in self.database.list_queued_jobs():
             self.schedule(save_id, job_id)
         for save_id, job_id in self.story.list_queued():
             self.schedule_narrative(save_id, job_id)
+        for attempt_id, kind in self.images.queued():
+            self.schedule_image(attempt_id, kind)
+
+    def _run_image_task(self, attempt_id, kind):
+        try:
+            if kind == "prompt":
+                claimed = self.images.claim_prompt(attempt_id)
+                if not claimed: return
+                config = self.database.get_model_config()
+                messages = self.content_registry.build_image_prompt_messages(
+                    claimed["frozen"], claimed["session"]["selected_size"])
+                prompt = self._call_provider_with_concurrency_fallback(
+                    config, lambda: self.provider.generate_image_prompt(
+                        config, self.secrets.get_api_key(), messages))
+                self.images.complete_prompt(attempt_id, prompt)
+            else:
+                claimed = self.images.claim_image(attempt_id)
+                if not claimed: return
+                config = self.database.get_image_model_config()
+                attempt, session = claimed["attempt"], claimed["session"]
+                with self._image_semaphore:
+                    result = self.image_provider.generate(
+                        config, self.image_secrets.get_api_key(), attempt["prompt_snapshot"],
+                        attempt["requested_size"], attempt["requested_quality"])
+                directory = os.path.join(self.image_root, session["save_id"], session["id"])
+                os.makedirs(directory, exist_ok=True)
+                target = os.path.join(directory, attempt_id + ".png")
+                temporary = target + ".tmp"
+                with open(temporary, "wb") as handle: handle.write(result["bytes"])
+                os.replace(temporary, target)
+                relative = os.path.relpath(target, self.image_root).replace("\\", "/")
+                digest = hashlib.sha256(result["bytes"]).hexdigest()
+                if not self.images.complete_image(attempt_id, relative, len(result["bytes"]),
+                                                  digest, result["request_id"], result["usage"]):
+                    try: os.remove(target)
+                    except OSError: pass
+        except ProviderError as exc:
+            if kind == "prompt": self.images.fail_prompt(attempt_id, exc.code, exc.message, exc.retryable)
+            else: self.images.fail_image(attempt_id, exc.code, exc.message, exc.retryable,
+                                         exc.code in {"MODEL_TIMEOUT", "MODEL_NETWORK_ERROR"})
+        except Exception:
+            if kind == "prompt": self.images.fail_prompt(attempt_id, "INTERNAL_ERROR", "画面提示词生成失败", True)
+            else: self.images.fail_image(attempt_id, "INTERNAL_ERROR", "图片生成失败", True)
+        finally:
+            with self._worker_lock: self._workers.discard(threading.current_thread())
 
     @staticmethod
     def _provider_identity(config):
@@ -565,26 +624,38 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
             split = urllib.parse.urlsplit(self.path)
             self._api_query = {}
             if split.query and (split.path == "/api" or split.path.startswith("/api/")):
+                image_query = method == "GET" and (
+                    split.path.endswith("/image") or split.path.endswith("/download"))
                 if not (method == "GET" and (split.path.endswith("/turns") or
-                                              split.path.endswith("/journals"))):
+                                              split.path.endswith("/journals"))) and not image_query:
                     raise DomainError("INVALID_INPUT", "API不接受查询参数", 400)
                 parsed_query = urllib.parse.parse_qs(split.query, keep_blank_values=True)
-                if set(parsed_query) - {"cursor", "limit"} or any(len(values) != 1 for values in parsed_query.values()):
+                allowed_query = {"attempt"} if image_query else {"cursor", "limit"}
+                if set(parsed_query) - allowed_query or any(len(values) != 1 for values in parsed_query.values()):
                     raise DomainError("INVALID_INPUT", "分页查询参数无效", 400)
-                try:
-                    cursor = int(parsed_query.get("cursor", ["0"])[0])
-                    limit = int(parsed_query.get("limit", ["50"])[0])
-                except ValueError:
-                    raise DomainError("INVALID_INPUT", "cursor和limit必须是整数", 400) from None
-                if cursor < 0 or not 1 <= limit <= 100:
-                    raise DomainError("INVALID_INPUT", "分页范围无效", 400)
-                self._api_query = {"cursor": cursor, "limit": limit, "enabled": True}
+                if image_query:
+                    self._api_query = {"attempt": parsed_query.get("attempt", [""])[0]}
+                    parsed_query = {}
+                if image_query:
+                    pass
+                else:
+                    try:
+                        cursor = int(parsed_query.get("cursor", ["0"])[0])
+                        limit = int(parsed_query.get("limit", ["50"])[0])
+                    except ValueError:
+                        raise DomainError("INVALID_INPUT", "cursor和limit必须是整数", 400) from None
+                    if cursor < 0 or not 1 <= limit <= 100:
+                        raise DomainError("INVALID_INPUT", "分页范围无效", 400)
+                    self._api_query = {"cursor": cursor, "limit": limit, "enabled": True}
             path = split.path
             if path == "/api" or path.startswith("/api/"):
                 status, payload, headers = self._route_api(method, path)
                 headers = dict(headers)
                 headers.setdefault("X-Trace-Id", trace_id)
-                self._send_json(status, payload, headers)
+                if isinstance(payload, dict) and "__binary_image__" in payload:
+                    self._send_image(payload["__binary_image__"], payload["download"], headers)
+                else:
+                    self._send_json(status, payload, headers)
             elif method == "GET":
                 self._serve_static(path)
             else:
@@ -617,7 +688,9 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
             return 200, CATALOG, {}
         if method == "GET" and path == "/api/settings":
             return 200, db.get_settings(bool(self.app.secrets.get_api_key()),
-                                        self.app.secrets.persistence), {}
+                                        self.app.secrets.persistence,
+                                        bool(self.app.image_secrets.get_api_key()),
+                                        self.app.image_secrets.persistence), {}
         if method == "PUT" and path == "/api/settings/model":
             body = self._read_json()
             self.app.validate_response_format_update(body)
@@ -625,7 +698,9 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
             revision = db.write_model_settings_with_secret(body, self.app.secrets)
             self.app.sync_provider_limit(db.get_model_config())
             return 200, db.get_settings(bool(self.app.secrets.get_api_key()),
-                                        self.app.secrets.persistence), {"X-Revision": str(revision)}
+                                        self.app.secrets.persistence,
+                                        bool(self.app.image_secrets.get_api_key()),
+                                        self.app.image_secrets.persistence), {"X-Revision": str(revision)}
         if method == "POST" and path == "/api/settings/model/test":
             body = self._read_json(optional=True)
             allowed = {"protocol", "base_url", "model", "timeout_seconds", "structured_output",
@@ -705,7 +780,25 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
         if method == "PUT" and path == "/api/settings/narration":
             revision = db.update_narration_settings(self._read_json())
             return 200, db.get_settings(bool(self.app.secrets.get_api_key()),
-                                        self.app.secrets.persistence), {"X-Revision": str(revision)}
+                                        self.app.secrets.persistence,
+                                        bool(self.app.image_secrets.get_api_key()),
+                                        self.app.image_secrets.persistence), {"X-Revision": str(revision)}
+        if method == "PUT" and path == "/api/settings/image-model":
+            body = self._read_json()
+            prepared = (self.app.image_secrets.prepare_api_key(body["api_key"])
+                        if "api_key" in body else None)
+            revision = db.update_image_model_settings(body)
+            if prepared is not None: self.app.image_secrets.commit_api_key(prepared)
+            return 200, db.get_settings(bool(self.app.secrets.get_api_key()),
+                self.app.secrets.persistence, bool(self.app.image_secrets.get_api_key()),
+                self.app.image_secrets.persistence), {"X-Revision": str(revision)}
+        if method == "POST" and path == "/api/settings/image-model/test":
+            body = self._read_json(optional=True)
+            config = db.get_image_model_config()
+            config.update({key: body[key] for key in ("base_url", "model", "timeout_seconds") if key in body})
+            result = self.app.image_provider.test_connection(
+                config, body.get("api_key", self.app.image_secrets.get_api_key()))
+            return 200, result, {}
         if path == "/api/saves":
             if method == "GET":
                 return 200, {"items": db.list_saves()}, {}
@@ -788,6 +881,51 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
                 return 200, result, {}
             if len(parts) == 4 and parts[3] == "story" and method == "GET":
                 return 200, self.app.story.story_view(save_id), {}
+            if len(parts) == 4 and parts[3] == "image-session":
+                if method == "GET":
+                    return 200, {"session": self.app.images.get_active(save_id)}, {}
+                if method == "POST":
+                    if not self.app.image_secrets.get_api_key():
+                        raise DomainError("IMAGE_MODEL_NOT_CONFIGURED", "请先在设置中配置生图模型", 409)
+                    session, attempt_id = self.app.images.create(
+                        save_id, self._read_json(), db.get_model_config())
+                    if attempt_id: self.app.schedule_image(attempt_id, "prompt")
+                    return (202 if attempt_id else 200), session, {}
+            if len(parts) >= 5 and parts[3] == "image-session":
+                session_id = parts[4]
+                if len(parts) == 6 and parts[5] == "prompt" and method == "PATCH":
+                    return 200, self.app.images.update_prompt(save_id, session_id, self._read_json()), {}
+                if len(parts) == 6 and parts[5] == "generate" and method == "POST":
+                    attempt, created = self.app.images.create_image_attempt(
+                        save_id, session_id, self._read_json(), db.get_image_model_config()["model"])
+                    if created: self.app.schedule_image(attempt["id"], "image")
+                    return (202 if created else 200), attempt, {}
+                if len(parts) == 6 and parts[5] == "retry-prompt" and method == "POST":
+                    body = self._read_json()
+                    attempt_id = self.app.images.retry_prompt(save_id, session_id,
+                        body.get("request_id"), db.get_model_config())
+                    self.app.schedule_image(attempt_id, "prompt")
+                    return 202, {"attempt_id": attempt_id}, {}
+                if len(parts) == 6 and parts[5] == "cancel" and method == "POST":
+                    self._read_json(optional=True)
+                    return 200, self.app.images.cancel(save_id, session_id), {}
+                if len(parts) == 6 and parts[5] == "complete" and method == "POST":
+                    body = self._read_json(optional=True)
+                    if set(body) - {"abandon"} or ("abandon" in body and type(body["abandon"]) is not bool):
+                        raise DomainError("INVALID_INPUT", "图片完成请求字段无效")
+                    completed = self.app.images.complete_session(
+                        save_id, session_id, bool(body.get("abandon", False)))
+                    for relative in completed["paths"]:
+                        target = (Path(self.app.image_root) / relative).resolve()
+                        try: target.relative_to(Path(self.app.image_root).resolve())
+                        except ValueError: continue
+                        try: target.unlink()
+                        except FileNotFoundError: pass
+                    return 204, {}, {}
+                if len(parts) == 6 and parts[5] in {"image", "download"} and method == "GET":
+                    record = self.app.images.image_record(save_id, session_id,
+                        self._api_query.get("attempt") or None)
+                    return 200, {"__binary_image__": record, "download": parts[5] == "download"}, {}
             if len(parts) == 5 and parts[3:5] == ["story", "opening"] and method == "POST":
                 job, created = self.app.story.create_job(save_id, "opening", self._read_json())
                 if created: self.app.schedule_narrative(save_id, job["id"])
@@ -881,6 +1019,25 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
                                            "fields": fields, "field_errors": fields,
                                            "retryable": bool(retryable),
                                            "trace_id": trace_id}}, {"X-Trace-Id": trace_id})
+
+    def _send_image(self, record, download=False, extra_headers=None):
+        root = Path(self.app.image_root).resolve()
+        target = (root / record["image_relative_path"]).resolve()
+        try: target.relative_to(root)
+        except ValueError: raise DomainError("IMAGE_NOT_FOUND", "图片路径无效", 404) from None
+        if not target.is_file(): raise DomainError("IMAGE_NOT_FOUND", "图片文件不存在", 404)
+        body = target.read_bytes()
+        if hashlib.sha256(body).hexdigest() != record["sha256"]:
+            raise DomainError("IMAGE_CORRUPTED", "图片文件校验失败", 409)
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "private, max-age=3600")
+        self.send_header("ETag", '"' + record["sha256"] + '"')
+        self.send_header("X-Content-Type-Options", "nosniff")
+        if download: self.send_header("Content-Disposition", 'attachment; filename="fantasy-scene.png"')
+        for key, value in (extra_headers or {}).items(): self.send_header(key, value)
+        self.end_headers(); self.wfile.write(body)
 
     def _serve_static(self, request_path):
         static_root = Path(self.app.static_dir).resolve()

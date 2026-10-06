@@ -255,6 +255,26 @@ class SecretStore:
                 return False
 
 
+class NamedSecretStore:
+    """Independent DPAPI secret file with the same failure semantics as SecretStore."""
+
+    def __init__(self, path):
+        self._store = SecretStore(path)
+
+    @property
+    def persistence(self):
+        return self._store.persistence
+
+    def get_api_key(self):
+        return self._store.get_api_key()
+
+    def prepare_api_key(self, value):
+        return self._store.prepare_api_key(value)
+
+    def commit_api_key(self, prepared):
+        return self._store.commit_api_key(prepared)
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -381,7 +401,7 @@ class Database:
                 connection.rollback()
                 raise
             connection.execute(
-                "INSERT OR IGNORE INTO settings VALUES(1,?,?,?,?,?)",
+                "INSERT OR IGNORE INTO settings(id,model_json,narration_json,thinking_enabled,revision,updated_at) VALUES(1,?,?,?,?,?)",
                 (dumps({"protocol": "openai", "base_url": "", "model": "", "timeout_seconds": 300,
                         "structured_output": False, "max_concurrency": 2}),
                  dumps(NARRATION["defaults"]), 1, 0, now),
@@ -405,6 +425,14 @@ class Database:
             connection.execute(
                 "UPDATE narrative_jobs SET status='interrupted', error_code='SERVER_RESTARTED', "
                 "error_message='服务重启中断了叙事生成', retryable=1, updated_at=? "
+                "WHERE status IN ('running','cancel_requested')", (now,))
+            connection.execute(
+                "UPDATE image_prompt_attempts SET status='interrupted',error_code='SERVER_RESTARTED',"
+                "error_message='服务重启中断了提示词生成',retryable=1,updated_at=? "
+                "WHERE status IN ('running','cancel_requested')", (now,))
+            connection.execute(
+                "UPDATE image_attempts SET status='outcome_unknown',error_code='SERVER_RESTARTED',"
+                "error_message='服务重启时生图请求结果未知，可能已经产生费用',retryable=0,updated_at=? "
                 "WHERE status IN ('running','cancel_requested')", (now,))
         finally:
             connection.close()
@@ -433,7 +461,8 @@ class Database:
             "created_at": row["created_at"], "updated_at": row["updated_at"],
         }
 
-    def get_settings(self, secret_configured=False, secret_persistence="memory_only"):
+    def get_settings(self, secret_configured=False, secret_persistence="memory_only",
+                     image_secret_configured=False, image_secret_persistence="memory_only"):
         with self.connect() as connection:
             row = connection.execute("SELECT * FROM settings WHERE id=1").fetchone()
         model = loads(row["model_json"], {})
@@ -461,12 +490,76 @@ class Database:
                       "structured_output_message": response_format["message"],
                       "structured_output_probed_at": response_format.get("probed_at")})
         narration = normalize_narration(loads(row["narration_json"], {})) or dict(NARRATION["defaults"])
-        return {"model": model,
+        image_model = loads(row["image_model_json"], {})
+        image_model.setdefault("base_url", "https://api.openai.com/v1")
+        image_model.setdefault("model", "gpt-image-2.5-sunburst")
+        image_model.setdefault("timeout_seconds", 300)
+        image_model.update({"api_key_configured": bool(image_secret_configured),
+                            "api_key_mask": "••••••••" if image_secret_configured else None,
+                            "api_key_persistence": image_secret_persistence,
+                            "configured": bool(image_secret_configured and image_model.get("base_url"))})
+        return {"model": model, "image_model": image_model,
                 "narration": {"pace": narration.get("pace"),
                               "tendency": narration.get("tone"),
                               "detail": narration.get("detail"),
                               "player_address": narration.get("player_address")},
                 "revision": row["revision"]}
+
+    def get_image_model_config(self):
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT image_model_json,revision FROM settings WHERE id=1").fetchone()
+        config = loads(row["image_model_json"], {})
+        config.setdefault("base_url", "https://api.openai.com/v1")
+        config.setdefault("model", "gpt-image-2.5-sunburst")
+        config.setdefault("timeout_seconds", 300)
+        config["_settings_revision"] = row["revision"]
+        return config
+
+    def update_image_model_settings(self, data):
+        self._validate_request_id(data)
+        allowed = {"base_url", "model", "timeout_seconds"}
+        transient = {"api_key", "expected_revision", "request_id"}
+        unknown = set(data) - allowed - transient
+        if unknown:
+            raise DomainError("INVALID_INPUT", "存在未知生图设置字段", fields={key: "未知字段" for key in unknown})
+        if "expected_revision" not in data:
+            raise DomainError("INVALID_INPUT", "生图设置缺少expected_revision")
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT * FROM settings WHERE id=1").fetchone()
+            if data["expected_revision"] != row["revision"]:
+                connection.rollback()
+                raise DomainError("REVISION_CONFLICT", "设置已被其他请求修改", 409)
+            config = loads(row["image_model_json"], {})
+            config.update({key: data[key] for key in allowed if key in data})
+            fields = {}
+            base_url = config.get("base_url", "")
+            if not isinstance(base_url, str):
+                fields["base_url"] = "必须是OpenAI HTTPS地址"
+            else:
+                from urllib.parse import urlparse
+                parsed = urlparse(base_url)
+                if (parsed.scheme != "https" or parsed.hostname != "api.openai.com" or
+                        parsed.username is not None or parsed.password is not None or
+                        parsed.query or parsed.fragment):
+                    fields["base_url"] = "首版仅支持https://api.openai.com或其/v1地址"
+            if config.get("model") != "gpt-image-2.5-sunburst":
+                fields["model"] = "当前仅支持gpt-image-2.5-sunburst"
+            timeout = config.get("timeout_seconds", 300)
+            if type(timeout) not in (int, float) or not 1 <= timeout <= 600:
+                fields["timeout_seconds"] = "必须在1至600秒之间"
+            if "api_key" in data and (not isinstance(data["api_key"], str) or len(data["api_key"]) > 10000):
+                fields["api_key"] = "必须是长度不超过10000的文本"
+            if fields:
+                connection.rollback()
+                raise DomainError("INVALID_INPUT", "生图设置无效", fields=fields)
+            revision = row["revision"] + 1
+            connection.execute(
+                "UPDATE settings SET image_model_json=?,revision=?,updated_at=? WHERE id=1",
+                (dumps(config), revision, utc_now()))
+            connection.commit()
+        return revision
 
     def get_model_config(self):
         with self.connect() as connection:

@@ -332,6 +332,69 @@ UPDATE drafts SET current_step=1, revision=revision+1, updated_at=CURRENT_TIMEST
 ALTER TABLE turn_versions ADD COLUMN action_json TEXT NOT NULL DEFAULT '{}';
 ALTER TABLE turn_versions ADD COLUMN generated_ids_json TEXT NOT NULL DEFAULT '[]';
 """),
+    (11, """
+ALTER TABLE settings ADD COLUMN image_model_json TEXT NOT NULL DEFAULT '{"base_url":"https://api.openai.com/v1","model":"gpt-image-2.5-sunburst","timeout_seconds":300}';
+CREATE TABLE image_sessions (
+    id TEXT PRIMARY KEY,
+    save_id TEXT NOT NULL REFERENCES saves(id) ON DELETE CASCADE,
+    source_turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
+    source_turn_version_id TEXT NOT NULL REFERENCES turn_versions(id) ON DELETE CASCADE,
+    source_state_version INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('active','completing','completed')),
+    prompt_draft TEXT,
+    prompt_revision INTEGER NOT NULL DEFAULT 0,
+    selected_size TEXT NOT NULL CHECK(selected_size IN ('1024x1024','1536x1024','1024x1536')),
+    selected_quality TEXT NOT NULL CHECK(selected_quality IN ('low','medium','high','xhigh','max','auto')),
+    frozen_context_json TEXT NOT NULL,
+    context_manifest_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT
+);
+CREATE UNIQUE INDEX one_active_image_session_per_save ON image_sessions(save_id) WHERE completed_at IS NULL;
+CREATE TABLE image_prompt_attempts (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES image_sessions(id) ON DELETE CASCADE,
+    request_id TEXT NOT NULL,
+    request_fingerprint TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('queued','running','succeeded','failed','interrupted','cancel_requested','cancelled')),
+    provider_protocol TEXT NOT NULL,
+    provider_endpoint TEXT NOT NULL,
+    provider_model TEXT NOT NULL,
+    error_code TEXT,
+    error_message TEXT,
+    retryable INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(session_id,request_id)
+);
+CREATE UNIQUE INDEX one_active_image_prompt_attempt ON image_prompt_attempts(session_id) WHERE status IN ('queued','running','cancel_requested');
+CREATE TABLE image_attempts (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES image_sessions(id) ON DELETE CASCADE,
+    request_id TEXT NOT NULL,
+    request_fingerprint TEXT NOT NULL,
+    prompt_revision INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('queued','running','succeeded','failed','outcome_unknown','interrupted','cancel_requested','cancelled')),
+    provider_model TEXT NOT NULL,
+    requested_size TEXT NOT NULL CHECK(requested_size IN ('1024x1024','1536x1024','1024x1536')),
+    requested_quality TEXT NOT NULL CHECK(requested_quality IN ('low','medium','high','xhigh','max','auto')),
+    prompt_snapshot TEXT NOT NULL,
+    image_relative_path TEXT,
+    mime_type TEXT,
+    byte_count INTEGER,
+    sha256 TEXT,
+    provider_request_id TEXT,
+    usage_json TEXT,
+    error_code TEXT,
+    error_message TEXT,
+    retryable INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(session_id,request_id)
+);
+CREATE UNIQUE INDEX one_active_image_attempt ON image_attempts(session_id) WHERE status IN ('queued','running','cancel_requested');
+"""),
 )
 
 
