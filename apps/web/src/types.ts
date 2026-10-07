@@ -63,6 +63,7 @@ export interface RaceLore {
   technology: string;
   society: string;
   creation_notes: string;
+  representatives?: Array<{ name: string; description: string }>;
   facts: RaceFact[];
   ranks: RankDefinition[];
 }

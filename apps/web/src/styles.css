@@ -316,7 +316,7 @@ ul, dl { margin: 0; }
 .race-lore-sections h4, .race-branch-detail h4 { margin: 0 0 7px; font-size: 1rem; line-height: 1.4; text-wrap: balance; }
 .race-lore-sections p { color: var(--muted); font-size: .9rem; }
 .race-lore-sections p + p { margin-top: 8px; }
-.race-lore-sections .race-creation-notes { grid-column: 1 / -1; }
+.race-lore-sections .race-creation-notes, .race-lore-sections .race-representatives { grid-column: 1 / -1; }
 .race-creation-notes h4 { color: var(--accent); }
 .race-branch-selector { margin: 28px 0 0; padding: 18px 0 22px; border: 0; border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line); }
 .race-branch-selector legend { padding: 0; font-size: 1rem; font-weight: 650; }
