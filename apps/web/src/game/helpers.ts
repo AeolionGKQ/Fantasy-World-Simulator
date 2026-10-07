@@ -1,3 +1,4 @@
+import { playerProblemMessage } from "../playerCopy";
 import type { AuthoritativeChange, NarrativeJob, Quest, QuestProjection, Reputation, ReputationKey, StoryArc, Turn } from "../types";
 
 export type ResourceKey = "hp" | "mp" | "sp" | "st";
@@ -26,7 +27,7 @@ export function validateArcSelection(arcs: StoryArc[], selectedIds: string[]): {
   const contiguous = selected.every((arc, index) => index === 0 || selected[index - 1].end_sequence + 1 === arc.start_sequence);
   return contiguous
     ? { valid: true, message: `将合并 ${selected.length} 个连续故事弧。` }
-    : { valid: false, message: "所选故事弧的节点范围必须首尾连续。" };
+    : { valid: false, message: "请选择在剧情顺序上相邻的故事弧。" };
 }
 
 export function currentArcMerge(arcs: StoryArc[]): {
@@ -40,17 +41,17 @@ export function currentArcMerge(arcs: StoryArc[]): {
   const arcIds = current.map((arc) => arc.id);
   const selection = validateArcSelection(current, arcIds);
   if (current.length === 0) {
-    return { arcIds, valid: false, label: "暂无可合并的故事弧", message: "故事每积累 25 个可压缩节点会自动生成故事弧。" };
+    return { arcIds, valid: false, label: "暂无可合并的故事弧", message: "较早的剧情每积累到连续 25 段，就会自动整理成一个故事弧。" };
   }
   if (current.length === 1) {
-    return { arcIds, valid: false, label: "至少需要两个故事弧", message: "当前只有一个故事弧，继续游玩后可进一步压缩。" };
+    return { arcIds, valid: false, label: "至少需要两个故事弧", message: "当前只有一个故事弧。继续冒险，积累更多摘要后即可合并。" };
   }
-  const range = `第 ${current[0].start_sequence} 至 ${current[current.length - 1].end_sequence} 节`;
+  const range = `第 ${current[0].start_sequence} 至 ${current[current.length - 1].end_sequence} 段`;
   return {
     arcIds,
     valid: selection.valid,
     label: selection.valid ? `合并当前 ${current.length} 个故事弧` : "当前故事弧无法合并",
-    message: selection.valid ? `将把 ${range} 压缩为一个新的故事弧。` : selection.message,
+    message: selection.valid ? `将${range}剧情整理成一份更精简的摘要，完整剧情仍会保留。` : selection.message,
   };
 }
 
@@ -216,9 +217,9 @@ export function refreshedViewedTurn(
 
 export function narrativeJobMessage(job: NarrativeJob): string {
   if (job.error?.code === "MODEL_CONTEXT_LENGTH_EXCEEDED") {
-    return "模型上下文长度不足。请在设置中更换支持更长上下文的模型，再重新提交。本次不会自动裁剪或重试。";
+    return "当前 AI 无法一次读取这么多故事内容。请在设置中换用能读取更长故事的模型，再重新提交。游戏不会删减你的故事来重试。";
   }
-  if (job.status === "stale") return "任务完成前权威状态已变化，迟到结果没有写入存档。";
-  if (job.status === "cancelled") return "任务已取消，没有写入剧情或权威状态。";
-  return job.error?.message ?? "模型正在生成叙事，期间可以浏览其他页签。";
+  if (job.status === "stale") return "生成期间，存档内容已更新。这次生成的结果未保存，请查看最新剧情后再试。";
+  if (job.status === "cancelled") return "已取消生成，剧情和角色状态没有改变。";
+  return job.error ? playerProblemMessage(job.error) : "GM 正在写下新剧情，等待时可以查看角色、背包等页签。";
 }

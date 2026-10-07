@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, asApiError } from "../api";
+import { playerProblemMessage } from "../playerCopy";
 import type { ApiProblem, GameBootstrap, GameProjections, NarrativeJob, SaveSummary, StartPrerequisiteResolution, StoryView, Turn, WorldCatalog } from "../types";
 import {
   BondsPanel, CharacterPanel, gameTabs, type GameTab, InventoryPanel, JournalsPanel,
@@ -20,13 +21,13 @@ interface GameData {
 }
 
 function LoadingGame() {
-  return <div className="page game-page"><div className="loading-panel" role="status"><div className="skeleton wide" /><div className="skeleton medium" /><div className="skeleton wide" /><span className="sr-only">正在载入游戏工作区</span></div></div>;
+  return <div className="page game-page"><div className="loading-panel" role="status"><div className="skeleton wide" /><div className="skeleton medium" /><div className="skeleton wide" /><span className="sr-only">正在载入冒险</span></div></div>;
 }
 
 function ProblemPanel({ problem, onRetry }: { problem: ApiProblem; onRetry: () => void }) {
   const conflict = problem.code.includes("CONFLICT") || problem.code === "NARRATIVE_JOB_ACTIVE";
   const contextExceeded = problem.code === "MODEL_CONTEXT_LENGTH_EXCEEDED";
-  return <section className={`state-panel ${conflict ? "warning" : "error"}`} role="alert"><span className="state-symbol" aria-hidden="true">{conflict ? "!" : "×"}</span><div><h2>{contextExceeded ? "模型上下文长度不足" : conflict ? "权威状态已变化" : "无法载入游戏工作区"}</h2><p>{contextExceeded ? "请在设置中更换支持更长上下文的模型后重试。本次不会自动裁剪上下文或重试。" : problem.message}</p>{problem.trace_id && <p className="trace">追踪编号：{problem.trace_id}</p>}<button className="secondary-button" type="button" onClick={onRetry}>重新载入</button></div></section>;
+  return <section className={`state-panel ${conflict ? "warning" : "error"}`} role="alert"><span className="state-symbol" aria-hidden="true">{conflict ? "!" : "×"}</span><div><h2>{contextExceeded ? "故事内容超出模型可读取的长度" : conflict ? "存档内容已更新" : "无法载入冒险"}</h2><p>{contextExceeded ? "请在设置中换用能读取更长故事的模型，再重新提交。游戏不会删减你的故事来重试。" : playerProblemMessage(problem)}</p>{problem.trace_id && <p className="trace">问题编号：{problem.trace_id}</p>}<button className="secondary-button" type="button" onClick={onRetry}>重新载入</button></div></section>;
 }
 
 async function getAllGameData(saveId: string, signal?: AbortSignal): Promise<GameData> {
@@ -66,7 +67,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
   const showProblem = useCallback((reason: unknown) => {
     const error = asApiError(reason);
     const contextExceeded = error.problem.code === "MODEL_CONTEXT_LENGTH_EXCEEDED";
-    setNotice({ id: Date.now(), tone: "error", text: contextExceeded ? "模型上下文长度不足，请更换支持更长上下文的模型。本次不会自动裁剪重试。" : error.problem.message, traceId: error.problem.trace_id });
+    setNotice({ id: Date.now(), tone: "error", text: contextExceeded ? "当前 AI 无法一次读取这么多故事内容。请在设置中换用能读取更长故事的模型后重试。游戏不会删减你的故事。" : playerProblemMessage(error.problem), traceId: error.problem.trace_id });
   }, []);
 
   const refresh = useCallback(async (
@@ -127,7 +128,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
         setData((current) => current ? { ...current, story: { ...current.story, active_job: job } } : current);
         if (isNarrativeJobActive(job)) return;
         if (job.status === "succeeded") {
-          setNotice({ id: Date.now(), tone: "info", text: job.type === "turns_to_arc" || job.type === "arcs_to_arc" ? "故事弧已更新。" : "新剧情与权威状态已写入。" });
+          setNotice({ id: Date.now(), tone: "info", text: job.type === "turns_to_arc" || job.type === "arcs_to_arc" ? "故事弧已更新。" : "新剧情已保存，角色状态已更新。" });
           await refresh(true, token, job.result?.turn_id);
         } else {
           setNotice({ id: Date.now(), tone: "error", text: narrativeJobMessage(job) });
@@ -195,7 +196,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
       const job = await factory(data.story.state.state_version, nextController.signal);
       if (nextController.signal.aborted || token !== session.current || job.save_id !== requestedId) return;
       setData((current) => current ? { ...current, story: { ...current.story, active_job: job, can_act: false, can_open: false, can_reshape: false } } : current);
-      setNotice({ id: Date.now(), tone: "info", text: "任务已提交。你可以继续浏览其他页签。" });
+      setNotice({ id: Date.now(), tone: "info", text: "正在生成剧情，等待时可以查看角色、背包等页签。" });
     } catch (reason) {
       if (nextController.signal.aborted || token !== session.current) return;
       showProblem(reason);
@@ -218,7 +219,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
       setData((current) => current && current.bootstrap.save_id === requestedId
         ? { ...current, story: { ...current.story, active_arc_job: job } }
         : current);
-      setNotice({ id: Date.now(), tone: "info", text: "故事弧任务已提交，剧情操作仍可继续。" });
+      setNotice({ id: Date.now(), tone: "info", text: "正在整理故事摘要，你可以继续冒险。" });
     } catch (reason) {
       if (nextController.signal.aborted || token !== session.current) return;
       showProblem(reason);
@@ -261,7 +262,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
       await api.resolveStartPrerequisite(requestedId, data.story.state.state_version, resolution, locationId, requestId, nextController.signal);
       if (nextController.signal.aborted || token !== session.current) return;
       prerequisiteRequest.current = null;
-      setNotice({ id: Date.now(), tone: "info", text: resolution === "relocate" ? "角色已迁移到公开起点。" : "已记录对旧存档兼容防护的明确接受。" });
+      setNotice({ id: Date.now(), tone: "info", text: resolution === "relocate" ? "角色起点已更换，可以开始冒险。" : "已确认使用所需防护与许可，角色将保留当前起点。" });
       await refresh(true);
     } catch (reason) {
       if (!nextController.signal.aborted && token === session.current) showProblem(reason);
@@ -298,7 +299,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
   const startImageSession = async () => {
     if (!data?.story.latest_turn) return;
     if (!data.imageConfigured) {
-      setNotice({ id: Date.now(), tone: "error", text: "请先在设置中配置生图模型和 OpenAI API Key。" });
+      setNotice({ id: Date.now(), tone: "error", text: "请先打开设置，在“场景图片”中填写 OpenAI 服务地址和密钥。" });
       return;
     }
     setStartingImage(true);
@@ -317,9 +318,9 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
   const stateBusy = submittingState || isNarrativeJobActive(data.story.active_job);
   const arcBusy = submittingArc || isNarrativeJobActive(data.story.active_arc_job);
   return <div className="page game-page">
-    <header className="game-header"><div><span className="ready-mark">游戏档案</span><h1>{data.projections.character.identity.name || data.bootstrap.character.identity?.name || "未命名角色"}</h1><p>{data.story.state.time.label} · {data.story.state.location.name}</p></div>{data.imageSessionId ? <Link className="secondary-button scene-image-button" to={`/saves/${saveId}/game/image`}>查看图片任务</Link> : <button className={`secondary-button scene-image-button ${data.imageConfigured ? "" : "unconfigured"}`} type="button" disabled={!data.story.latest_turn || startingImage} onClick={() => void startImageSession()}>{startingImage ? "正在创建…" : "生成此刻图片"}</button>}</header>
-    {notice && <div key={notice.id} className={`game-notice ${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}><span aria-hidden="true">{notice.tone === "error" ? "!" : "◇"}</span><p>{notice.text}{notice.traceId && <small>追踪编号：{notice.traceId}</small>}</p><button type="button" onClick={() => setNotice(null)} aria-label="关闭游戏提示">×</button></div>}
-    <nav className="game-tabs" role="tablist" aria-label="游戏工作区" onKeyDown={(event) => {
+    <header className="game-header"><div><span className="ready-mark">游戏档案</span><h1>{data.projections.character.identity.name || data.bootstrap.character.identity?.name || "未命名角色"}</h1><p>{data.story.state.time.label} · {data.story.state.location.name}</p></div>{data.imageSessionId ? <Link className="secondary-button scene-image-button" to={`/saves/${saveId}/game/image`}>查看场景图片</Link> : <button className={`secondary-button scene-image-button ${data.imageConfigured ? "" : "unconfigured"}`} type="button" disabled={!data.story.latest_turn || startingImage} onClick={() => void startImageSession()}>{startingImage ? "正在创建…" : "生成此刻图片"}</button>}</header>
+    {notice && <div key={notice.id} className={`game-notice ${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}><span aria-hidden="true">{notice.tone === "error" ? "!" : "◇"}</span><p>{notice.text}{notice.traceId && <small>问题编号：{notice.traceId}</small>}</p><button type="button" onClick={() => setNotice(null)} aria-label="关闭游戏提示">×</button></div>}
+    <nav className="game-tabs" role="tablist" aria-label="游戏页签" onKeyDown={(event) => {
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
       const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
       const current = tabs.indexOf(document.activeElement as HTMLButtonElement);

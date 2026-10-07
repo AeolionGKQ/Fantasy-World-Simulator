@@ -220,6 +220,12 @@ class ContentRegistry:
     def __init__(self, api_directory=None):
         self.api_directory = Path(api_directory or Path(__file__).resolve().parent)
         self.workspace = self.api_directory.parents[1]
+        writing_raw = (self.workspace / "GM写作规范.md").read_bytes()
+        self._gm_writing_guidelines, _ = _decode(writing_raw)
+        self._gm_writing_metadata = {
+            "source_path": "GM写作规范.md", "raw_sha256": _sha(writing_raw),
+            "character_count": len(self._gm_writing_guidelines),
+        }
         self._documents = self._read_sources()
         quest_doc = next(item for item in self._documents
                          if item["document_id"] == "regional.source")
@@ -535,6 +541,10 @@ class ContentRegistry:
                 encoded_address_policy +
                 "\n</RUNTIME_PLAYER_ADDRESS_JSON>\n"
             )
+        if contract_kind == "gm_turn":
+            system_parts.append("\n<GM_WRITING_GUIDELINES>\n" +
+                                self._gm_writing_guidelines +
+                                "\n</GM_WRITING_GUIDELINES>\n")
         system_parts.append("\n<完整规则原文>\n")
         system_parts.extend(self._document_container(item) for item in by_category.get("rule", []))
         system_parts.append("\n</完整规则原文>\n<完整世界正典>\n")
@@ -590,6 +600,8 @@ class ContentRegistry:
             "memory_ids": [item.get("id") for item in memories],
             "memory_numbers": [item.get("memory_number") for item in memories],
         }
+        if contract_kind == "gm_turn":
+            manifest["gm_writing_guidelines"] = dict(self._gm_writing_metadata)
         return ([{"role": "system", "content": "".join(system_parts)},
                  {"role": "user", "content": json.dumps(dynamic, ensure_ascii=False,
                                                            separators=(",", ":"))}],

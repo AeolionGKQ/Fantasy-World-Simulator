@@ -17,6 +17,7 @@ import {
   useParams,
 } from "react-router-dom";
 import { api, ApiError, asApiError } from "./api";
+import { playerProblemMessage } from "./playerCopy";
 import GameWorkspace from "./game/GameWorkspace";
 import SceneImageWorkspace from "./game/SceneImageWorkspace";
 import {
@@ -108,18 +109,18 @@ function Modal({ title, children, onClose, labelledBy }: { title: string; childr
   );
 }
 
-function ErrorPanel({ error, onRetry, title = "无法完成请求" }: { error: unknown; onRetry?: () => void; title?: string }) {
+function ErrorPanel({ error, onRetry, title = "无法完成请求", playerFacing = false }: { error: unknown; onRetry?: () => void; title?: string; playerFacing?: boolean }) {
   const apiError = asApiError(error);
   const conflict = apiError.status === 409 || apiError.problem.code.toLowerCase().includes("conflict");
   return (
     <section className={`state-panel ${conflict ? "warning" : "error"}`} role="alert">
       <span className="state-symbol" aria-hidden="true">{conflict ? "!" : "×"}</span>
       <div>
-        <h2>{conflict ? "检测到版本冲突" : title}</h2>
-        <p>{apiError.problem.message}</p>
-        {apiError.problem.trace_id && <p className="trace">追踪编号：{apiError.problem.trace_id}</p>}
-        {conflict && <p>服务器保留了较新的版本。请重新载入后检查内容，再继续编辑。</p>}
-        {onRetry && <button className="secondary-button" type="button" onClick={onRetry}>{conflict ? "载入最新版本" : "重试请求"}</button>}
+        <h2>{conflict ? (playerFacing ? "内容已更新" : "检测到版本冲突") : title}</h2>
+        <p>{playerFacing ? playerProblemMessage(apiError.problem) : apiError.problem.message}</p>
+        {apiError.problem.trace_id && <p className="trace">{playerFacing ? "问题编号" : "追踪编号"}：{apiError.problem.trace_id}</p>}
+        {conflict && <p>{playerFacing ? "请重新载入，检查更新后的内容再继续。" : "服务器保留了较新的版本。请重新载入后检查内容，再继续编辑。"}</p>}
+        {onRetry && <button className="secondary-button" type="button" onClick={onRetry}>{conflict ? (playerFacing ? "载入最新内容" : "载入最新版本") : (playerFacing ? "重试" : "重试请求")}</button>}
       </div>
     </section>
   );
@@ -193,9 +194,9 @@ export default function App() {
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
-      setNotice("存档已导出，文件不包含 API Key。");
+      setNotice("存档已导出，不包含模型服务密钥。");
     } catch (error) {
-      setNotice(asApiError(error).message);
+      setNotice(playerProblemMessage(asApiError(error).problem));
     }
   };
 
@@ -211,7 +212,7 @@ export default function App() {
         <div className="sidebar-title"><span>存档</span><span>{saves.length}</span></div>
         <nav className="save-list" aria-label="已有存档">
           {loading && <LoadingPanel label="正在载入存档" />}
-          {!loading && Boolean(loadError) && <ErrorPanel error={loadError} onRetry={() => void refreshSaves()} title="无法载入存档" />}
+          {!loading && Boolean(loadError) && <ErrorPanel playerFacing error={loadError} onRetry={() => void refreshSaves()} title="无法载入存档" />}
           {!loading && !loadError && saves.length === 0 && (
             <div className="sidebar-empty"><p>还没有冒险档案。</p><button type="button" className="text-button" onClick={() => setModal("new")}>创建第一个存档</button></div>
           )}
@@ -233,7 +234,7 @@ export default function App() {
         </nav>
         <div className="sidebar-footer">
           <Link className={location.pathname === "/settings" ? "sidebar-settings active" : "sidebar-settings"} to="/settings"><Icon name="settings" /><span>设置</span></Link>
-          <div className="connection-line"><StatusDot state={loadError ? "offline" : "online"} />{loadError ? "后端未连接" : "后端已连接"}</div>
+          <div className="connection-line"><StatusDot state={loadError ? "offline" : "online"} />{loadError ? "游戏服务未连接" : "游戏服务已连接"}</div>
         </div>
       </aside>
       {drawerOpen && <button className="drawer-backdrop" type="button" aria-label="关闭存档列表" onClick={() => setDrawerOpen(false)} />}
@@ -246,7 +247,7 @@ export default function App() {
           </div>
           <div className="toolbar-actions">
             <button className="toolbar-button primary-compact" type="button" onClick={() => setModal("new")}><Icon name="plus" /><span>新建存档</span></button>
-            <button className="toolbar-button" type="button" onClick={() => setModal("import")}><Icon name="upload" /><span>导入 JSON</span></button>
+            <button className="toolbar-button" type="button" onClick={() => setModal("import")}><Icon name="upload" /><span>导入存档</span></button>
             <button className="toolbar-button" type="button" onClick={() => void exportCurrent()} disabled={!currentSave}><Icon name="download" /><span>导出存档</span></button>
             <Link className="toolbar-button settings-link" to="/settings"><Icon name="settings" /><span>设置</span></Link>
           </div>
@@ -268,7 +269,7 @@ export default function App() {
       {modal === "new" && <NewSaveModal onClose={() => setModal(null)} onCreated={async (save) => { setModal(null); await refreshSaves(); navigate(saveRoute(save)); }} />}
       {modal === "rename" && targetSave && <RenameSaveModal save={targetSave} onClose={() => setModal(null)} onRenamed={async () => { setModal(null); await refreshSaves(); setNotice("存档已重命名。"); }} />}
       {modal === "delete" && targetSave && <DeleteSaveModal save={targetSave} onClose={() => setModal(null)} onDeleted={async () => { const wasCurrent = targetSave.id === currentId; setModal(null); await refreshSaves(); if (wasCurrent) navigate("/"); setNotice("存档已删除，无法恢复。"); }} />}
-      {modal === "import" && <ImportSaveModal onClose={() => setModal(null)} onImported={async (save) => { setModal(null); await refreshSaves(); navigate(saveRoute(save)); setNotice("存档已使用新的本地 ID 导入。"); }} />}
+      {modal === "import" && <ImportSaveModal onClose={() => setModal(null)} onImported={async (save) => { setModal(null); await refreshSaves(); navigate(saveRoute(save)); setNotice("存档已导入，原有存档不会被覆盖。"); }} />}
     </div>
   );
 }
@@ -278,7 +279,7 @@ function Home({ saves, loading, onNew }: { saves: SaveSummary[]; loading: boolea
     <div className="page home-page">
       <div className="home-heading">
         <span className="archive-glyph" aria-hidden="true">◇</span>
-        <div><h1>冒险档案</h1><p>管理独立存档，配置叙事模型，并完成角色创建。</p></div>
+        <div><h1>冒险档案</h1><p>继续已有的冒险，或创建角色，开始一段新旅程。</p></div>
       </div>
       {loading ? <LoadingPanel /> : saves.length ? (
         <section className="recent-list" aria-labelledby="recent-title">
@@ -295,7 +296,7 @@ function Home({ saves, loading, onNew }: { saves: SaveSummary[]; loading: boolea
         <section className="empty-state">
           <div className="empty-symbol" aria-hidden="true">＋</div>
           <h2>建立第一份档案</h2>
-          <p>每个存档都拥有独立的角色草稿、生成任务与叙事偏好。你可以随时切换，不会混淆响应。</p>
+          <p>每个存档记录一个角色和一段独立的冒险。先为存档取名，再创建你的角色。</p>
           <button className="primary-button" type="button" onClick={onNew}><Icon name="plus" />创建存档</button>
         </section>
       )}
@@ -316,7 +317,7 @@ function NewSaveModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     requestIdentity.current = identity;
     setBusy(true); setError("");
     try { const created = await api.createSave(payloadName, identity.request_id); requestIdentity.current = null; onCreated(created); }
-    catch (reason) { setError(asApiError(reason).message); setBusy(false); }
+    catch (reason) { setError(playerProblemMessage(asApiError(reason).problem)); setBusy(false); }
   };
   return <Modal title="新建存档" onClose={onClose} labelledBy="new-save-title"><form onSubmit={(event) => void submit(event)}><label className="field"><span>存档名称</span><input autoFocus disabled={busy} value={name} maxLength={80} onChange={(e) => { requestIdentity.current = null; setName(e.target.value); }} aria-describedby={error ? "new-save-error" : undefined} /></label>{error && <p className="field-error" id="new-save-error">{error}</p>}<div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" disabled={busy}>{busy ? "正在创建…" : "创建存档"}</button></div></form></Modal>;
 }
@@ -330,7 +331,7 @@ function RenameSaveModal({ save, onClose, onRenamed }: { save: SaveSummary; onCl
     if (!name.trim()) { setError("请输入存档名称。"); return; }
     setBusy(true);
     try { await api.renameSave(save.id, name.trim(), save.revision, crypto.randomUUID()); onRenamed(); }
-    catch (reason) { setError(asApiError(reason).message); setBusy(false); }
+    catch (reason) { setError(playerProblemMessage(asApiError(reason).problem)); setBusy(false); }
   };
   return <Modal title="重命名存档" onClose={onClose} labelledBy="rename-save-title"><form onSubmit={(event) => void submit(event)}><label className="field"><span>存档名称</span><input autoFocus value={name} maxLength={80} onChange={(e) => setName(e.target.value)} /></label>{error && <p className="field-error">{error}</p>}<div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose}>取消</button><button className="primary-button" disabled={busy}>{busy ? "正在保存…" : "保存名称"}</button></div></form></Modal>;
 }
@@ -342,9 +343,9 @@ function DeleteSaveModal({ save, onClose, onDeleted }: { save: SaveSummary; onCl
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true);
     try { await api.deleteSave(save.id, save.revision, crypto.randomUUID()); onDeleted(); }
-    catch (reason) { setError(asApiError(reason).message); setBusy(false); }
+    catch (reason) { setError(playerProblemMessage(asApiError(reason).problem)); setBusy(false); }
   };
-  return <Modal title="删除存档" onClose={onClose} labelledBy="delete-save-title"><form onSubmit={(event) => void submit(event)}><div className="danger-callout"><strong>此操作无法恢复</strong><p>将删除“{save.name}”及其角色草稿、候选和生成记录。运行中的生成会被取消。</p></div><label className="field"><span>输入存档名称以确认</span><input autoFocus value={confirmation} onChange={(e) => setConfirmation(e.target.value)} /></label>{error && <p className="field-error">{error}</p>}<div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose}>保留存档</button><button className="danger-button" disabled={busy || confirmation !== save.name}>{busy ? "正在删除…" : "永久删除存档"}</button></div></form></Modal>;
+  return <Modal title="删除存档" onClose={onClose} labelledBy="delete-save-title"><form onSubmit={(event) => void submit(event)}><div className="danger-callout"><strong>此操作无法恢复</strong><p>将删除“{save.name}”中的角色、剧情和所有记录，正在生成的内容也会停止。</p></div><label className="field"><span>输入存档名称以确认</span><input autoFocus value={confirmation} onChange={(e) => setConfirmation(e.target.value)} /></label>{error && <p className="field-error">{error}</p>}<div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose}>保留存档</button><button className="danger-button" disabled={busy || confirmation !== save.name}>{busy ? "正在删除…" : "永久删除存档"}</button></div></form></Modal>;
 }
 
 function ImportSaveModal({ onClose, onImported }: { onClose: () => void; onImported: (save: SaveSummary) => void }) {
@@ -369,7 +370,7 @@ function ImportSaveModal({ onClose, onImported }: { onClose: () => void; onImpor
       const result = await api.validateLargeImport(file);
       setFile(file); setPreview(result);
     } catch (reason) {
-      setError(asApiError(reason).message);
+      setError(playerProblemMessage(asApiError(reason).problem));
     } finally { setBusy(false); }
   };
   const submit = async () => {
@@ -383,7 +384,7 @@ function ImportSaveModal({ onClose, onImported }: { onClose: () => void; onImpor
       if (isPendingImport(result)) { setPending(result); setBusy(false); return; }
       requestIdentity.current = null; onImported(result);
     }
-    catch (reason) { setError(asApiError(reason).message); setBusy(false); }
+    catch (reason) { setError(playerProblemMessage(asApiError(reason).problem)); setBusy(false); }
   };
   const trustAndImport = async () => {
     if (!pending || !trusted) return;
@@ -392,9 +393,9 @@ function ImportSaveModal({ onClose, onImported }: { onClose: () => void; onImpor
     trustIdentity.current = identity;
     setBusy(true); setError("");
     try { const save = await api.trustAndImport(pending.pending_import_id, pending.revision_id, identity.request_id); trustIdentity.current = null; onImported(save); }
-    catch (reason) { setError(asApiError(reason).message); setBusy(false); }
+    catch (reason) { setError(playerProblemMessage(asApiError(reason).problem)); setBusy(false); }
   };
-  return <Modal title="导入存档" onClose={onClose} labelledBy="import-save-title"><div className="import-flow"><label className="file-picker"><Icon name="upload" /><span><strong>{filename || "选择 JSON 存档"}</strong><small>支持最大 64 MB。导入会分配新的本地存档 ID，不覆盖现有存档。</small></span><input type="file" disabled={busy} accept="application/json,.json" onChange={(e) => void choose(e.target.files?.[0])} /></label>{busy && !preview && <p className="inline-status"><StatusDot state="busy" />正在校验文件…</p>}{preview && !pending && <div className={`import-preview ${preview.valid ? "success" : "error"}`}><strong>{preview.valid ? "文件可以导入" : "文件不兼容"}</strong><dl><div><dt>存档</dt><dd>{preview.save_name || "未命名"}</dd></div><div><dt>阶段</dt><dd>{preview.phase ? phaseLabel[preview.phase] : "未知"}</dd></div><div><dt>角色</dt><dd>{preview.character_name || "尚未确认"}</dd></div><div><dt>规则版本</dt><dd>{preview.ruleset_version || "未知"}</dd></div></dl>{preview.confirmation_required && <p className="warning-text">此存档包含本机尚未信任的内容版本，提交后需要单独确认。</p>}{preview.warnings?.map((warning) => <p className="warning-text" key={warning}>注意：{warning}</p>)}</div>}{pending && <div className="pending-import" role="region" aria-labelledby="pending-import-title"><h3 id="pending-import-title">确认导入内容版本</h3><p>存档携带本机尚未信任的规则与设定快照。哈希已由后端校验，仍需你明确确认后才能安装。</p><dl><div><dt>内容版本</dt><dd>{pending.revision_id}</dd></div><div><dt>提示版本</dt><dd>{pending.content_revision.prompt_version || "未标注"}</dd></div><div><dt>失效时间</dt><dd>{pending.expires_at}</dd></div></dl><ul>{pending.content_revision.documents.map((item) => <li key={item.document_id}><strong>{item.source_path}</strong><span>{item.byte_count.toLocaleString()} 字节</span><code title={item.raw_sha256}>{item.raw_sha256.slice(0, 12)}…</code></li>)}</ul><label className="trust-confirm"><input type="checkbox" checked={trusted} onChange={(event) => { trustIdentity.current = null; setTrusted(event.target.checked); }} /><span>我已核对内容版本和文档哈希摘要，并信任此快照。</span></label></div>}{error && <p className="field-error" role="alert">{error}</p>}<div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose}>取消</button>{pending ? <button className="primary-button" type="button" disabled={!trusted || busy} onClick={() => void trustAndImport()}>{busy ? "正在信任并导入…" : "信任版本并导入"}</button> : <button className="primary-button" type="button" disabled={!preview?.valid || busy} onClick={() => void submit()}>{busy && preview ? "正在导入…" : "确认导入"}</button>}</div></div></Modal>;
+  return <Modal title="导入存档" onClose={onClose} labelledBy="import-save-title"><div className="import-flow"><label className="file-picker"><Icon name="upload" /><span><strong>{filename || "选择存档文件"}</strong><small>选择从游戏中导出的 .json 存档文件，最大 64 MB。导入会新增一份存档，不覆盖已有冒险。</small></span><input type="file" disabled={busy} accept="application/json,.json" onChange={(e) => void choose(e.target.files?.[0])} /></label>{busy && !preview && <p className="inline-status"><StatusDot state="busy" />正在检查存档…</p>}{preview && !pending && <div className={`import-preview ${preview.valid ? "success" : "error"}`}><strong>{preview.valid ? "文件可以导入" : "此文件无法导入"}</strong><dl><div><dt>存档</dt><dd>{preview.save_name || "未命名"}</dd></div><div><dt>阶段</dt><dd>{preview.phase ? phaseLabel[preview.phase] : "未知"}</dd></div><div><dt>角色</dt><dd>{preview.character_name || "尚未确认"}</dd></div><div><dt>规则版本</dt><dd>{preview.ruleset_version || "未知"}</dd></div></dl>{preview.confirmation_required && <p className="warning-text">此存档附带了本机尚未确认的规则与世界设定，导入前需要你确认来源。</p>}{preview.warnings?.map((warning) => <p className="warning-text" key={warning}>注意：{warning === "导入时将分配新的本地存档ID" ? "导入会新增一份存档，不覆盖已有存档。" : warning}</p>)}</div>}{pending && <div className="pending-import" role="region" aria-labelledby="pending-import-title"><h3 id="pending-import-title">确认存档附带的规则与设定</h3><p>继续导入会保存这份存档附带的规则与世界设定。请查看下方文件清单，确认你信任存档的来源。</p><dl><div><dt>确认截止时间</dt><dd>{pending.expires_at}</dd></div></dl><ul>{pending.content_revision.documents.map((item) => <li key={item.document_id}><strong>{item.source_path.split(/[\\/]/).pop()}</strong><span>{Math.ceil(item.byte_count / 1024).toLocaleString()} KB</span></li>)}</ul><label className="trust-confirm"><input type="checkbox" checked={trusted} onChange={(event) => { trustIdentity.current = null; setTrusted(event.target.checked); }} /><span>我信任此存档的来源，同意导入附带的规则与世界设定。</span></label></div>}{error && <p className="field-error" role="alert">{error}</p>}<div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose}>取消</button>{pending ? <button className="primary-button" type="button" disabled={!trusted || busy} onClick={() => void trustAndImport()}>{busy ? "正在导入…" : "确认来源并导入"}</button> : <button className="primary-button" type="button" disabled={!preview?.valid || busy} onClick={() => void submit()}>{busy && preview ? "正在导入…" : "确认导入"}</button>}</div></div></Modal>;
 }
 
 function SettingsPage({ actions }: { actions: ShellActions }) {
@@ -459,7 +460,7 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
       window.setTimeout(() => setModelState("idle"), 2200);
     } catch (reason) {
       const apiError = asApiError(reason);
-      setActionError(apiError.message);
+      setActionError(playerProblemMessage(apiError.problem));
       if (isStructuredOutputError(apiError)) {
         setSettings((current) => resetStructuredOutputCapability(current, apiError.message));
       }
@@ -482,7 +483,7 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
         return mergeModelTestCapability(current, requestedKey, result);
       });
     } catch (reason) {
-      if (requestToken === testRequestToken.current) setActionError(asApiError(reason).message);
+      if (requestToken === testRequestToken.current) setActionError(playerProblemMessage(asApiError(reason).problem));
     }
     finally {
       settingRequestInFlight.current = false;
@@ -494,7 +495,7 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
     const requestedKey = modelCapabilityKey(settings.model.protocol, settings.model.base_url, settings.model.model);
     const requestToken = ++testRequestToken.current;
     setTestState("probing"); setActionError(""); setTestResult(null); setStructuredProbeFeedback(null);
-    setSettings((current) => resetStructuredOutputCapability(current, "正在探测 response_format 支持情况…"));
+    setSettings((current) => resetStructuredOutputCapability(current, "正在测试是否支持规范回复格式…"));
     try {
       const result = await api.testModel(structuredOutputProbePayload(modelPayload()));
       if (!isCurrentModelTestResponse(settings, requestedKey, requestToken, testRequestToken.current)) return;
@@ -504,15 +505,15 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
         return mergeModelTestCapability(current, requestedKey, result, true);
       });
       if (result.structured_output_capability === "supported") {
-        setStructuredProbeFeedback({ kind: "success", message: result.structured_output_message || "当前模型服务支持 response_format，已开启。" });
+        setStructuredProbeFeedback({ kind: "success", message: "当前服务支持规范回复格式。点击“保存模型设置”后生效。" });
       } else {
-        setStructuredProbeFeedback({ kind: "error", message: "当前模型服务不支持 response_format，已保持关闭" });
+        setStructuredProbeFeedback({ kind: "error", message: "当前服务未通过格式测试，此选项保持关闭。你仍可使用普通回复继续游戏。" });
       }
     } catch (reason) {
       if (requestToken !== testRequestToken.current) return;
       const apiError = asApiError(reason);
       setSettings((current) => resetStructuredOutputCapability(current, apiError.message));
-      setActionError(apiError.message);
+      setActionError(playerProblemMessage(apiError.problem));
     } finally {
       settingRequestInFlight.current = false;
       if (requestToken === testRequestToken.current) setTestState("idle");
@@ -534,7 +535,7 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
       setNarrationState("saved");
       window.setTimeout(() => setNarrationState("idle"), 2200);
     } catch (reason) {
-      setActionError(asApiError(reason).message); setNarrationState("idle");
+      setActionError(playerProblemMessage(asApiError(reason).problem)); setNarrationState("idle");
     } finally {
       settingRequestInFlight.current = false;
     }
@@ -550,7 +551,7 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
         ...(imageApiKey ? { api_key: imageApiKey } : {}) }, settings.revision, crypto.randomUUID());
       setSettings(updated); setImageApiKey(""); setImageModelState("saved");
       window.setTimeout(() => setImageModelState("idle"), 1800);
-    } catch (reason) { setActionError(asApiError(reason).message); setImageModelState("idle"); }
+    } catch (reason) { setActionError(playerProblemMessage(asApiError(reason).problem)); setImageModelState("idle"); }
   };
   const testImageModel = async () => {
     if (!settings || imageModelState !== "idle") return;
@@ -560,13 +561,13 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
       const result = await api.testImageModel({ base_url: imageModel.base_url,
         model: "gpt-image-2.5-sunburst", timeout_seconds: imageModel.timeout_seconds,
         ...(imageApiKey ? { api_key: imageApiKey } : {}) });
-      actions.setNotice(result.message);
-    } catch (reason) { setActionError(asApiError(reason).message); }
+      actions.setNotice(result.ok ? "图片服务连接成功，当前模型可用。请保存图片设置。" : "图片服务连接未成功，请检查地址和密钥。");
+    } catch (reason) { setActionError(playerProblemMessage(asApiError(reason).problem)); }
     finally { setImageModelState("idle"); }
   };
 
   if (loading) return <div className="page settings-page"><LoadingPanel label="正在载入设置" /></div>;
-  if (error || !settings) return <div className="page settings-page"><ErrorPanel error={error} onRetry={() => void load()} title="无法载入设置" /></div>;
+  if (error || !settings) return <div className="page settings-page"><ErrorPanel playerFacing error={error} onRetry={() => void load()} title="无法载入设置" /></div>;
   const imageModel = settings.image_model ?? { base_url: "https://api.openai.com/v1", model: "gpt-image-2.5-sunburst" as const, timeout_seconds: 300, configured: false, api_key_configured: false };
   const displayedTestResult = (testResult?.key === modelCapabilityKey(
     settings.model.protocol, settings.model.base_url, settings.model.model
@@ -575,49 +576,49 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
   const canSubmitSettingRequest = canStartSettingRequest(modelState, narrationState, testState);
   return (
     <div className="page settings-page">
-      <header className="page-header"><div><h1>设置</h1><p>模型配置保存在本机后端，存档导出不会包含 API Key。</p></div></header>
+      <header className="page-header"><div><h1>设置</h1><p>在这里连接 AI 服务，调整故事节奏和描写方式。设置保存在本机，导出的存档不包含服务密钥。</p></div></header>
       {actionError && <div className="inline-error" role="alert">{actionError}</div>}
       <section className="settings-section" aria-labelledby="model-settings-title">
-        <div className="settings-copy"><h2 id="model-settings-title">模型服务</h2><p>可连接 OpenAI Chat Completions 或 Anthropic Messages 兼容服务。自定义地址将由后端访问，请只使用你信任的端点。</p></div>
+        <div className="settings-copy"><h2 id="model-settings-title">剧情 AI</h2><p>AI 会扮演 GM，根据你的角色和行动讲述故事。按服务商提供的信息填写下方设置；服务地址请使用你信任的来源。</p></div>
         <form className="settings-form" onSubmit={(event) => void saveModel(event)}>
-          <SegmentedField label="模型协议" value={settings.model.protocol ?? "openai"} options={[{ value: "openai", label: "OpenAI 兼容" }, { value: "anthropic", label: "Anthropic 兼容" }]} disabled={!canMutateModel} onChange={(protocol) => invalidateModelTest((model) => ({ ...model, protocol }))} />
-          <label className="field full"><span>API Base URL</span><input type="url" required disabled={!canMutateModel} placeholder={settings.model.protocol === "anthropic" ? "https://api.anthropic.com/v1" : "https://api.example.com/v1"} value={settings.model.base_url} onChange={(e) => invalidateModelTest((model) => ({ ...model, base_url: e.target.value }))} /><small>{settings.model.protocol === "anthropic" ? "未包含 /v1 时会自动补全；后端请求 /v1/messages，并发送 x-api-key 与 anthropic-version 请求头。" : "后端会请求 /chat/completions，并使用 Bearer 鉴权。"}</small></label>
-          <label className="field"><span>模型名称</span><input required disabled={!canMutateModel} placeholder="模型标识" value={settings.model.model} onChange={(e) => invalidateModelTest((model) => ({ ...model, model: e.target.value }))} /></label>
-          <label className="field"><span>API Key</span><input type="password" disabled={!canMutateModel} autoComplete="new-password" placeholder={settings.model.api_key_configured ? "已配置，留空则保持不变" : "输入后仅发送一次"} value={apiKey} onChange={(e) => { setApiKey(e.target.value); invalidateModelTest((model) => model); }} aria-describedby="key-help" /><small id="key-help">读取设置时只显示配置状态，不回显任何密钥内容。</small></label>
-          <label className="field"><span>请求超时（秒）</span><input type="number" min={5} max={600} required disabled={!canMutateModel} value={settings.model.timeout_seconds} onChange={(e) => setSettings({ ...settings, model: { ...settings.model, timeout_seconds: Number(e.target.value) } })} /></label>
-          <label className="field"><span>最大并发</span><input type="number" min={1} max={16} required disabled={!canMutateModel} value={settings.model.max_concurrency} aria-describedby="max-concurrency-help" onChange={(e) => setSettings({ ...settings, model: { ...settings.model, max_concurrency: Number(e.target.value) } })} /><small id="max-concurrency-help">默认 2。保存后当前有效上限为 {settings.model.max_concurrency}；若供应商明确拒绝真实重叠请求，系统会等待其他请求结束，串行重试一次，并自动保存为 1。</small></label>
+          <SegmentedField label="服务类型" value={settings.model.protocol ?? "openai"} options={[{ value: "openai", label: "OpenAI 兼容" }, { value: "anthropic", label: "Anthropic 兼容" }]} disabled={!canMutateModel} onChange={(protocol) => invalidateModelTest((model) => ({ ...model, protocol }))} /><p className="field-help full">按服务商的接入说明选择。Claude 官方服务选 Anthropic 兼容；其他服务请确认支持哪一种。</p>
+          <label className="field full"><span>服务地址</span><input type="url" required disabled={!canMutateModel} placeholder={settings.model.protocol === "anthropic" ? "https://api.anthropic.com/v1" : "https://api.example.com/v1"} value={settings.model.base_url} onChange={(e) => invalidateModelTest((model) => ({ ...model, base_url: e.target.value }))} /><small>{settings.model.protocol === "anthropic" ? "填写服务商提供的 Anthropic 兼容地址。如果服务商未特别说明，官方地址可使用上方示例。" : "填写服务商提供的 OpenAI 兼容地址。请使用 API 服务地址，不是聊天网站的网页地址。"}</small></label>
+          <label className="field"><span>模型名称</span><input required disabled={!canMutateModel} placeholder="填写服务商提供的模型名称" value={settings.model.model} onChange={(e) => invalidateModelTest((model) => ({ ...model, model: e.target.value }))} /></label>
+          <label className="field"><span>服务密钥（API Key）</span><input type="password" disabled={!canMutateModel} autoComplete="new-password" placeholder={settings.model.api_key_configured ? "已配置，留空则保持不变" : "粘贴服务商提供的密钥"} value={apiKey} onChange={(e) => { setApiKey(e.target.value); invalidateModelTest((model) => model); }} aria-describedby="key-help" /><small id="key-help">密钥可在服务商账户中获取。保存后不会显示原文；更换密钥时再填写，留空会保留已有密钥。</small></label>
+          <label className="field"><span>最长等待时间（秒）</span><input type="number" min={5} max={600} required disabled={!canMutateModel} value={settings.model.timeout_seconds} onChange={(e) => setSettings({ ...settings, model: { ...settings.model, timeout_seconds: Number(e.target.value) } })} /><small>等待 AI 回复的最长时间，范围 5–600 秒。回复较慢时可适当调高。</small></label>
+          <label className="field"><span>同时生成数量</span><input type="number" min={1} max={16} required disabled={!canMutateModel} value={settings.model.max_concurrency} aria-describedby="max-concurrency-help" onChange={(e) => setSettings({ ...settings, model: { ...settings.model, max_concurrency: Number(e.target.value) } })} /><small id="max-concurrency-help">最多同时进行 {settings.model.max_concurrency} 次 AI 生成，默认 2。服务商只允许一次生成时，游戏会自动改为 1，并等待前一次结束。</small></label>
           <div className="switch-field full">
-            <div><span id="structured-output-label">{settings.model.protocol === "anthropic" ? "Output Config（结构化输出）" : "Response Format（结构化输出）"}</span><small id="structured-output-help" role="status" aria-live="polite">多数兼容服务可能不支持，默认关闭。开启时会发送一次极小测试请求，可能产生少量费用；关闭不会探测。当前状态：{testState === "probing" ? "正在探测" : capabilityLabel(settings.model.structured_output_capability)}。</small></div>
-            <label className="switch"><input type="checkbox" aria-labelledby="structured-output-label" aria-describedby="structured-output-help" aria-busy={testState === "probing"} disabled={!canMutateModel || narrationState === "saving"} checked={settings.model.structured_output} onChange={(e) => { if (e.target.checked) void probeStructuredOutput(); else { testRequestToken.current += 1; setSettings((current) => resetStructuredOutputCapability(current, "结构化输出已关闭。")); setTestResult(null); setStructuredProbeFeedback(null); setTestState("idle"); } }} /><span aria-hidden="true" /></label>
+            <div><span id="structured-output-label">规范回复格式</span><small id="structured-output-help" role="status" aria-live="polite">让 AI 按游戏需要的格式回复。默认关闭；不确定服务是否支持时，可保持关闭。开启会先测试，可能产生少量费用，关闭无需测试。支持情况：{testState === "probing" ? "正在测试" : capabilityLabel(settings.model.structured_output_capability)}。</small></div>
+            <label className="switch"><input type="checkbox" aria-labelledby="structured-output-label" aria-describedby="structured-output-help" aria-busy={testState === "probing"} disabled={!canMutateModel || narrationState === "saving"} checked={settings.model.structured_output} onChange={(e) => { if (e.target.checked) void probeStructuredOutput(); else { testRequestToken.current += 1; setSettings((current) => resetStructuredOutputCapability(current, "已关闭规范回复格式。")); setTestResult(null); setStructuredProbeFeedback(null); setTestState("idle"); } }} /><span aria-hidden="true" /></label>
           </div>
-          {structuredProbeFeedback && <div className={`test-result full ${structuredProbeFeedback.kind}`} role={structuredProbeFeedback.kind === "error" ? "alert" : "status"}><strong>{structuredProbeFeedback.kind === "success" ? "结构化输出探测通过" : "结构化输出未开启"}</strong><p>{structuredProbeFeedback.message}</p></div>}
+          {structuredProbeFeedback && <div className={`test-result full ${structuredProbeFeedback.kind}`} role={structuredProbeFeedback.kind === "error" ? "alert" : "status"}><strong>{structuredProbeFeedback.kind === "success" ? "已开启规范回复格式" : "规范回复格式未开启"}</strong><p>{structuredProbeFeedback.message}</p></div>}
           <div className="switch-field full">
-            <div><span id="model-thinking-label">正式剧情模型思考</span><small>仅控制开场、自由行动、建议选项、干涉与重塑。故事弧整理始终开启思考。{settings.model.thinking_message || thinkingCapabilityMessage(settings.model.thinking_capability, settings.model.thinking_confidence, settings.model.thinking_strategy)}</small></div>
+            <div><span id="model-thinking-label">生成剧情前思考</span><small>让 AI 在写剧情前先思考，等待时间可能更长。此开关用于开场和后续剧情；整理故事记忆时始终开启。{thinkingCapabilityMessage(settings.model.thinking_capability, settings.model.thinking_confidence, settings.model.thinking_strategy)}</small></div>
             <label className="switch"><input type="checkbox" aria-labelledby="model-thinking-label" disabled={!canMutateModel || settings.model.thinking_capability !== "controlled"} checked={settings.model.thinking_capability === "controlled" ? settings.model.thinking_enabled : true} onChange={(e) => setSettings({ ...settings, model: { ...settings.model, thinking_enabled: e.target.checked } })} /><span aria-hidden="true" /></label>
           </div>
-          {displayedTestResult && <div className={`test-result full ${displayedTestResult.ok ? "success" : "error"}`} role="status"><strong>{displayedTestResult.ok ? "连接测试通过" : "连接测试未通过"}</strong><p>{displayedTestResult.message}</p><div className="capabilities"><span>目标模型：{displayedTestResult.model_available === false ? "不可用" : "可用"}</span>{displayedTestResult.latency_ms !== undefined && <span>响应：{displayedTestResult.latency_ms} ms</span>}<span>思考：{thinkingCapabilityLabel(displayedTestResult.thinking_capability)}</span><span>置信度：{thinkingConfidenceLabel(displayedTestResult.thinking_confidence)}</span>{displayedTestResult.thinking_strategy && <span>识别方式：{thinkingStrategyLabel(displayedTestResult.thinking_strategy)}</span>}<span>结构化输出：{capabilityLabel(displayedTestResult.structured_output_capability)}</span></div><p>{displayedTestResult.thinking_message}</p></div>}
-          {settings.model.api_key_persistence === "memory_only" && <p className="warning-text full">当前环境无法使用 Windows DPAPI，API Key 只保存在本进程内存中，服务重启后需重新输入。</p>}
-          <div className="form-actions full"><button className="secondary-button" type="button" disabled={!canSubmitSettingRequest} onClick={() => void testModel()}>{testState === "testing" ? "正在测试连接…" : "测试连接"}</button><button className="secondary-button" type="button" disabled={!canSubmitSettingRequest} onClick={() => void testModel(true)}>{testState === "thinking" ? "正在测试思考…" : "测试思考"}</button><span className="cost-note">连接测试不会探测思考或结构化输出；思考测试会验证开启与关闭参数，可能产生少量费用。</span><button className="primary-button" disabled={!canSubmitSettingRequest}>{modelState === "saving" ? "正在保存…" : modelState === "saved" ? "设置已保存" : "保存模型设置"}</button></div>
+          {displayedTestResult && <div className={`test-result full ${displayedTestResult.ok ? "success" : "error"}`} role="status"><strong>{displayedTestResult.ok ? "连接测试通过" : "连接测试未通过"}</strong><p>{displayedTestResult.ok ? "已连接当前 AI 服务。测试完成后，点击“保存模型设置”保存你的配置。" : "连接未成功，请检查服务类型、地址、模型名称和密钥。"}</p><div className="capabilities"><span>目标模型：{displayedTestResult.model_available === false ? "不可用" : displayedTestResult.model_available === true ? "可用" : "尚未确认"}</span>{displayedTestResult.latency_ms !== undefined && <span>测试用时：{(displayedTestResult.latency_ms / 1000).toFixed(1)} 秒</span>}<span>思考：{thinkingCapabilityLabel(displayedTestResult.thinking_capability)}</span><span>规范回复格式：{capabilityLabel(displayedTestResult.structured_output_capability)}</span></div><p>{thinkingCapabilityMessage(displayedTestResult.thinking_capability, displayedTestResult.thinking_confidence, displayedTestResult.thinking_strategy)}</p></div>}
+          {settings.model.api_key_persistence === "memory_only" && <p className="warning-text full">当前环境只能临时保存密钥。重新启动游戏服务后，需要再次填写。</p>}
+          <div className="form-actions full"><button className="secondary-button" type="button" disabled={!canSubmitSettingRequest} onClick={() => void testModel()}>{testState === "testing" ? "正在测试连接…" : "测试连接"}</button><button className="secondary-button" type="button" disabled={!canSubmitSettingRequest} onClick={() => void testModel(true)}>{testState === "thinking" ? "正在测试思考…" : "测试思考"}</button><span className="cost-note">先测试连接，再保存设置。思考开关需单独点击“测试思考”；测试过程中可能产生少量 AI 服务费用。</span><button className="primary-button" disabled={!canSubmitSettingRequest}>{modelState === "saving" ? "正在保存…" : modelState === "saved" ? "设置已保存" : "保存模型设置"}</button></div>
         </form>
       </section>
       <section className="settings-section" aria-labelledby="image-model-title">
-        <div className="settings-copy"><h2 id="image-model-title">生图模型</h2><p>为当前剧情画面生成图片。首版仅支持 OpenAI GPT Image 2.5 Sunburst，API Key 独立保存在本机。</p></div>
+        <div className="settings-copy"><h2 id="image-model-title">场景图片</h2><p>把当前剧情变成图片。需要单独填写 OpenAI 密钥，目前支持 GPT Image 2.5 Sunburst。图片生成费用由服务商收取。</p></div>
         <form className="settings-form" onSubmit={(event) => void saveImageModel(event)}>
-          <label className="field full"><span>API Base URL</span><input type="url" required disabled={imageModelState !== "idle"} value={imageModel.base_url} onChange={(event) => setSettings({ ...settings, image_model: { ...imageModel, base_url: event.target.value } })} /><small>仅支持 https://api.openai.com，未填写 /v1 时后端会自动补全。</small></label>
+          <label className="field full"><span>服务地址</span><input type="url" required disabled={imageModelState !== "idle"} value={imageModel.base_url} onChange={(event) => setSettings({ ...settings, image_model: { ...imageModel, base_url: event.target.value } })} /><small>请使用 OpenAI 官方服务地址：https://api.openai.com/v1。当前不支持其他图片服务。</small></label>
           <label className="field"><span>模型名称</span><input readOnly value="gpt-image-2.5-sunburst" /></label>
-          <label className="field"><span>生图 API Key</span><input type="password" autoComplete="new-password" disabled={imageModelState !== "idle"} placeholder={imageModel.api_key_configured ? "已配置，留空保持不变" : "输入 OpenAI API Key"} value={imageApiKey} onChange={(event) => setImageApiKey(event.target.value)} /></label>
-          <label className="field"><span>请求超时（秒）</span><input type="number" min={1} max={600} value={imageModel.timeout_seconds} onChange={(event) => setSettings({ ...settings, image_model: { ...imageModel, timeout_seconds: Number(event.target.value) } })} /></label>
-          <div className="form-actions full"><button className="secondary-button" type="button" disabled={imageModelState !== "idle"} onClick={() => void testImageModel()}>{imageModelState === "testing" ? "正在测试…" : "测试连接"}</button><span className="cost-note">连接测试只检查模型可见性，不生成图片。</span><button className="primary-button" disabled={imageModelState !== "idle"}>{imageModelState === "saving" ? "正在保存…" : imageModelState === "saved" ? "设置已保存" : "保存生图设置"}</button></div>
+          <label className="field"><span>图片服务密钥（API Key）</span><input type="password" autoComplete="new-password" disabled={imageModelState !== "idle"} placeholder={imageModel.api_key_configured ? "已配置，留空保持不变" : "输入 OpenAI API Key"} value={imageApiKey} onChange={(event) => setImageApiKey(event.target.value)} /></label>
+          <label className="field"><span>最长等待时间（秒）</span><input type="number" min={1} max={600} value={imageModel.timeout_seconds} onChange={(event) => setSettings({ ...settings, image_model: { ...imageModel, timeout_seconds: Number(event.target.value) } })} /><small>图片生成可能较慢，可设置 1–600 秒的等待时间。</small></label>
+          <div className="form-actions full"><button className="secondary-button" type="button" disabled={imageModelState !== "idle"} onClick={() => void testImageModel()}>{imageModelState === "testing" ? "正在测试…" : "测试连接"}</button><span className="cost-note">测试会检查是否能连接并使用此模型，不会生成图片。</span><button className="primary-button" disabled={imageModelState !== "idle"}>{imageModelState === "saving" ? "正在保存…" : imageModelState === "saved" ? "设置已保存" : "保存图片设置"}</button></div>
         </form>
       </section>
       <section className="settings-section" aria-labelledby="narration-title">
-        <div className="settings-copy"><h2 id="narration-title">叙事设置</h2><p>保存后同步到全部存档；之后仍可在某个存档的“角色”页单独调整GM称呼。</p></div>
+        <div className="settings-copy"><h2 id="narration-title">叙事设置</h2><p>选择你喜欢的故事节奏和描写方式。保存后会应用到全部存档；也可在单个存档的“角色”页调整 GM 对角色的称呼。</p></div>
         <form className="settings-form narration" onSubmit={(event) => void saveNarration(event)}>
-          <SegmentedField label="步进速度" value={settings.narration.pace} options={[{ value: "slow", label: "慢速" }, { value: "fast", label: "快速" }, { value: "dynamic", label: "动态" }]} disabled={narrationState === "saving"} onChange={(pace) => setSettings((current) => current ? { ...current, narration: { ...current.narration, pace } } : current)} />
-          <SegmentedField label="叙事倾向" value={settings.narration.tendency} options={[{ value: "casual", label: "日常" }, { value: "balanced", label: "平衡" }, { value: "combat", label: "战斗" }]} disabled={narrationState === "saving"} onChange={(tendency) => setSettings((current) => current ? { ...current, narration: { ...current.narration, tendency } } : current)} />
-          <SegmentedField label="内容详细度" value={settings.narration.detail} options={[{ value: "concise", label: "简洁" }, { value: "standard", label: "标准" }, { value: "detailed", label: "详细" }]} disabled={narrationState === "saving"} onChange={(detail) => setSettings((current) => current ? { ...current, narration: { ...current.narration, detail } } : current)} />
-          <SegmentedField label="GM对玩家角色的称呼" value={settings.narration.player_address} options={[{ value: "full_name", label: "全名" }, { value: "given_name", label: "名" }, { value: "second_person", label: "第二人称" }]} disabled={narrationState === "saving"} onChange={(player_address) => setSettings((current) => current ? { ...current, narration: { ...current.narration, player_address } } : current)} />
-          <p className="field-help full">只影响GM叙述者：全名如“菲亚·维洛拉”，名如“菲亚”，第二人称为“你”。NPC仍按关系与场合称呼：陌生或尊称用姓+先生/小姐，熟人用名，书面用全名。</p>
+          <SegmentedField label="剧情推进速度" value={settings.narration.pace} options={[{ value: "slow", label: "慢速" }, { value: "fast", label: "快速" }, { value: "dynamic", label: "动态" }]} disabled={narrationState === "saving"} onChange={(pace) => setSettings((current) => current ? { ...current, narration: { ...current.narration, pace } } : current)} /><p className="field-help full">慢速：每轮推进较少，方便细致互动。快速：概括普通赶路、等待等过程。动态：按场景调整节奏。重要决定仍由你来做。</p>
+          <SegmentedField label="叙事倾向" value={settings.narration.tendency} options={[{ value: "casual", label: "日常" }, { value: "balanced", label: "平衡" }, { value: "combat", label: "战斗" }]} disabled={narrationState === "saving"} onChange={(tendency) => setSettings((current) => current ? { ...current, narration: { ...current.narration, tendency } } : current)} /><p className="field-help full">日常偏向旅行、交友和生活；战斗更容易遇到冒险与危险；平衡兼顾两者。日常模式也不会消除危险地区的风险。</p>
+          <SegmentedField label="内容详细度" value={settings.narration.detail} options={[{ value: "concise", label: "简洁" }, { value: "standard", label: "标准" }, { value: "detailed", label: "详细" }]} disabled={narrationState === "saving"} onChange={(detail) => setSettings((current) => current ? { ...current, narration: { ...current.narration, detail } } : current)} /><p className="field-help full">简洁着重交代发生了什么；标准保留适量场景描写；详细会展开环境、动作和对话。详细度不会改变每轮推进的剧情多少。</p>
+          <SegmentedField label="GM对玩家角色的称呼" value={settings.narration.player_address} options={[{ value: "full_name", label: "全名" }, { value: "given_name", label: "名字" }, { value: "second_person", label: "你" }]} disabled={narrationState === "saving"} onChange={(player_address) => setSettings((current) => current ? { ...current, narration: { ...current.narration, player_address } } : current)} />
+          <p className="field-help full">选择 GM 在剧情中如何称呼你：全名如“菲亚·维洛拉”，名字如“菲亚”，或直接用“你”。故事中的人物仍会根据关系和场合使用各自的称呼。</p>
           <div className="form-actions full"><button className="primary-button" disabled={!canSubmitSettingRequest}>{narrationState === "saving" ? "正在保存…" : narrationState === "saved" ? "偏好已保存" : "保存叙事设置"}</button></div>
         </form>
       </section>
@@ -626,15 +627,11 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
 }
 
 function capabilityLabel(value?: "supported" | "unsupported" | "unknown") {
-  return value === "supported" ? "支持" : value === "unsupported" ? "不支持" : "未知";
+  return value === "supported" ? "支持" : value === "unsupported" ? "不支持" : "未测试";
 }
 
 function thinkingCapabilityLabel(value: "controlled" | "unsupported" | "unknown") {
-  return value === "controlled" ? "已验证" : value === "unsupported" ? "服务不支持关闭" : "未测试";
-}
-
-function thinkingConfidenceLabel(value: "verified" | "accepted_bundle" | "unsupported" | "unknown") {
-  return value === "verified" ? "verified（逐项验证）" : value === "accepted_bundle" ? "accepted_bundle（组合接受）" : value === "unsupported" ? "unsupported" : "unknown";
+  return value === "controlled" ? "可设置" : value === "unsupported" ? "由服务商决定" : "未测试";
 }
 
 export function thinkingStrategyLabel(value: ModelTestResult["thinking_strategy"]) {
@@ -642,10 +639,10 @@ export function thinkingStrategyLabel(value: ModelTestResult["thinking_strategy"
   return value ? labels[value] : "未识别";
 }
 
-export function thinkingCapabilityMessage(capability: "controlled" | "unsupported" | "unknown", confidence: "verified" | "accepted_bundle" | "unsupported" | "unknown", strategy?: ModelTestResult["thinking_strategy"]) {
-  if (capability === "unsupported") return "当前服务不支持关闭思考；模型保持开启、默认思考或不受应用控制。";
-  if (capability === "unknown") return "未测试。请先测试连接，确认服务是否接受思考控制参数。";
-  return confidence === "accepted_bundle" ? "服务接受兼容参数组合，无法逐项证明。" : `已验证思考控制参数：${thinkingStrategyLabel(strategy)}。`;
+export function thinkingCapabilityMessage(capability: "controlled" | "unsupported" | "unknown", confidence: "verified" | "accepted_bundle" | "unsupported" | "unknown", _strategy?: ModelTestResult["thinking_strategy"]) {
+  if (capability === "unsupported") return "当前服务不支持关闭思考，将使用服务商的默认设置。";
+  if (capability === "unknown") return "尚未测试。点击“测试思考”，确认是否可以设置思考开关。";
+  return confidence === "accepted_bundle" ? "服务接受了思考设置，但尚未分别确认开启与关闭是否可用。" : "服务已接受思考开关设置，你可以选择开启或关闭。";
 }
 
 export function modelCapabilityKey(protocolOrBaseUrl: AppSettings["model"]["protocol"] | string, baseUrlOrModel: string, maybeModel?: string): string {
@@ -707,10 +704,10 @@ export function resetStructuredOutputCapability(current: AppSettings | null, mes
 
 export function invalidateModelCapabilities(model: AppSettings["model"]): AppSettings["model"] {
   return { ...model, structured_output: false, structured_output_capability: "unknown",
-    structured_output_message: "结构化输出能力未探测。", structured_output_probed_at: null,
+    structured_output_message: "规范回复格式尚未测试。", structured_output_probed_at: null,
     structured_output_probe_token: undefined,
     thinking_enabled: true, thinking_capability: "unknown", thinking_strategy: null,
-    thinking_confidence: "unknown", thinking_message: "思考控制能力未测试，请先测试连接。",
+    thinking_confidence: "unknown", thinking_message: "思考开关尚未测试，请点击“测试思考”。",
     thinking_probed_at: null };
 }
 
@@ -1067,7 +1064,7 @@ function stepTitle(step: number) {
   return ["选择角色种族", "为角色命名", "确定角色性别", "填写角色年龄", "描绘角色外貌", "塑造角色性格", "选择初始等阶", "描述角色天赋", "补充角色身世", "选择初始地点", "浏览世界势力", "添加其他信息", "生成并确认角色"][step - 1];
 }
 function stepDescription(step: number) {
-  return ["浏览可玩种族的特征与寿命提示，然后作出选择。", "姓名将进入正式角色档案，确认前仍可修改。", "使用预设选项，或直接输入更符合角色的描述。", "平均寿命仅供参考，不作为年龄上限。", "预设词会追加到文本中，你可以继续编辑。", "用明确的性格特征帮助模型理解角色。", "等阶影响基础战力与游戏体验，请留意高阶警告。", "预设词只提供方向，最终文本由你决定。", "此项可留空，不会阻止后续生成。", "浏览地点资料并选择角色开始冒险的位置。", "势力资料只供了解，不会写入角色草稿。", "此项可留空，用于记录额外约束或想法。", "检查输入，发起异步生成，并在接受前审阅完整候选。 "][step - 1];
+  return ["浏览可玩种族的特征与寿命提示，然后作出选择。", "姓名将进入正式角色档案，确认前仍可修改。", "使用预设选项，或直接输入更符合角色的描述。", "平均寿命仅供参考，不作为年龄上限。", "预设词会追加到文本中，你可以继续编辑。", "用明确的性格特征帮助模型理解角色。", "选择角色开局时的战斗实力，了解各阶的能力范围与冒险侧重。", "预设词只提供方向，最终文本由你决定。", "此项可留空，不会阻止后续生成。", "浏览地点资料并选择角色开始冒险的位置。", "势力资料只供了解，不会写入角色草稿。", "此项可留空，用于记录额外约束或想法。", "检查输入，发起异步生成，并在接受前审阅完整候选。 "][step - 1];
 }
 
 function stepSummary(step: number, draft: CharacterDraft, catalog: WorldCatalog) {
@@ -1159,18 +1156,18 @@ function RankStep({ catalog, draft, update }: { catalog: WorldCatalog; draft: Ch
   const branch = selectedRaceBranch(race, draft.race_branch_id);
   const ranks = branch?.ranks.length ? branch.ranks : race?.ranks.length ? race.ranks : catalog.ranks;
   const selected = ranks.find((rank) => rank.rank === draft.rank);
-  return <div className="rank-browser"><section className="rank-system" aria-labelledby="rank-system-title"><div><span className="world-label">世界通行标准</span><h3 id="rank-system-title">{catalog.rank_system.title}</h3><p>{catalog.rank_system.description}</p></div><ul>{catalog.rank_system.principles.map((principle) => <li key={principle}>{principle}</li>)}</ul></section><div className="rank-step"><div className="rank-list" role="radiogroup" aria-label="角色等阶">{ranks.map((rank) => { const displayRank = rank.display_rank || `${chineseRankNumeral(rank.rank)}阶`; return <label key={rank.rank} className={rank.disabled ? "disabled" : ""}><input type="radio" name="rank" disabled={rank.disabled} checked={draft.rank === rank.rank} onChange={() => update("rank", rank.rank)} /><span className="rank-number">{chineseRankNumeral(rank.rank)}</span><span><strong>{displayRank}</strong><small>{rank.title || "无专属称号"}</small></span>{rank.base_power !== undefined && <span className="power-value">战力 {rank.base_power.toLocaleString()}</span>}</label>; })}</div>{selected && <div className={`rank-note ${selected.rank >= 7 ? "warning" : ""}`}><strong>{selected.display_rank || `${chineseRankNumeral(selected.rank)}阶`} · {selected.title || "无专属称号"}</strong>{selected.rank >= 7 ? <p>七阶及以上会显著压缩前期挑战空间。推荐选择六阶及以下，以保留更完整的成长与冒险体验。</p> : <p>当前选择位于推荐范围内，适合保留成长与探索空间。</p>}{selected.warning && <p>{selected.warning}</p>}</div>}</div></div>;
+  return <div className="rank-browser"><section className="rank-system" aria-labelledby="rank-system-title"><div><span className="world-label">世界通行标准</span><h3 id="rank-system-title">{catalog.rank_system.title}</h3><p>{catalog.rank_system.description}</p>{catalog.rank_system.starting_advice && <><h4>为什么推荐六阶及以下开局</h4><p>{catalog.rank_system.starting_advice}</p></>}</div><ul>{catalog.rank_system.principles.map((principle) => <li key={principle}>{principle}</li>)}</ul></section><div className="rank-step"><div className="rank-list" role="radiogroup" aria-label="角色等阶">{ranks.map((rank) => { const displayRank = rank.display_rank || `${chineseRankNumeral(rank.rank)}阶`; return <label key={rank.rank} className={rank.disabled ? "disabled" : ""}><input type="radio" name="rank" disabled={rank.disabled} checked={draft.rank === rank.rank} onChange={() => update("rank", rank.rank)} /><span className="rank-number">{chineseRankNumeral(rank.rank)}</span><span><strong>{displayRank}</strong><small>{rank.title || "无专属称号"}</small></span>{rank.base_power !== undefined && <span className="power-value">战力 {rank.base_power.toLocaleString()}</span>}</label>; })}</div>{selected && <div className={`rank-note ${selected.rank >= 7 ? "warning" : ""}`}><strong>{selected.display_rank || `${chineseRankNumeral(selected.rank)}阶`} · {selected.title || "无专属称号"}</strong>{selected.description && <p>{selected.description}</p>}{selected.warning && <p>{selected.warning}</p>}</div>}</div></div>;
 }
 
 function LocationStep({ catalog, draft, update }: { catalog: WorldCatalog; draft: CharacterDraft; update: <K extends keyof CharacterDraft>(key: K, value: CharacterDraft[K]) => void }) {
   const selected = catalog.locations.find((location) => location.id === draft.location_id) ?? catalog.locations[0];
-  return <div className="world-browser"><div className="option-track location-track" role="radiogroup" aria-label="初始地点">{catalog.locations.map((location) => <label key={location.id} className={location.disabled ? "disabled" : ""}><input type="radio" name="location" disabled={location.disabled} checked={draft.location_id === location.id} onChange={() => update("location_id", location.id)} /><span>{location.name}</span></label>)}</div>{selected && <article className="world-profile"><ResponsiveArtwork key={selected.id} item={selected} alt={`${selected.name}地点设定图`} kind="地点" /><div className="world-reading"><header className="world-heading"><span className="world-label">地点资料</span><h3>{selected.name}</h3><p>{selected.tagline}</p></header><dl className="world-facts"><div><dt>所在区域</dt><dd>{selected.region}</dd></div><div><dt>环境</dt><dd>{selected.environment}</dd></div></dl><p className="world-description">{selected.description}</p><div className="world-sections"><InfoSection title="区域结构" text={selected.structure} /><InfoSection title="特色" items={selected.highlights} /><InfoSection title="交通与访问" text={selected.transport} extra={selected.access_note} /><InfoSection title="开局说明" text={selected.arrival_point} items={selected.safeguards} tone="notice" /></div>{selected.warning && <p className="warning-text">注意：{selected.warning}</p>}</div></article>}</div>;
+  return <div className="world-browser"><div className="option-track location-track" role="radiogroup" aria-label="初始地点">{catalog.locations.map((location) => <label key={location.id} className={location.disabled ? "disabled" : ""}><input type="radio" name="location" disabled={location.disabled} checked={draft.location_id === location.id} onChange={() => update("location_id", location.id)} /><span>{location.name}</span></label>)}</div>{selected && <article className="world-profile"><ResponsiveArtwork key={selected.id} item={selected} alt={`${selected.name}地点设定图`} kind="地点" /><div className="world-reading"><header className="world-heading"><span className="world-label">地点资料</span><h3>{selected.name}</h3><p>{selected.tagline}</p></header><dl className="world-facts"><div><dt>所在区域</dt><dd>{selected.region}</dd></div><div><dt>环境</dt><dd>{selected.environment}</dd></div></dl><p className="world-description">{selected.description}</p><div className="world-sections"><InfoSection title="区域结构" text={selected.structure} /><InfoSection title="特色" items={selected.highlights} /><InfoSection title="交通与访问" text={selected.transport} extra={selected.access_note} /><InfoSection title="特殊说明" text={selected.arrival_point} items={selected.safeguards} tone="notice" /></div>{selected.warning && <p className="warning-text">注意：{selected.warning}</p>}</div></article>}</div>;
 }
 
 function FactionStep({ factions, activeId, setActiveId }: { factions: FactionDefinition[]; activeId: string; setActiveId: (id: string) => void }) {
   const selected = factions.find((faction) => faction.id === activeId) ?? factions[0];
   if (!selected) return <div className="empty-state compact"><h3>暂无势力资料</h3><p>世界资料接口未返回势力，但本步骤无需选择，可以直接继续。</p></div>;
-  return <div className="world-browser"><div className="fixed-notice"><span aria-hidden="true">i</span><strong>本步骤无需选择；符合条件的势力可在游戏过程中加入。公开任务与服务不代表正式加入。</strong></div><div className="option-track faction-track" role="tablist" aria-label="世界势力">{factions.map((faction) => <button type="button" role="tab" id={`faction-tab-${faction.id}`} aria-controls={`faction-panel-${faction.id}`} key={faction.id} aria-selected={selected.id === faction.id} onClick={() => setActiveId(faction.id)}>{faction.name}</button>)}</div><article className="world-profile" role="tabpanel" id={`faction-panel-${selected.id}`} aria-labelledby={`faction-tab-${selected.id}`}><ResponsiveArtwork key={selected.id} item={selected} alt={`${selected.name}势力设定图`} kind="势力" /><div className="world-reading"><header className="world-heading"><span className="world-label">势力资料 · 只读</span><h3>{selected.name}</h3><p>{selected.tagline}</p></header><p className="world-description">{selected.description}</p><div className="world-sections"><InfoSection title="定位、理念与组织" text={selected.ideology} extra={selected.organization} /><InfoSection title="总部或主要地区" text={selected.headquarters} /><InfoSection title="公开任务" items={selected.tasks} /><InfoSection title="可使用服务" items={selected.services} /><InfoSection title="可参与活动" items={selected.activities} /><InfoSection title="奖励与资源" items={selected.rewards} /><InfoSection title="公开对象与前置" text={selected.audience} extra={selected.access_note} tone="notice" /></div></div></article></div>;
+  return <div className="world-browser"><div className="fixed-notice"><span aria-hidden="true">i</span><strong>本步骤无需选择；符合条件的势力可在游戏过程中加入。公开任务与服务不代表正式加入。</strong></div><div className="option-track faction-track" role="tablist" aria-label="世界势力">{factions.map((faction) => <button type="button" role="tab" id={`faction-tab-${faction.id}`} aria-controls={`faction-panel-${faction.id}`} key={faction.id} aria-selected={selected.id === faction.id} onClick={() => setActiveId(faction.id)}>{faction.name}</button>)}</div><article className="world-profile" role="tabpanel" id={`faction-panel-${selected.id}`} aria-labelledby={`faction-tab-${selected.id}`}><ResponsiveArtwork key={selected.id} item={selected} alt={`${selected.name}势力设定图`} kind="势力" /><div className="world-reading"><header className="world-heading"><span className="world-label">势力资料 · 只读</span><h3>{selected.name}</h3><p>{selected.tagline}</p></header><p className="world-description">{selected.description}</p><div className="world-sections"><InfoSection title="定位、理念与组织" text={selected.ideology} extra={selected.organization} /><InfoSection title="总部或主要地区" text={selected.headquarters} /><InfoSection title="任务与委托" items={selected.tasks} /><InfoSection title="可使用服务" items={selected.services} /><InfoSection title="可参与活动" items={selected.activities} /><InfoSection title="奖励与资源" items={selected.rewards} /><InfoSection title="公开对象与前置" text={selected.audience} extra={selected.access_note} tone="notice" /></div></div></article></div>;
 }
 
 function InfoSection({ title, text, extra, items, tone }: { title: string; text?: string; extra?: string; items?: string[]; tone?: "notice" }) {

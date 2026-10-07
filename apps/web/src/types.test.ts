@@ -252,9 +252,9 @@ describe("API DTO contracts", () => {
       thinking_message: "服务接受兼容参数组合，无法逐项证明。",
     };
     expect(result.thinking_confidence).toBe("accepted_bundle");
-    expect(thinkingCapabilityMessage("unknown", "unknown")).toContain("先测试连接");
+    expect(thinkingCapabilityMessage("unknown", "unknown")).toContain("点击“测试思考”");
     expect(thinkingCapabilityMessage("unsupported", "unsupported")).toContain("不支持关闭思考");
-    expect(thinkingCapabilityMessage("controlled", "accepted_bundle", "bundle")).toContain("无法逐项证明");
+    expect(thinkingCapabilityMessage("controlled", "accepted_bundle", "bundle")).toContain("尚未分别确认开启与关闭是否可用");
     const newStrategies: ThinkingStrategy[] = ["reasoning_enabled", "reasoning_effort_nested", "thinking_budget"];
     expect(newStrategies.map(thinkingStrategyLabel)).toEqual([
       "reasoning.enabled", "reasoning.effort", "thinking_config.thinking_budget",
@@ -632,7 +632,7 @@ describe("game workspace helpers", () => {
     ] as Parameters<typeof validateArcSelection>[0];
     expect(validateArcSelection(arcs, ["a"]).valid).toBe(false);
     expect(validateArcSelection(arcs, ["a", "b"])).toEqual({ valid: true, message: "将合并 2 个连续故事弧。" });
-    expect(validateArcSelection(arcs, ["a", "c"]).message).toContain("首尾连续");
+    expect(validateArcSelection(arcs, ["a", "c"]).message).toContain("在剧情顺序上相邻");
   });
 
   it("手动压缩合并全部连续的当前故事弧", () => {
@@ -644,7 +644,7 @@ describe("game workspace helpers", () => {
     ] as Parameters<typeof currentArcMerge>[0];
     expect(currentArcMerge(arcs)).toEqual({
       arcIds: ["a", "b", "c"], valid: true, label: "合并当前 3 个故事弧",
-      message: "将把 第 1 至 75 节 压缩为一个新的故事弧。",
+      message: "将第 1 至 75 段剧情整理成一份更精简的摘要，完整剧情仍会保留。",
     });
     expect(currentArcMerge(arcs.slice(1, 3))).toEqual(expect.objectContaining({
       valid: false, label: "至少需要两个故事弧",

@@ -956,7 +956,8 @@ class ApiTestCase(unittest.TestCase):
         self.assertEqual("什么是等阶", catalog["rank_system"]["title"])
         self.assertIn("同阶只表示整体战斗层级", catalog["rank_system"]["description"])
         self.assertIn("十阶", catalog["rank_system"]["description"])
-        self.assertIn("游戏性提示", catalog["rank_system"]["description"])
+        self.assertIn("六阶及以下", catalog["rank_system"]["starting_advice"])
+        self.assertTrue(all(rank["description"] for rank in catalog["ranks"]))
         self.assertGreaterEqual(len(catalog["rank_system"]["principles"]), 4)
         self.assertEqual({"pace": "dynamic", "tone": "balanced", "detail": "standard",
                           "player_address": "second_person"},
@@ -985,6 +986,7 @@ class ApiTestCase(unittest.TestCase):
                              "magic_affinity", "combat_style", "technology", "society",
                              "creation_notes", "facts", "ranks", "image_landscape_path",
                              "image_portrait_path"}
+        fact_labels = ["超凡比例", "魔力倾向", "核心专长", "外貌特色"]
         for race_id, race in races.items():
             self.assertTrue(structured_fields.issubset(race), race_id)
             self.assertTrue(all(race[field] for field in structured_fields), race_id)
@@ -994,13 +996,16 @@ class ApiTestCase(unittest.TestCase):
                              race["image_portrait_path"])
             self.assertTrue(all(set(fact) == {"label", "value"} and fact["value"]
                                 for fact in race["facts"]))
+            self.assertEqual(fact_labels, [fact["label"] for fact in race["facts"]], race_id)
             self.assertEqual(10, len(race["ranks"]))
+            self.assertEqual([rank["description"] for rank in catalog["ranks"]],
+                             [rank["description"] for rank in race["ranks"]], race_id)
 
         facts = lambda race_id: " ".join(
             fact["value"] for fact in races[race_id]["facts"])
         self.assertIn("30%", facts("human"))
         self.assertIn("几乎100%", facts("featherfolk"))
-        self.assertIn("三阶", facts("featherfolk"))
+        self.assertIn("三阶", races["featherfolk"]["creation_notes"])
         self.assertIn("60%", facts("sea_folk"))
         self.assertIn("一阶后", facts("sea_folk"))
         self.assertIn("三阶", facts("elf"))
@@ -1008,8 +1013,9 @@ class ApiTestCase(unittest.TestCase):
         self.assertIn("理论分类", races["elf"]["ranks"][0]["warning"])
         self.assertFalse(races["elf"]["ranks"][2]["disabled"])
         self.assertIn("100%", facts("dragonkin"))
-        self.assertIn("四至五阶", facts("dragonkin"))
-        self.assertIn("独立于战斗阶", facts("dwarf"))
+        self.assertIn("四至五阶", races["dragonkin"]["creation_notes"])
+        self.assertIn("两者不能换算", races["dwarf"]["creation_notes"])
+        self.assertIn("未给出", facts("dwarf"))
         self.assertIn("50%", facts("demonkin"))
 
         branches = {branch["id"]: branch for branch in races["therian"]["branches"]}
@@ -1018,7 +1024,10 @@ class ApiTestCase(unittest.TestCase):
                              "technology", "society", "creation_notes", "facts", "ranks"}
                             .issubset(branch))
             self.assertNotIn("兽裔的", branch["description"])
+            self.assertEqual(fact_labels, [fact["label"] for fact in branch["facts"]], branch["id"])
             self.assertEqual(10, len(branch["ranks"]))
+            self.assertEqual([rank["description"] for rank in catalog["ranks"]],
+                             [rank["description"] for rank in branch["ranks"]], branch["id"])
         self.assertIn("80%", " ".join(x["value"] for x in branches["orc"]["facts"]))
         self.assertIn("40%", " ".join(x["value"] for x in branches["half_orc"]["facts"]))
         self.assertIsNone(branches["orc"]["ranks"][0]["title"])

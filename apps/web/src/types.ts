@@ -38,6 +38,7 @@ export interface SaveSummary {
 
 export interface RankDefinition {
   rank: number;
+  description?: string;
   display_rank?: string;
   name?: string;
   title?: string | null;
@@ -141,6 +142,7 @@ export interface WorldCatalog {
     title: string;
     description: string;
     principles: string[];
+    starting_advice?: string;
   };
   ranks: RankDefinition[];
   presets: {
