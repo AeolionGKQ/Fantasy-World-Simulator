@@ -12,6 +12,7 @@ import type {
   NarrativeJob,
   ModelSettings,
   ImageModelSettings,
+  ImageModelTestResult,
   ImageQuality,
   ImageSize,
   SceneImageSession,
@@ -123,7 +124,7 @@ export const api = {
     request<AppSettings>("/api/settings/image-model", { method: "PUT",
       body: { ...settings, expected_revision: expectedRevision, request_id: requestId } }).then(normalizeAppSettings),
   testImageModel: (settings: Pick<ImageModelSettings, "base_url" | "model" | "timeout_seconds"> & { api_key?: string }) =>
-    request<{ ok: boolean; message: string }>("/api/settings/image-model/test", { method: "POST", body: settings }),
+    request<ImageModelTestResult>("/api/settings/image-model/test", { method: "POST", body: settings }),
 
   listSaves: async () => unwrapList(await request<SaveSummary[] | { items: SaveSummary[] }>("/api/saves")),
   getSave: (saveId: string, signal?: AbortSignal) =>

@@ -38,6 +38,7 @@ import {
   type FactionDefinition,
   type GenerationJob,
   type ImportPreview,
+  type ImageModelTestResult,
   type PendingImport,
   type LogicalRequestIdentity,
   type LocationDefinition,
@@ -407,6 +408,7 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
   const [modelState, setModelState] = useState<ModelState>("idle");
   const [narrationState, setNarrationState] = useState<NarrationState>("idle");
   const [imageModelState, setImageModelState] = useState<ImageModelState>("idle");
+  const [imageModelTestResult, setImageModelTestResult] = useState<ImageModelTestResult | null>(null);
   const [testState, setTestState] = useState<ModelTestState>("idle");
   const [testResult, setTestResult] = useState<{ key: string; result: ModelTestResult } | null>(null);
   const [structuredProbeFeedback, setStructuredProbeFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
@@ -543,7 +545,7 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
   const saveImageModel = async (event: FormEvent) => {
     event.preventDefault();
     if (!settings || imageModelState !== "idle") return;
-    setImageModelState("saving"); setActionError("");
+    setImageModelState("saving"); setActionError(""); setImageModelTestResult(null);
     try {
       const imageModel = settings.image_model ?? { base_url: "https://api.openai.com/v1", model: "gpt-image-2.5-sunburst" as const, timeout_seconds: 300 };
       const updated = await api.updateImageModel({ base_url: imageModel.base_url,
@@ -555,13 +557,13 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
   };
   const testImageModel = async () => {
     if (!settings || imageModelState !== "idle") return;
-    setImageModelState("testing"); setActionError("");
+    setImageModelState("testing"); setActionError(""); setImageModelTestResult(null);
     try {
       const imageModel = settings.image_model ?? { base_url: "https://api.openai.com/v1", model: "gpt-image-2.5-sunburst" as const, timeout_seconds: 300 };
       const result = await api.testImageModel({ base_url: imageModel.base_url,
         model: "gpt-image-2.5-sunburst", timeout_seconds: imageModel.timeout_seconds,
         ...(imageApiKey ? { api_key: imageApiKey } : {}) });
-      actions.setNotice(result.ok ? "图片服务连接成功，当前模型可用。请保存图片设置。" : "图片服务连接未成功，请检查地址和密钥。");
+      setImageModelTestResult(result);
     } catch (reason) { setActionError(playerProblemMessage(asApiError(reason).problem)); }
     finally { setImageModelState("idle"); }
   };
@@ -596,7 +598,7 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
             <div><span id="model-thinking-label">生成剧情前思考</span><small>让 AI 在写剧情前先思考，等待时间可能更长。此开关用于开场和后续剧情；整理故事记忆时始终开启。{thinkingCapabilityMessage(settings.model.thinking_capability, settings.model.thinking_confidence, settings.model.thinking_strategy)}</small></div>
             <label className="switch"><input type="checkbox" aria-labelledby="model-thinking-label" disabled={!canMutateModel || settings.model.thinking_capability !== "controlled"} checked={settings.model.thinking_capability === "controlled" ? settings.model.thinking_enabled : true} onChange={(e) => setSettings({ ...settings, model: { ...settings.model, thinking_enabled: e.target.checked } })} /><span aria-hidden="true" /></label>
           </div>
-          {displayedTestResult && <div className={`test-result full ${displayedTestResult.ok ? "success" : "error"}`} role="status"><strong>{displayedTestResult.ok ? "连接测试通过" : "连接测试未通过"}</strong><p>{displayedTestResult.ok ? "已连接当前 AI 服务。测试完成后，点击“保存模型设置”保存你的配置。" : "连接未成功，请检查服务类型、地址、模型名称和密钥。"}</p><div className="capabilities"><span>目标模型：{displayedTestResult.model_available === false ? "不可用" : displayedTestResult.model_available === true ? "可用" : "尚未确认"}</span>{displayedTestResult.latency_ms !== undefined && <span>测试用时：{(displayedTestResult.latency_ms / 1000).toFixed(1)} 秒</span>}<span>思考：{thinkingCapabilityLabel(displayedTestResult.thinking_capability)}</span><span>规范回复格式：{capabilityLabel(displayedTestResult.structured_output_capability)}</span></div><p>{thinkingCapabilityMessage(displayedTestResult.thinking_capability, displayedTestResult.thinking_confidence, displayedTestResult.thinking_strategy)}</p></div>}
+          {displayedTestResult && <div className={`test-result full ${displayedTestResult.ok ? "success" : "error"}`} role="status"><strong>{displayedTestResult.ok ? "连接测试通过" : "连接测试未通过"}</strong><p>{displayedTestResult.ok ? "已连接当前 AI 服务。测试完成后，点击“保存模型设置”保存你的配置。" : "连接未成功，请检查服务类型、地址、模型名称和密钥。"}</p><div className="capabilities"><span>目标模型：{displayedTestResult.model_available === false ? "不可用" : displayedTestResult.model_available === true ? "可用" : "尚未确认"}</span>{displayedTestResult.latency_ms !== undefined && <span>测试用时：{(displayedTestResult.latency_ms / 1000).toFixed(1)} 秒</span>}<span>思考：{thinkingCapabilityLabel(displayedTestResult.thinking_capability)}{displayedTestResult.thinking_strategy ? `（${thinkingStrategyLabel(displayedTestResult.thinking_strategy)}）` : ""}</span><span>规范回复格式：{capabilityLabel(displayedTestResult.structured_output_capability)}</span></div><p>{thinkingCapabilityMessage(displayedTestResult.thinking_capability, displayedTestResult.thinking_confidence, displayedTestResult.thinking_strategy)}</p></div>}
           {settings.model.api_key_persistence === "memory_only" && <p className="warning-text full">当前环境只能临时保存密钥。重新启动游戏服务后，需要再次填写。</p>}
           <div className="form-actions full"><button className="secondary-button" type="button" disabled={!canSubmitSettingRequest} onClick={() => void testModel()}>{testState === "testing" ? "正在测试连接…" : "测试连接"}</button><button className="secondary-button" type="button" disabled={!canSubmitSettingRequest} onClick={() => void testModel(true)}>{testState === "thinking" ? "正在测试思考…" : "测试思考"}</button><span className="cost-note">先测试连接，再保存设置。思考开关需单独点击“测试思考”；测试过程中可能产生少量 AI 服务费用。</span><button className="primary-button" disabled={!canSubmitSettingRequest}>{modelState === "saving" ? "正在保存…" : modelState === "saved" ? "设置已保存" : "保存模型设置"}</button></div>
         </form>
@@ -608,6 +610,7 @@ function SettingsPage({ actions }: { actions: ShellActions }) {
           <label className="field"><span>模型名称</span><input readOnly value="gpt-image-2.5-sunburst" /></label>
           <label className="field"><span>图片服务密钥（API Key）</span><input type="password" autoComplete="new-password" disabled={imageModelState !== "idle"} placeholder={imageModel.api_key_configured ? "已配置，留空保持不变" : "输入 OpenAI API Key"} value={imageApiKey} onChange={(event) => setImageApiKey(event.target.value)} /></label>
           <label className="field"><span>最长等待时间（秒）</span><input type="number" min={1} max={600} value={imageModel.timeout_seconds} onChange={(event) => setSettings({ ...settings, image_model: { ...imageModel, timeout_seconds: Number(event.target.value) } })} /><small>图片生成可能较慢，可设置 1–600 秒的等待时间。</small></label>
+          {imageModelTestResult && <div className={`test-result full ${imageModelTestResult.ok ? "success" : "error"}`} role="status"><strong>{imageModelTestResult.ok ? "连接测试通过" : "连接测试未通过"}</strong><p>{imageModelTestResult.ok ? "已连接 OpenAI 图片服务。测试完成后，点击“保存图片设置”保存你的配置。" : "连接未成功，请检查服务地址和密钥。"}</p><div className="capabilities"><span>目标模型：{imageModelTestResult.model ?? "gpt-image-2.5-sunburst"}</span><span>模型状态：{imageModelTestResult.model_available === true ? "可用" : imageModelTestResult.model_available === false ? "不可用" : "尚未确认"}</span>{imageModelTestResult.latency_ms !== undefined && <span>测试用时：{(imageModelTestResult.latency_ms / 1000).toFixed(1)} 秒</span>}<span>测试方式：仅检查模型，不生成图片</span></div></div>}
           <div className="form-actions full"><button className="secondary-button" type="button" disabled={imageModelState !== "idle"} onClick={() => void testImageModel()}>{imageModelState === "testing" ? "正在测试…" : "测试连接"}</button><span className="cost-note">测试会检查是否能连接并使用此模型，不会生成图片。</span><button className="primary-button" disabled={imageModelState !== "idle"}>{imageModelState === "saving" ? "正在保存…" : imageModelState === "saved" ? "设置已保存" : "保存图片设置"}</button></div>
         </form>
       </section>

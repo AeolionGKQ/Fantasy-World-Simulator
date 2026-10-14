@@ -438,6 +438,16 @@ class ProviderTestCase(unittest.TestCase):
         self.assertEqual("high", payload["quality"])
         self.assertNotIn("temperature", payload)
 
+    def test_openai_image_connection_reports_model_and_latency(self):
+        config = {"base_url": "https://api.openai.com/v1",
+                  "model": "gpt-image-2.5-sunburst", "timeout_seconds": 30}
+        with mock.patch("api.model_provider._request", return_value={"id": config["model"]}):
+            result = OpenAIImageProvider().test_connection(config, "image-key")
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["model_available"])
+        self.assertEqual("gpt-image-2.5-sunburst", result["model"])
+        self.assertIsInstance(result["latency_ms"], int)
+
     def test_anthropic_thinking_probe_and_story_arc_controls(self):
         requests = []
 
@@ -549,6 +559,25 @@ class ProviderTestCase(unittest.TestCase):
         self.assertTrue(result["connected"])
         self.assertTrue(result["may_have_cost"])
         self.assertEqual(2, call.call_count)
+
+    def test_model_catalog_accepts_vendor_resource_prefix(self):
+        config = {**self.config(), "model": "gemini-3.8-flash"}
+        response = {"data": [{"id": "models/gemini-3.8-flash"}]}
+        cached = {"capability": "unknown", "strategy": None,
+                  "confidence": "unknown", "message": "未测试"}
+        with mock.patch("api.model_provider._request", return_value=response) as request:
+            result = OpenAICompatibleProvider().test_connection(config, "key", cached)
+        self.assertTrue(result["connected"])
+        self.assertTrue(result["model_available"])
+        self.assertEqual(1, request.call_count)
+
+    def test_model_catalog_still_rejects_different_normalized_model(self):
+        config = {**self.config(), "model": "gemini-3.8-flash"}
+        response = {"data": [{"id": "models/gemini-3.7-flash"}]}
+        with mock.patch("api.model_provider._request", return_value=response), \
+                self.assertRaises(ProviderError) as raised:
+            OpenAICompatibleProvider().test_connection(config, "key", {})
+        self.assertEqual("MODEL_NOT_FOUND", raised.exception.code)
 
     def test_transient_network_error_is_retried(self):
         effects = [urllib.error.URLError("temporary"), FakeHttpResponse({"data": []})]

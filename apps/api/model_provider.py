@@ -355,6 +355,12 @@ def _models_url(base_url):
     return normalized if normalized.endswith("/models") else normalized + "/models"
 
 
+def _normalized_model_id(value):
+    """Compare provider catalog IDs without vendor resource-name prefixes."""
+    text = str(value or "").strip().rstrip("/")
+    return text.rsplit("/", 1)[-1]
+
+
 def _anthropic_messages_url(base_url):
     """Build a Messages URL, adding Anthropic's /v1 prefix when omitted."""
     _url(base_url, "")
@@ -860,10 +866,13 @@ class OpenAICompatibleProvider:
             used_chat = True
             model_available = True
         else:
-            model_ids = [item.get("id") for item in response.get("data", []) if isinstance(item, dict)]
-            if model_ids and config["model"] not in model_ids:
+            model_ids = [item.get("id") for item in response.get("data", [])
+                         if isinstance(item, dict) and isinstance(item.get("id"), str)]
+            configured_model = _normalized_model_id(config["model"])
+            available_models = {_normalized_model_id(model_id) for model_id in model_ids}
+            if model_ids and configured_model not in available_models:
                 raise ProviderError("MODEL_NOT_FOUND", "模型列表中未找到已配置的模型")
-            model_available = not model_ids or config["model"] in model_ids
+            model_available = not model_ids or configured_model in available_models
 
         cached = cached_capability or {}
         thinking = dict(cached)
@@ -1147,9 +1156,13 @@ class OpenAIImageProvider:
     def test_connection(self, config, api_key):
         if config.get("model") != self.MODEL:
             raise ProviderError("INVALID_INPUT", "当前仅支持gpt-image-2.5-sunburst")
+        started = time.monotonic()
         _request(self._base(config["base_url"]) + "/models/" + self.MODEL, api_key,
                  min(float(config.get("timeout_seconds", 300)), 30), max_retries=0)
-        return {"ok": True, "message": "生图模型可见，连接测试通过。"}
+        return {"ok": True, "model_available": True,
+                "latency_ms": round((time.monotonic() - started) * 1000),
+                "model": self.MODEL,
+                "message": "生图模型可见，连接测试通过。"}
 
     def generate(self, config, api_key, prompt, size, quality):
         if config.get("model") != self.MODEL:

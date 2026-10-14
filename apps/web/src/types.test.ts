@@ -261,6 +261,7 @@ describe("API DTO contracts", () => {
     ]);
     expect(thinkingStrategyLabel("bundle")).toBe("七种兼容参数组合");
     expect(thinkingStrategyLabel("anthropic_adaptive_between_tools")).toContain("between_tools");
+    expect(thinkingStrategyLabel("reasoning_effort")).toBe("reasoning_effort");
   });
 
   it("叙事写请求始终携带状态版本和请求 ID", async () => {

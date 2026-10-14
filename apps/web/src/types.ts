@@ -223,6 +223,14 @@ export interface ImageModelSettings {
   api_key_persistence?: "windows_dpapi" | "memory_only";
 }
 
+export interface ImageModelTestResult {
+  ok: boolean;
+  message: string;
+  model?: string;
+  model_available?: boolean;
+  latency_ms?: number;
+}
+
 export type ImageSize = "1024x1024" | "1536x1024" | "1024x1536";
 export type ImageQuality = "low" | "medium" | "high" | "xhigh" | "max" | "auto";
 export interface SceneImageSession {
