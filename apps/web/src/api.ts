@@ -28,7 +28,7 @@ import type {
   WorldCatalog,
 } from "./types";
 import { normalizeAppSettings } from "./types";
-import { questProjectionFromResponse } from "./game/helpers";
+import { questProjectionFromResponse } from "./features/game/helpers";
 
 export class ApiError extends Error {
   readonly status: number;

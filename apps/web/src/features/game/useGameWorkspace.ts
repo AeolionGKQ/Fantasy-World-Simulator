@@ -1,57 +1,34 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, asApiError } from "../api";
-import { playerProblemMessage } from "../playerCopy";
-import type { ApiProblem, GameBootstrap, GameProjections, NarrativeJob, SaveSummary, StartPrerequisiteResolution, StoryView, Turn, WorldCatalog } from "../types";
-import {
-  BondsPanel, CharacterPanel, gameTabs, type GameTab, InventoryPanel, JournalsPanel,
-  MemoryPanel, QuestsPanel, ReputationsPanel, StoryPanel,
-} from "./GamePanels";
+import { useNavigate } from "react-router-dom";
+import { api, asApiError } from "../../api";
+import { playerProblemMessage } from "../../playerCopy";
+import type { ApiProblem, NarrativeJob, StartPrerequisiteResolution, Turn } from "../../types";
+import type { PlayerAddress } from "../settings/settingsLogic";
+import { getAllGameData, type GameData } from "./gameData";
+import type { GameTab } from "./gameTabs";
 import { isNarrativeJobActive, narrativeJobMessage, refreshedViewedTurn } from "./helpers";
 
-interface GameData {
-  save: SaveSummary;
-  bootstrap: GameBootstrap;
-  catalog: WorldCatalog;
-  story: StoryView;
-  turns: Turn[];
-  projections: GameProjections;
-  imageConfigured: boolean;
-  imageSessionId: string | null;
+export interface GameNotice {
+  id: number;
+  tone: "info" | "error";
+  text: string;
+  traceId?: string;
 }
 
-function LoadingGame() {
-  return <div className="page game-page"><div className="loading-panel" role="status"><div className="skeleton wide" /><div className="skeleton medium" /><div className="skeleton wide" /><span className="sr-only">正在载入冒险</span></div></div>;
-}
+type JobFactory = (version: number, signal: AbortSignal) => Promise<NarrativeJob>;
 
-function ProblemPanel({ problem, onRetry }: { problem: ApiProblem; onRetry: () => void }) {
-  const conflict = problem.code.includes("CONFLICT") || problem.code === "NARRATIVE_JOB_ACTIVE";
-  const contextExceeded = problem.code === "MODEL_CONTEXT_LENGTH_EXCEEDED";
-  return <section className={`state-panel ${conflict ? "warning" : "error"}`} role="alert"><span className="state-symbol" aria-hidden="true">{conflict ? "!" : "×"}</span><div><h2>{contextExceeded ? "故事内容超出模型可读取的长度" : conflict ? "存档内容已更新" : "无法载入冒险"}</h2><p>{contextExceeded ? "请在设置中换用能读取更长故事的模型，再重新提交。游戏不会删减你的故事来重试。" : playerProblemMessage(problem)}</p>{problem.trace_id && <p className="trace">问题编号：{problem.trace_id}</p>}<button className="secondary-button" type="button" onClick={onRetry}>重新载入</button></div></section>;
-}
-
-async function getAllGameData(saveId: string, signal?: AbortSignal): Promise<GameData> {
-  const [save, bootstrap, catalog, story, turns, character, inventory, quests, journals, memory, memories, bonds, reputations, settings, imageSession] = await Promise.all([
-    api.getSave(saveId, signal), api.getGameBootstrap(saveId, signal), api.getCatalog(signal), api.getStory(saveId, signal), api.listTurns(saveId, signal),
-    api.getCharacterState(saveId, signal), api.getInventory(saveId, signal), api.getQuests(saveId, signal),
-    api.getJournals(saveId, signal), api.getMemory(saveId, signal), api.getMemories(saveId, signal),
-    api.getBonds(saveId, signal), api.getReputations(saveId, signal),
-    api.getSettings(), api.getImageSession(saveId, signal),
-  ]);
-  return { save, bootstrap, catalog, story, turns: turns.items, imageConfigured: settings.image_model?.configured ?? false,
-    imageSessionId: imageSession.session?.id ?? null,
-    projections: { character, inventory, quests, journals, memory, memories, bonds, reputations } };
-}
-
-export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => Promise<void> }) {
-  const { saveId = "" } = useParams();
+/**
+ * Game session state for one save. Every async action captures a session token and the
+ * requested save id so responses that arrive after a save switch are dropped.
+ */
+export function useGameWorkspace(saveId: string, onSaveChanged: () => Promise<void>) {
   const navigate = useNavigate();
   const [data, setData] = useState<GameData | null>(null);
   const [tab, setTab] = useState<GameTab>("story");
   const [viewedTurn, setViewedTurn] = useState<Turn | null>(null);
   const [loading, setLoading] = useState(true);
   const [problem, setProblem] = useState<ApiProblem | null>(null);
-  const [notice, setNotice] = useState<{ id: number; tone: "info" | "error"; text: string; traceId?: string } | null>(null);
+  const [notice, setNotice] = useState<GameNotice | null>(null);
   const [submittingState, setSubmittingState] = useState(false);
   const [submittingArc, setSubmittingArc] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
@@ -114,6 +91,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
     };
   }, [refresh, saveId]);
 
+  // Poll the story job (opening / turn / intervene / reshape) until it finishes.
   const activeJob = data?.story.active_job;
   useEffect(() => {
     if (!activeJob || !isNarrativeJobActive(activeJob)) return;
@@ -141,6 +119,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
     return () => { disposed = true; pollController.abort(); window.clearInterval(interval); };
   }, [activeJob?.id, saveId, refresh, showProblem]);
 
+  // Poll the story-arc job separately; it never blocks story actions.
   const activeArcJob = data?.story.active_arc_job;
   useEffect(() => {
     if (!activeArcJob || !isNarrativeJobActive(activeArcJob)) return;
@@ -184,7 +163,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
     return () => { disposed = true; pollController.abort(); window.clearInterval(interval); };
   }, [activeArcJob?.id, saveId, showProblem]);
 
-  const startStateJob = async (factory: (version: number, signal: AbortSignal) => Promise<NarrativeJob>) => {
+  const startStateJob = async (factory: JobFactory) => {
     if (!data || submittingState || isNarrativeJobActive(data.story.active_job)) return;
     const token = session.current;
     const requestedId = saveId;
@@ -205,7 +184,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
     } finally { if (token === session.current) setSubmittingState(false); }
   };
 
-  const startArcJob = async (factory: (version: number, signal: AbortSignal) => Promise<NarrativeJob>) => {
+  const startArcJob = async (factory: JobFactory) => {
     if (!data || submittingArc || isNarrativeJobActive(data.story.active_arc_job)) return;
     const token = session.current;
     const requestedId = saveId;
@@ -269,7 +248,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
     } finally { if (token === session.current) setSubmittingState(false); }
   };
 
-  const updatePlayerAddress = async (playerAddress: "full_name" | "given_name" | "second_person") => {
+  const updatePlayerAddress = async (playerAddress: PlayerAddress) => {
     if (!data || savingPreferences || submittingState || isNarrativeJobActive(data.story.active_job)) return;
     const token = session.current;
     const requestedId = saveId;
@@ -296,6 +275,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
       }
     } finally { if (token === session.current) setSavingPreferences(false); }
   };
+
   const startImageSession = async () => {
     if (!data?.story.latest_turn) return;
     if (!data.imageConfigured) {
@@ -311,34 +291,10 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
     finally { setStartingImage(false); }
   };
 
-  if (loading && !data) return <LoadingGame />;
-  if (problem && !data) return <div className="page game-page"><ProblemPanel problem={problem} onRetry={() => void refresh()} /></div>;
-  if (!data) return null;
-  if (data.bootstrap.save_id !== saveId) return <LoadingGame />;
-  const stateBusy = submittingState || isNarrativeJobActive(data.story.active_job);
-  const arcBusy = submittingArc || isNarrativeJobActive(data.story.active_arc_job);
-  return <div className="page game-page">
-    <header className="game-header"><div><span className="ready-mark">游戏档案</span><h1>{data.projections.character.identity.name || data.bootstrap.character.identity?.name || "未命名角色"}</h1><p>{data.story.state.time.label} · {data.story.state.location.name}</p></div>{data.imageSessionId ? <Link className="secondary-button scene-image-button" to={`/saves/${saveId}/game/image`}>查看场景图片</Link> : <button className={`secondary-button scene-image-button ${data.imageConfigured ? "" : "unconfigured"}`} type="button" disabled={!data.story.latest_turn || startingImage} onClick={() => void startImageSession()}>{startingImage ? "正在创建…" : "生成此刻图片"}</button>}</header>
-    {notice && <div key={notice.id} className={`game-notice ${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}><span aria-hidden="true">{notice.tone === "error" ? "!" : "◇"}</span><p>{notice.text}{notice.traceId && <small>问题编号：{notice.traceId}</small>}</p><button type="button" onClick={() => setNotice(null)} aria-label="关闭游戏提示">×</button></div>}
-    <nav className="game-tabs" role="tablist" aria-label="游戏页签" onKeyDown={(event) => {
-      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-      const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
-      const current = tabs.indexOf(document.activeElement as HTMLButtonElement);
-      if (current < 0) return;
-      event.preventDefault();
-      const target = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 :
-        (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
-      tabs[target].focus(); tabs[target].click();
-    }}>{gameTabs.map((item) => <button id={`tab-${item.id}`} aria-controls={`panel-${item.id}`} aria-selected={tab === item.id} role="tab" tabIndex={tab === item.id ? 0 : -1} type="button" key={item.id} onClick={() => setTab(item.id)}>{item.label}</button>)}</nav>
-    <section className="game-panel" id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} tabIndex={0}>
-      {tab === "story" && <StoryPanel story={data.story} turns={data.turns} viewedTurn={viewedTurn} busy={stateBusy} catalog={data.catalog} onNavigate={setViewedTurn} onOpen={(guidance) => void startStateJob((version, signal) => api.startOpening(saveId, version, guidance, crypto.randomUUID(), signal))} onResolvePrerequisite={(resolution, locationId) => void resolveStartPrerequisite(resolution, locationId)} onTurn={(action, optionId) => void startStateJob((version, signal) => api.startTurn(saveId, version, action, optionId, crypto.randomUUID(), signal))} onIntervene={(guidance) => void startStateJob((version, signal) => api.intervene(saveId, version, guidance, crypto.randomUUID(), signal))} onReshape={(guidance) => data.story.latest_turn && void startStateJob((version, signal) => api.reshape(saveId, data.story.latest_turn!.id, version, guidance, crypto.randomUUID(), signal))} onCancel={() => void cancelJob()} />}
-      {tab === "character" && <CharacterPanel character={data.projections.character} catalog={data.catalog} playerAddress={data.save.narration?.player_address ?? data.story.state.narration.player_address} addressBusy={savingPreferences || stateBusy} onPlayerAddress={(value) => void updatePlayerAddress(value)} />}
-      {tab === "inventory" && <InventoryPanel inventory={data.projections.inventory} />}
-      {tab === "quests" && <QuestsPanel active={data.projections.quests.active} />}
-      {tab === "journals" && <JournalsPanel items={data.projections.journals.items} onRead={(id) => void readJournalTurn(id)} />}
-      {tab === "memory" && <MemoryPanel memory={data.projections.memory} memories={data.projections.memories.items} arcBusy={arcBusy} arcJob={data.story.active_arc_job} onMerge={(ids) => void startArcJob((version, signal) => api.mergeStoryArcs(saveId, version, ids, crypto.randomUUID(), signal))} />}
-      {tab === "bonds" && <BondsPanel items={data.projections.bonds.items} />}
-      {tab === "reputations" && <ReputationsPanel data={data.projections.reputations} />}
-    </section>
-  </div>;
+  return {
+    data, tab, setTab, viewedTurn, setViewedTurn, loading, problem, notice, setNotice,
+    submittingState, submittingArc, savingPreferences, startingImage,
+    refresh, startStateJob, startArcJob, cancelJob, readJournalTurn, resolveStartPrerequisite,
+    updatePlayerAddress, startImageSession,
+  };
 }

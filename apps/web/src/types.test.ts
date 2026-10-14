@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "./api";
-import { canMutateModelSettings, canStartSettingRequest, invalidateModelCapabilities, isCurrentModelTestResponse, mergeModelTestCapability, mergeSavedModelSettings, mergeSavedNarrationSettings, modelCapabilityKey, resetStructuredOutputCapability, resolveCompletedGeneration, structuredOutputProbePayload, thinkingCapabilityMessage, thinkingStrategyLabel } from "./App";
-import { currentArcMerge, formatChange, isNarrativeJobActive, isStoryReadOnly, orderReputations, questProjectionFromResponse, refreshedViewedTurn, reputationNames, resourceCondition, resourceExhaustion, validateArcSelection, visibleAuthoritativeChanges } from "./game/helpers";
+import { resolveCompletedGeneration } from "./features/character/generation";
+import { currentArcMerge, formatChange, isNarrativeJobActive, isStoryReadOnly, orderReputations, questProjectionFromResponse, refreshedViewedTurn, reputationNames, resourceCondition, resourceExhaustion, validateArcSelection, visibleAuthoritativeChanges } from "./features/game/helpers";
+import { canMutateModelSettings, canStartSettingRequest, invalidateModelCapabilities, isCurrentModelTestResponse, mergeModelTestCapability, mergeSavedModelSettings, mergeSavedNarrationSettings, modelCapabilityKey, resetStructuredOutputCapability, structuredOutputProbePayload, thinkingCapabilityMessage, thinkingStrategyLabel } from "./features/settings/settingsLogic";
 import {
   appendPreset,
   chineseRankNumeral,

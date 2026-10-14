@@ -1,5 +1,5 @@
-import { playerProblemMessage } from "../playerCopy";
-import type { AuthoritativeChange, NarrativeJob, Quest, QuestProjection, Reputation, ReputationKey, StoryArc, Turn } from "../types";
+import { playerProblemMessage } from "../../playerCopy";
+import { isActiveJobStatus, type AuthoritativeChange, type NarrativeJob, type Quest, type QuestProjection, type Reputation, type ReputationKey, type StoryArc, type Turn } from "../../types";
 
 export type ResourceKey = "hp" | "mp" | "sp" | "st";
 
@@ -196,7 +196,7 @@ export function isLatestTurn(turn: Turn | null, latestTurnId: string | null): bo
 }
 
 export function isNarrativeJobActive(job: NarrativeJob | null): boolean {
-  return Boolean(job && ["queued", "running", "cancel_requested"].includes(job.status));
+  return isActiveJobStatus(job?.status);
 }
 
 export function isStoryReadOnly(turn: Turn | null, latestTurnId: string | null, job: NarrativeJob | null): boolean {

@@ -826,6 +826,13 @@ export const jobLabel: Record<JobStatus, string> = {
   interrupted: "生成已中断",
 };
 
+const activeJobStatuses: ReadonlySet<string> = new Set<JobStatus>(["queued", "running", "cancel_requested"]);
+
+/** True while a background job (character, narrative or image) still occupies its slot. */
+export function isActiveJobStatus(status: string | null | undefined): boolean {
+  return status !== null && status !== undefined && activeJobStatuses.has(status);
+}
+
 export function appendPreset(current: string, value: string): string {
   const normalized = value.trim();
   if (!normalized) return current;
