@@ -42,11 +42,11 @@ export function SaveSidebar({ saves, currentId, loading, loadError, open, servic
           <div className={`save-row ${save.id === currentId ? "active" : ""}`} key={save.id}>
             <Link viewTransition to={saveRoute(save)} className="save-link" aria-current={save.id === currentId ? "page" : undefined}>
               <span className="save-name">{save.name}</span>
-              {/* Status and character on separate lines so neither is cut off; a draft shows its step instead. */}
-              <span className="save-phase">{phaseLabel[save.phase]}</span>
+              {/* Character (or creation step for a draft) under the name, status last; separate lines so nothing is cut off. */}
               {save.phase === "draft"
                 ? <span className="save-detail">{stepProgressLabel(save.current_step ?? 1)}</span>
                 : save.character_name && <span className="save-detail">{save.character_name}</span>}
+              <span className="save-phase" data-phase={save.phase}><span className={`phase-shape ${save.phase}`} aria-hidden="true" />{phaseLabel[save.phase]}</span>
               {save.generation && isActiveJobStatus(save.generation.status) && (
                 <span className="generation-mini"><StatusDot state="busy" />{jobLabel[save.generation.status]}</span>
               )}

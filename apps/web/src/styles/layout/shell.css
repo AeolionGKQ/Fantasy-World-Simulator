@@ -121,28 +121,48 @@
     display: block;
     overflow: hidden;
     color: var(--ink);
-    font-size: var(--text-sm);
+    font-size: var(--text-base);
     font-weight: 700;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  /* Status, then character name (or creation step) on its own line; long names wrap instead of truncating. */
-  .save-phase,
+  /*
+   * Three distinct lines: the name (16px bold), the character name or creation step in regular body
+   * text, then the status as a small coloured label with the phase marker. Long text wraps.
+   */
+  .save-phase {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 650;
+    line-height: 1.4;
+  }
+
+  .save-phase .phase-shape {
+    flex: none;
+    width: 8px;
+    height: 8px;
+  }
+
+  .save-phase[data-phase="review"] {
+    color: var(--accent);
+  }
+
+  .save-phase[data-phase="ready"] {
+    color: var(--success);
+  }
+
   .save-detail {
     display: block;
-    margin-top: 3px;
-    font-size: var(--text-xs);
-    line-height: 1.45;
-    overflow-wrap: anywhere;
-  }
-
-  .save-phase {
-    color: var(--muted);
-  }
-
-  .save-detail {
+    margin-top: 2px;
     color: var(--body);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+    overflow-wrap: anywhere;
   }
 
   .generation-mini {

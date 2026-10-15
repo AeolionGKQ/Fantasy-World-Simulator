@@ -836,7 +836,7 @@ export function logicalRequestIdentity(
 
 export const phaseLabel: Record<SavePhase, string> = {
   draft: "角色创建中",
-  review: "待确认",
+  review: "角色待确认",
   ready: "剧情推进中",
 };
 

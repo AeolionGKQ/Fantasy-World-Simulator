@@ -99,25 +99,6 @@
     font-size: var(--text-xs);
   }
 
-  /* Phase marker: circle = draft, diamond = review, filled = ready. */
-  .phase-shape {
-    width: 10px;
-    height: 10px;
-    border: 2px solid var(--muted);
-    border-radius: var(--radius-full);
-  }
-
-  .phase-shape.review {
-    border-color: var(--accent);
-    border-radius: 1px;
-    transform: rotate(45deg);
-  }
-
-  .phase-shape.ready {
-    background: var(--success);
-    border-color: var(--success);
-  }
-
   .phase-label {
     color: var(--muted);
     font-size: var(--text-sm);

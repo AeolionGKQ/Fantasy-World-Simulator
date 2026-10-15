@@ -1,5 +1,24 @@
 /* Status and feedback: status dots, loading skeletons, state panels, inline messages, notes and empty states. */
 @layer components {
+  /* Save phase marker (home cards, save sidebar): circle = draft, diamond = review, filled = ready. */
+  .phase-shape {
+    width: 10px;
+    height: 10px;
+    border: 2px solid var(--muted);
+    border-radius: var(--radius-full);
+  }
+
+  .phase-shape.review {
+    border-color: var(--accent);
+    border-radius: 1px;
+    transform: rotate(45deg);
+  }
+
+  .phase-shape.ready {
+    background: var(--success);
+    border-color: var(--success);
+  }
+
   /* ---- Status dot (pulses while busy) ---- */
   .status-dot {
     flex: 0 0 auto;
