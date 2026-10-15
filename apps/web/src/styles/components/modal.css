@@ -1,0 +1,54 @@
+/* Modal dialog frame (native <dialog>): heading bar, body padding and action row. */
+@layer components {
+  .modal {
+    width: min(92vw, 520px);
+    padding: 0;
+    color: var(--ink);
+    background: var(--surface);
+    border: 2px solid var(--outline);
+    border-radius: 20px;
+    box-shadow: 0 24px 70px #26375b33;
+  }
+
+  .modal::backdrop {
+    background: var(--backdrop);
+  }
+
+  .modal-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 22px;
+    background: var(--selected);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .modal-heading h2 {
+    font-size: 1.125rem;
+  }
+
+  .modal > form,
+  .modal > .import-flow {
+    padding: 24px;
+  }
+
+  .modal-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 24px;
+  }
+
+  @media (max-width: 1023px) {
+    .modal > form,
+    .modal > .import-flow {
+      padding: 22px 20px;
+    }
+
+    .modal-actions {
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+  }
+}

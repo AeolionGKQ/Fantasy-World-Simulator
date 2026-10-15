@@ -1,0 +1,256 @@
+/* Status and feedback: status dots, loading skeletons, state panels, inline messages, notes and empty states. */
+@layer components {
+  /* ---- Status dot (pulses while busy) ---- */
+  .status-dot {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    background: var(--muted);
+    border-radius: 50%;
+  }
+
+  .status-dot.online {
+    background: var(--success);
+    box-shadow: 0 0 0 3px #2176531f;
+  }
+
+  .status-dot.offline {
+    background: var(--danger);
+    box-shadow: 0 0 0 3px #b42e401f;
+  }
+
+  .status-dot.busy {
+    background: var(--primary);
+    animation: status-pulse 2.2s ease-in-out infinite;
+  }
+
+  /* ---- Loading skeleton ---- */
+  .loading-panel {
+    width: min(100%, 760px);
+    display: grid;
+    gap: 13px;
+    padding: 20px 0;
+  }
+
+  .skeleton {
+    height: 18px;
+    background: linear-gradient(90deg, var(--surface) 25%, var(--surface-raised) 50%, var(--surface) 75%);
+    background-size: 200% 100%;
+    border-radius: 3px;
+    animation: skeleton 2s ease-in-out infinite;
+  }
+
+  .skeleton.wide {
+    width: 100%;
+  }
+
+  .skeleton.medium {
+    width: 64%;
+  }
+
+  /* ---- State panel: symbol + title + message (+ retry) ---- */
+  .state-panel {
+    display: flex;
+    align-items: flex-start;
+    gap: 15px;
+    padding: 18px;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+  }
+
+  .state-panel.error {
+    background: var(--danger-soft);
+    border-color: var(--danger-line);
+  }
+
+  .state-panel.warning {
+    background: var(--warning-soft);
+    border-color: var(--warning-line);
+  }
+
+  .state-panel h2,
+  .state-panel h3 {
+    margin-bottom: 4px;
+    font-size: 1.05rem;
+  }
+
+  .state-panel p {
+    max-width: 72ch;
+    color: var(--muted);
+  }
+
+  .state-panel.error p {
+    color: var(--danger);
+  }
+
+  .state-panel .secondary-button,
+  .state-panel .primary-button {
+    margin-top: 12px;
+  }
+
+  .state-symbol {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    color: var(--ink);
+    font-weight: 800;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+  }
+
+  .trace {
+    font-family: ui-monospace, monospace;
+    font-size: .75rem;
+  }
+
+  /* ---- Inline messages ---- */
+  .inline-error {
+    margin-bottom: 20px;
+    padding: 11px 14px;
+    color: var(--danger);
+    background: var(--danger-soft);
+    border: 1px solid var(--danger-line);
+    border-radius: 12px;
+  }
+
+  .validation-banner {
+    margin-bottom: 18px;
+    padding: 10px 13px;
+    color: var(--danger);
+    background: var(--danger-soft);
+    border: 1px solid var(--danger-line);
+    border-radius: 12px;
+  }
+
+  .inline-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 0;
+    color: var(--muted);
+  }
+
+  /* ---- Notes: rule explanations and fixed notices ---- */
+  .rule-note,
+  .fixed-notice {
+    display: flex;
+    gap: 13px;
+    padding: 14px;
+    background: var(--info-soft);
+    border: 1px solid var(--info-line);
+    border-radius: 12px;
+  }
+
+  .rule-note p {
+    color: var(--muted);
+  }
+
+  .fixed-notice {
+    align-items: center;
+    margin-bottom: 14px;
+    color: var(--ink);
+  }
+
+  .fixed-notice > span {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    color: var(--primary);
+    font-weight: 700;
+    border: 1px solid var(--primary);
+    border-radius: 50%;
+  }
+
+  /* ---- Empty state ---- */
+  .empty-state {
+    max-width: 620px;
+    margin: 80px auto;
+    padding: 34px;
+    text-align: center;
+    background: var(--surface);
+    border: 2px solid var(--outline);
+    border-radius: 22px;
+    box-shadow: 4px 4px 0 var(--card-shadow-color);
+  }
+
+  .empty-state.compact {
+    margin: 20px 0;
+  }
+
+  .empty-state h1,
+  .empty-state h2,
+  .empty-state h3 {
+    margin-bottom: 8px;
+  }
+
+  .empty-state p {
+    max-width: 55ch;
+    margin: 0 auto 24px;
+    color: var(--muted);
+  }
+
+  .empty-symbol {
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 18px;
+    color: var(--ink);
+    font-size: 1.5rem;
+    background: var(--warning-soft);
+    border: 1px solid var(--outline);
+    border-radius: 14px;
+  }
+
+  /* ---- Small labels and decorations ---- */
+  .world-label {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--accent);
+    font-size: .75rem;
+    font-weight: 700;
+  }
+
+  .ready-mark {
+    padding: 4px 9px;
+    color: var(--success);
+    font-size: .78rem;
+    font-weight: 700;
+    background: var(--success-soft);
+    border-radius: 7px;
+  }
+
+  .muted-copy {
+    color: var(--muted);
+  }
+
+  .archive-glyph {
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    color: var(--ink);
+    font-size: 2rem;
+    background: var(--sunflower);
+    border: 2px solid var(--outline);
+    border-radius: 15px;
+    box-shadow: 3px 3px 0 #ceaf50;
+  }
+
+  @media (max-width: 1023px) {
+    .empty-state {
+      margin: 25px auto;
+      padding: 28px 20px;
+    }
+
+    .archive-glyph {
+      width: 46px;
+      height: 46px;
+    }
+  }
+}

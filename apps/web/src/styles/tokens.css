@@ -1,0 +1,103 @@
+/*
+ * Design tokens. Colours, elevation, motion and the two-tier responsive scale.
+ *
+ * Responsive model: one breakpoint only.
+ *   - Desktop: >= 1024px. Spacing tokens marked "desktop density" ramp linearly from the compact
+ *     desktop at 1024px to the full desktop at 1200px and stay fixed above that.
+ *   - Mobile: <= 1023px (see the media block below and the mobile blocks in each file).
+ */
+@layer tokens {
+  :root {
+    /* Surfaces and text */
+    --bg: #edf4ff;
+    --surface: #fffdf7;
+    --surface-raised: #e1ebff;
+    --surface-hover: #dce7fc;
+    --field-bg: #ffffff;
+    --toolbar-bg: #fffdf7f5;
+    --selected: #e8efff;
+    --line: #c4d0e5;
+    --line-strong: #7385a3;
+    --outline: #344675;
+    --ink: #1f2850;
+    --body: #354467;
+    --muted: #53617c;
+
+    /* Brand */
+    --primary: #3548bd;
+    --primary-strong: #293a9f;
+    --primary-edge: #223576;
+    --primary-ink: #ffffff;
+    --accent: #80591e;
+    --sunflower: #f7ce59;
+    --focus: #3548bd;
+
+    /* Status: text colour, soft background, border */
+    --danger: #b42e40;
+    --danger-soft: #fff0f0;
+    --danger-line: #cb8893;
+    --success: #217653;
+    --success-soft: #edf8f1;
+    --success-line: #7ba68e;
+    --warning: #825719;
+    --warning-soft: #fff2c8;
+    --warning-line: #b49a58;
+    --info-soft: #e7efff;
+    --info-line: #8094c4;
+
+    /* Elevation and overlays */
+    --card-shadow-color: #d2def0;
+    --backdrop: #1f285080;
+
+    /* Motion and stacking */
+    --ease: cubic-bezier(0.25, 1, 0.5, 1);
+    --z-drawer: 30;
+    --z-toast: 70;
+
+    /* Layout */
+    --toolbar-height: 76px;
+    --sidebar-width: clamp(200px, 13.64vw + 60.32px, 224px);
+
+    /* Desktop density: 1024px value -> 1200px+ value */
+    --page-padding: clamp(28px, 3.41vw - 6.92px, 34px) clamp(24px, 5.69vw - 34.27px, 34px) clamp(52px, 4.55vw + 5.4px, 60px); /* 28 24 52 -> 34 34 60 */
+    --toolbar-padding-x: clamp(22px, 3.41vw - 12.92px, 28px);         /* 22 -> 28 */
+    --brand-padding-x: clamp(12px, 3.41vw - 22.92px, 18px);           /* 12 -> 18 */
+    --brand-gap: clamp(8px, 2.28vw - 15.35px, 12px);                  /* 8 -> 12 */
+    --story-actions-width: clamp(278px, 22.73vw + 45.24px, 318px);    /* 278 -> 318 */
+    --story-gap: clamp(20px, 3.41vw - 14.92px, 26px);                 /* 20 -> 26 */
+    --story-reading-padding: clamp(26px, 2.28vw + 2.65px, 30px) clamp(26px, 3.41vw - 8.92px, 32px); /* 26 26 -> 30 32 */
+    --story-actions-padding: clamp(18px, 2.28vw - 5.35px, 22px);      /* 18 -> 22 */
+    --game-tabs-gap: clamp(5px, 2.85vw - 24.19px, 10px);              /* 5 -> 10 */
+    --game-tab-padding-x: clamp(12px, 2.85vw - 17.19px, 17px);        /* 12 -> 17 */
+    --game-tab-font-size: clamp(12.8px, 0.46vw + 8.08px, 13.6px);     /* .8rem -> .85rem */
+    --wizard-nav-width: clamp(164px, 14.78vw + 12.65px, 190px);       /* 164 -> 190 */
+    --wizard-gap: clamp(20px, 4.55vw - 26.6px, 28px);                 /* 20 -> 28 */
+    --step-content-padding: clamp(24px, 2.28vw + 0.65px, 28px) clamp(24px, 3.41vw - 10.92px, 30px); /* 24 24 -> 28 30 */
+    --settings-gap: clamp(28px, 6.82vw - 41.84px, 40px);              /* 28 -> 40 */
+    --settings-padding: clamp(26px, 2.28vw + 2.65px, 30px);           /* 26 -> 30 */
+  }
+
+  @media (max-width: 1023px) {
+    :root {
+      /* The sidebar becomes an off-canvas drawer. */
+      --sidebar-width: 0px;
+      /* Mobile uses the full-desktop spacing unless a component sets its own mobile value. */
+      --page-padding: 34px 34px 60px;
+      --toolbar-padding-x: 28px;
+      --brand-padding-x: 18px;
+      --brand-gap: 12px;
+      --story-actions-width: 318px;
+      --story-gap: 26px;
+      --story-reading-padding: 30px 32px;
+      --story-actions-padding: 22px;
+      --game-tabs-gap: 10px;
+      --game-tab-padding-x: 17px;
+      --game-tab-font-size: .85rem;
+      --wizard-nav-width: 190px;
+      --wizard-gap: 28px;
+      --step-content-padding: 28px 30px;
+      --settings-gap: 40px;
+      --settings-padding: 30px;
+    }
+  }
+}

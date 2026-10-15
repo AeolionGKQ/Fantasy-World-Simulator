@@ -1,0 +1,74 @@
+/* World artwork (races, locations, factions) with a titled placeholder when the image is missing. */
+@layer components {
+  .responsive-artwork {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 12 / 5;
+    margin: 0;
+    overflow: hidden;
+    background: #e2ebfc;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+  }
+
+  .responsive-artwork picture,
+  .responsive-artwork img {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .responsive-artwork img {
+    object-fit: cover;
+  }
+
+  .responsive-artwork-placeholder {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 7px;
+    color: var(--muted);
+    text-align: center;
+    background: #e4edff;
+  }
+
+  .responsive-artwork-placeholder > span {
+    display: grid;
+    place-items: center;
+    width: 62px;
+    height: 62px;
+    color: var(--primary);
+    font-size: 1.6rem;
+    background: #fff3ce;
+    border: 1px solid var(--line-strong);
+    border-radius: 16px;
+  }
+
+  .responsive-artwork-placeholder strong {
+    color: var(--ink);
+    font-size: 1.25rem;
+  }
+
+  .responsive-artwork-placeholder small {
+    font-size: .75rem;
+  }
+
+  @media (max-width: 1023px) {
+    .responsive-artwork {
+      border-radius: 12px;
+    }
+  }
+
+  /*
+   * Portrait art only on mobile screens held upright (keep in sync with PORTRAIT_ART_MEDIA in types.ts).
+   * The height cap keeps square-ish and tablet windows from showing a hero taller than the screen.
+   */
+  @media (max-width: 1023px) and (orientation: portrait) {
+    .responsive-artwork {
+      aspect-ratio: 4 / 5;
+      max-height: 85vh;
+    }
+  }
+}

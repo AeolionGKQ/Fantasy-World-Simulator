@@ -844,12 +844,19 @@ export function appendPreset(current: string, value: string): string {
   return [...parts, normalized].join("、");
 }
 
+/**
+ * Art direction for world artwork: portrait art on mobile screens held upright, landscape art
+ * everywhere else. Keep in sync with the aspect-ratio rule in styles/components/artwork.css.
+ */
+export const PORTRAIT_ART_MEDIA = "(max-width: 1023px) and (orientation: portrait)";
+export const LANDSCAPE_ART_MEDIA = "(min-width: 1024px), (orientation: landscape)";
+
 export function mediaPictureSources(
   media: MediaPaths,
 ): Array<{ media: string; srcSet: string }> {
   return [
-    { media: "(max-width: 700px)", srcSet: media.image_portrait_path },
-    { media: "(min-width: 701px)", srcSet: media.image_landscape_path },
+    { media: PORTRAIT_ART_MEDIA, srcSet: media.image_portrait_path },
+    { media: LANDSCAPE_ART_MEDIA, srcSet: media.image_landscape_path },
   ];
 }
 

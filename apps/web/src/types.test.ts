@@ -109,16 +109,16 @@ describe("race catalog helpers", () => {
 
   it("为种族、地点和势力统一生成响应式图片 source", () => {
     expect(mediaPictureSources(race)).toEqual([
-      { media: "(max-width: 700px)", srcSet: "/assets/world/races/therian-portrait.webp" },
-      { media: "(min-width: 701px)", srcSet: "/assets/world/races/therian-landscape.webp" },
+      { media: "(max-width: 1023px) and (orientation: portrait)", srcSet: "/assets/world/races/therian-portrait.webp" },
+      { media: "(min-width: 1024px), (orientation: landscape)", srcSet: "/assets/world/races/therian-landscape.webp" },
     ]);
     for (const kind of ["locations", "factions"]) {
       expect(mediaPictureSources({
         image_landscape_path: `/assets/world/${kind}/entry-landscape.webp`,
         image_portrait_path: `/assets/world/${kind}/entry-portrait.webp`,
       })).toEqual([
-        { media: "(max-width: 700px)", srcSet: `/assets/world/${kind}/entry-portrait.webp` },
-        { media: "(min-width: 701px)", srcSet: `/assets/world/${kind}/entry-landscape.webp` },
+        { media: "(max-width: 1023px) and (orientation: portrait)", srcSet: `/assets/world/${kind}/entry-portrait.webp` },
+        { media: "(min-width: 1024px), (orientation: landscape)", srcSet: `/assets/world/${kind}/entry-landscape.webp` },
       ]);
     }
   });

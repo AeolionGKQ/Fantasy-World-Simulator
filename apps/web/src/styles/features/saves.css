@@ -1,0 +1,171 @@
+/* Save modals: delete confirmation and the import flow (file picker, preview, trust confirmation). */
+@layer features {
+  .danger-callout {
+    margin-bottom: 20px;
+    padding: 14px;
+    background: var(--danger-soft);
+    border: 1px solid var(--danger-line);
+    border-radius: 12px;
+  }
+
+  .danger-callout p {
+    color: var(--danger);
+  }
+
+  /* ---- File picker: the native input covers the whole drop area ---- */
+  .file-picker {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    min-height: 92px;
+    padding: 16px;
+    color: var(--muted);
+    border: 1px dashed var(--line-strong);
+    border-radius: 14px;
+    cursor: pointer;
+  }
+
+  .file-picker:hover {
+    color: var(--ink);
+    background: var(--surface);
+    border-color: var(--primary);
+  }
+
+  .file-picker .icon {
+    width: 28px;
+    height: 28px;
+    color: var(--primary);
+  }
+
+  .file-picker strong {
+    display: block;
+    color: var(--ink);
+  }
+
+  .file-picker small {
+    display: block;
+  }
+
+  .file-picker input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  /* ---- Validation preview ---- */
+  .import-preview {
+    margin-top: 16px;
+    padding: 15px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+
+  .import-preview.success {
+    background: var(--success-soft);
+    border-color: var(--success-line);
+  }
+
+  .import-preview.error {
+    background: var(--danger-soft);
+    border-color: var(--danger-line);
+  }
+
+  .import-preview dl {
+    margin-top: 9px;
+  }
+
+  .import-preview dl div {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    font-size: .875rem;
+  }
+
+  .import-preview dt {
+    color: var(--muted);
+  }
+
+  .import-preview dd {
+    margin: 0;
+    text-align: right;
+  }
+
+  /* ---- Bundled rules that need the player's trust ---- */
+  .pending-import {
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--warning-soft);
+    border: 1px solid var(--warning-line);
+    border-radius: 12px;
+  }
+
+  .pending-import > p {
+    margin: 5px 0 12px;
+    color: var(--muted);
+  }
+
+  .pending-import dl {
+    display: grid;
+    gap: 5px;
+  }
+
+  .pending-import dl div {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+  }
+
+  .pending-import dt {
+    color: var(--muted);
+  }
+
+  .pending-import dd {
+    max-width: 65%;
+    margin: 0;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  .pending-import ul {
+    max-height: 210px;
+    overflow: auto;
+    margin-top: 14px;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--line);
+  }
+
+  .pending-import li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .pending-import li strong {
+    overflow-wrap: anywhere;
+  }
+
+  .pending-import li span {
+    color: var(--muted);
+    font-size: .75rem;
+  }
+
+  .trust-confirm {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 15px;
+    cursor: pointer;
+  }
+
+  .trust-confirm input {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    accent-color: var(--primary);
+  }
+}

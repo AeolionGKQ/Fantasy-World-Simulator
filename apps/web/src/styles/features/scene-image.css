@@ -1,0 +1,206 @@
+/* Scene image workspace: prompt editor, size/quality options, progress and the generated image. */
+@layer features {
+  .image-workspace > header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 28px;
+    padding-bottom: 22px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .image-workspace > header p {
+    max-width: 70ch;
+    color: var(--muted);
+  }
+
+  .image-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+
+  .image-progress {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    min-height: 180px;
+    padding: 26px;
+    background: var(--surface);
+    border: 2px solid var(--outline);
+    border-radius: 20px;
+  }
+
+  /* Note: "pulse" has no @keyframes yet, so this marker does not animate. */
+  .image-progress > span {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    color: var(--primary);
+    border: 1px solid currentColor;
+    animation: pulse 1.8s infinite;
+  }
+
+  .image-progress p,
+  .image-options p {
+    color: var(--muted);
+  }
+
+  /* ---- Editor: prompt on the left, options card on the right ---- */
+  .image-editor-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 34px;
+  }
+
+  .image-prompt-editor textarea {
+    min-height: 330px;
+  }
+
+  .image-prompt-editor > small {
+    display: block;
+    margin-top: 6px;
+    color: var(--muted);
+    text-align: right;
+  }
+
+  .image-options {
+    display: grid;
+    align-content: start;
+    gap: 18px;
+    padding: 24px;
+    background: var(--warning-soft);
+    border: 2px solid var(--outline);
+    border-radius: 20px;
+  }
+
+  .image-options .choice-field > div {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .image-options .choice-field span {
+    min-width: 0;
+    font-size: .8rem;
+  }
+
+  .image-options .choice-field label span {
+    min-height: 52px;
+  }
+
+  .image-options .choice-field small {
+    display: block;
+    color: var(--muted);
+    font-size: .68rem;
+  }
+
+  .image-options > button {
+    width: 100%;
+  }
+
+  .cost-confirm {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: var(--warning);
+    font-size: .78rem;
+  }
+
+  .cost-confirm input {
+    margin-top: 3px;
+  }
+
+  /* ---- Result and full-size dialog ---- */
+  .image-result {
+    margin-top: 30px;
+  }
+
+  .image-result > button {
+    display: block;
+    width: 100%;
+    padding: 0;
+    overflow: hidden;
+    background: var(--surface);
+    border: 2px solid var(--outline);
+    border-radius: 18px;
+    cursor: zoom-in;
+  }
+
+  .image-result img,
+  .image-dialog img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .image-result > div {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .image-result > div > span {
+    margin-right: auto;
+    color: var(--muted);
+    font-size: .82rem;
+  }
+
+  .image-dialog {
+    width: min(94vw, 1500px);
+    max-height: 94vh;
+    padding: 0;
+    background: var(--bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 16px;
+  }
+
+  .image-dialog::backdrop {
+    background: #1f2850b3;
+  }
+
+  .image-dialog > button {
+    position: sticky;
+    top: 8px;
+    z-index: 1;
+    float: right;
+    width: 44px;
+    height: 44px;
+    margin: 8px;
+    color: var(--ink);
+    background: var(--surface-raised);
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    cursor: pointer;
+  }
+
+  @media (max-width: 1023px) {
+    .image-workspace > header {
+      flex-direction: column;
+    }
+
+    .image-header-actions {
+      justify-content: flex-start;
+    }
+
+    .image-editor-layout {
+      grid-template-columns: minmax(0,1fr);
+    }
+
+    .image-options {
+      padding: 23px 20px;
+    }
+
+    .image-result > div {
+      flex-wrap: wrap;
+    }
+
+    .image-result > div > span {
+      width: 100%;
+    }
+  }
+}

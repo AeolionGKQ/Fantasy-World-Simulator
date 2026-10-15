@@ -1,0 +1,34 @@
+/*
+ * Stylesheet entry. Cascade layers, lowest priority first:
+ *   tokens      design tokens (custom properties only)
+ *   base        element defaults, keyframes, reduced motion
+ *   components  reusable controls shared by several pages
+ *   layout      app shell and page frame
+ *   features    page- and feature-specific styles
+ *   utilities   single-purpose overrides
+ * Within a layer, normal specificity and source order apply.
+ * Breakpoint: desktop >= 1024px, mobile <= 1023px. Each file keeps its mobile rules in one
+ * "@media (max-width: 1023px)" block at the end.
+ */
+@layer tokens, base, components, layout, features, utilities;
+
+@import "./tokens.css";
+@import "./base.css";
+@import "./components/buttons.css";
+@import "./components/forms.css";
+@import "./components/feedback.css";
+@import "./components/modal.css";
+@import "./components/artwork.css";
+@import "./layout/shell.css";
+@import "./layout/page.css";
+@import "./features/home.css";
+@import "./features/saves.css";
+@import "./features/settings.css";
+@import "./features/wizard.css";
+@import "./features/world-catalog.css";
+@import "./features/candidate.css";
+@import "./features/game.css";
+@import "./features/story.css";
+@import "./features/projections.css";
+@import "./features/scene-image.css";
+@import "./utilities.css";

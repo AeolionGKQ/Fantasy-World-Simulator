@@ -1,0 +1,343 @@
+/* Form controls: labelled fields, segmented and choice groups, option tracks, switches and action rows. */
+@layer components {
+  /* ---- Labelled field: <label class="field"><span>Label</span><input/><small>Help</small></label> ---- */
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-width: 0;
+  }
+
+  .field > span,
+  .field-label {
+    color: var(--ink);
+    font-size: .875rem;
+    font-weight: 620;
+    line-height: 1.4;
+  }
+
+  .field > span small {
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  .field > small {
+    color: var(--muted);
+    font-size: .78rem;
+  }
+
+  .field input,
+  .field textarea {
+    width: 100%;
+    min-height: 44px;
+    padding: 9px 12px;
+    color: var(--ink);
+    background: var(--field-bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+    outline: none;
+    transition: border-color 180ms var(--ease), box-shadow 180ms var(--ease);
+  }
+
+  .field textarea {
+    min-height: 130px;
+    line-height: 1.85;
+    resize: vertical;
+  }
+
+  .field select {
+    color: var(--ink);
+    background: var(--field-bg);
+    border-radius: 12px;
+  }
+
+  .field input:hover,
+  .field textarea:hover {
+    border-color: var(--muted);
+  }
+
+  .field input:focus,
+  .field textarea:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px #3548bd1a;
+  }
+
+  .field input::placeholder,
+  .field textarea::placeholder {
+    color: var(--muted);
+    opacity: 1;
+  }
+
+  .char-count {
+    align-self: flex-end;
+  }
+
+  .field-error {
+    margin-top: 8px;
+    color: var(--danger);
+    font-size: .875rem;
+  }
+
+  .input-suffix {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .input-suffix input {
+    max-width: 240px;
+  }
+
+  .input-suffix span {
+    color: var(--muted);
+  }
+
+  /* ---- Radio groups drawn as buttons: the native input is hidden, the following <span> is the control ---- */
+  .segmented-field,
+  .choice-field {
+    padding: 0;
+    border: 0;
+  }
+
+  .segmented-field label,
+  .choice-field label,
+  .option-track label {
+    position: relative;
+  }
+
+  .segmented-field input,
+  .choice-field input,
+  .option-track input {
+    position: absolute;
+    opacity: 0;
+  }
+
+  /* Segmented field: equal-width options in a three-column grid. */
+  .segmented-field legend {
+    margin-bottom: 7px;
+    font-size: .875rem;
+    font-weight: 620;
+  }
+
+  .segmented-field > div {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+
+  .segmented-field span {
+    min-height: 44px;
+    display: grid;
+    place-items: center;
+    color: var(--muted);
+    background: var(--bg);
+    border: 1px solid var(--line-strong);
+    border-radius: 9px;
+    cursor: pointer;
+  }
+
+  .segmented-field input:hover + span {
+    color: var(--ink);
+    border-color: var(--muted);
+  }
+
+  /* Selected option is filled so the active setting reads at a glance. */
+  .segmented-field input:checked + span {
+    color: var(--primary-ink);
+    background: var(--primary);
+    border-color: var(--primary-strong);
+    box-shadow: inset 0 0 0 1px var(--primary-strong);
+    font-weight: 700;
+  }
+
+  .segmented-field input:focus-visible + span {
+    outline: 3px solid var(--focus);
+    outline-offset: 3px;
+  }
+
+  /* Choice field: wrapping row of fixed-minimum-width options. */
+  .choice-field {
+    margin-bottom: 24px;
+  }
+
+  .choice-field legend {
+    margin-bottom: 9px;
+    font-size: .875rem;
+    font-weight: 620;
+  }
+
+  .choice-field > div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .choice-field span {
+    min-width: 110px;
+    min-height: 44px;
+    display: grid;
+    place-items: center;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: 11px;
+    cursor: pointer;
+  }
+
+  .choice-field input:focus-visible + span {
+    outline: 3px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  /* Option track: horizontally scrolling chips (radios, or tab buttons for read-only browsing). */
+  .option-track {
+    display: flex;
+    gap: 7px;
+    overflow-x: auto;
+    padding: 2px 2px 11px;
+    scrollbar-width: thin;
+  }
+
+  .option-track label {
+    flex: 0 0 auto;
+  }
+
+  .option-track label > span,
+  .option-track button {
+    appearance: none;
+    min-height: 40px;
+    display: grid;
+    place-items: center;
+    padding: 0 13px;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .option-track label:hover > span,
+  .option-track button:hover {
+    color: var(--ink);
+    border-color: var(--muted);
+  }
+
+  .option-track input:focus-visible + span,
+  .option-track button:focus-visible {
+    outline: 3px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  .option-track label.disabled > span {
+    opacity: .4;
+    cursor: not-allowed;
+  }
+
+  /* Selected chip, shared by choice fields and option tracks. */
+  .choice-field input:checked + span,
+  .option-track input:checked + span,
+  .option-track button[aria-selected="true"] {
+    color: var(--primary);
+    background: var(--selected);
+    border-color: var(--primary);
+    font-weight: 650;
+  }
+
+  /* ---- Switch: <label class="switch"><input type="checkbox"/><span/></label> ---- */
+  .switch {
+    position: relative;
+    flex: 0 0 auto;
+  }
+
+  .switch input {
+    position: absolute;
+    opacity: 0;
+  }
+
+  .switch span {
+    display: block;
+    width: 46px;
+    height: 26px;
+    padding: 3px;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: 20px;
+    cursor: pointer;
+    transition: background 180ms var(--ease), border-color 180ms var(--ease);
+  }
+
+  .switch span::after {
+    content: "";
+    display: block;
+    width: 18px;
+    height: 18px;
+    background: var(--muted);
+    border-radius: 50%;
+    transition: transform 180ms var(--ease), background 180ms var(--ease);
+  }
+
+  .switch input:checked + span {
+    background: var(--primary-strong);
+    border-color: var(--primary);
+  }
+
+  .switch input:checked + span::after {
+    background: #fff;
+    transform: translateX(20px);
+  }
+
+  .switch input:focus-visible + span {
+    outline: 3px solid var(--focus);
+    outline-offset: 3px;
+  }
+
+  .switch input:disabled + span {
+    opacity: .45;
+    cursor: not-allowed;
+  }
+
+  /* ---- Action row: buttons aligned right, an optional note takes the remaining space ---- */
+  .form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+  }
+
+  .form-actions > button,
+  .form-actions > a {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .cost-note {
+    margin-right: auto;
+    color: var(--muted);
+    font-size: .76rem;
+  }
+
+  .form-actions .cost-note {
+    flex: 1 1 220px;
+  }
+
+  @media (max-width: 1023px) {
+    .segmented-field > div {
+      grid-template-columns: 1fr;
+    }
+
+    .choice-field > div {
+      gap: 7px;
+    }
+
+    .choice-field span {
+      min-width: 90px;
+    }
+
+    .cost-note {
+      width: 100%;
+      order: -1;
+    }
+  }
+}

@@ -1,0 +1,132 @@
+/* Settings page: section cards, two-column forms, switch rows and connection test results. */
+@layer features {
+  .settings-page {
+    max-width: 1300px;
+  }
+
+  .settings-section {
+    display: grid;
+    grid-template-columns: minmax(190px, .8fr) minmax(0, 1.8fr);
+    gap: var(--settings-gap);
+    margin-bottom: 24px;
+    padding: var(--settings-padding);
+    background: var(--surface);
+    border: 2px solid var(--outline);
+    border-radius: 22px;
+    box-shadow: 4px 4px 0 var(--card-shadow-color);
+  }
+
+  .settings-copy h2 {
+    font-size: 1.35rem;
+  }
+
+  .settings-copy p {
+    margin-top: 7px;
+    color: var(--muted);
+    font-size: .84rem;
+    line-height: 1.85;
+  }
+
+  .settings-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+  }
+
+  .settings-form .full {
+    grid-column: 1 / -1;
+  }
+
+  .field-help {
+    margin: -6px 0 0;
+    color: var(--muted);
+    font-size: .82rem;
+    line-height: 1.65;
+  }
+
+  /* ---- Switch row: label and help text on the left, switch on the right ---- */
+  .switch-field {
+    min-height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 10px 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .settings-page .switch-field > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .switch-field div > span {
+    display: block;
+    font-size: .875rem;
+    font-weight: 620;
+  }
+
+  .switch-field small {
+    display: block;
+    color: var(--muted);
+  }
+
+  /* ---- Connection test result ---- */
+  .test-result {
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+
+  .test-result.success {
+    background: var(--success-soft);
+    border-color: var(--success-line);
+  }
+
+  .test-result.error {
+    background: var(--danger-soft);
+    border-color: var(--danger-line);
+  }
+
+  .test-result p {
+    color: var(--muted);
+  }
+
+  .capabilities {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 9px;
+  }
+
+  .capabilities span {
+    padding: 3px 8px;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    font-size: .75rem;
+  }
+
+  @media (max-width: 1023px) {
+    .settings-section {
+      grid-template-columns: 1fr;
+      gap: 24px;
+      padding: 24px 20px;
+      border-radius: 18px;
+    }
+
+    .settings-copy p {
+      font-size: .82rem;
+    }
+
+    .settings-form {
+      grid-template-columns: minmax(0,1fr);
+    }
+
+    .settings-form .full {
+      grid-column: 1;
+    }
+  }
+}

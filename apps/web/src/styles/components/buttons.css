@@ -1,0 +1,134 @@
+/* Buttons: primary, secondary, danger, text and icon-only. */
+@layer components {
+  /* ---- Text buttons (shared shape) ---- */
+  .primary-button,
+  .secondary-button,
+  .danger-button,
+  .text-button {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 17px;
+    font-weight: 650;
+    text-decoration: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 180ms var(--ease), border-color 180ms var(--ease), color 180ms var(--ease), transform 100ms var(--ease);
+  }
+
+  .primary-button {
+    padding: 0 18px;
+    color: var(--primary-ink);
+    background: var(--primary);
+    border: 2px solid var(--primary-edge);
+    box-shadow: 2px 3px 0 #243777;
+  }
+
+  .primary-button:hover {
+    background: var(--primary-strong);
+    border-color: var(--primary-edge);
+  }
+
+  .primary-button:disabled {
+    box-shadow: none;
+  }
+
+  .secondary-button {
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+  }
+
+  .secondary-button:hover {
+    background: var(--surface-raised);
+    border-color: var(--primary);
+  }
+
+  .danger-button {
+    color: var(--danger);
+    background: var(--danger-soft);
+    border: 1px solid var(--danger);
+  }
+
+  .danger-button:hover {
+    background: #fce0e3;
+  }
+
+  .secondary-button:active,
+  .danger-button:active {
+    transform: translateY(1px);
+  }
+
+  .primary-button:disabled,
+  .secondary-button:disabled,
+  .danger-button:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  /* Declared after :disabled, so a pressed primary button sinks even when disabled (existing behaviour). */
+  .primary-button:active {
+    box-shadow: none;
+    transform: translate(2px, 2px);
+  }
+
+  .text-button {
+    min-height: 36px;
+    padding: 0 5px;
+    font-weight: 600;
+    color: var(--primary);
+    background: transparent;
+    border: 0;
+    border-radius: 7px;
+  }
+
+  .text-button:hover {
+    color: var(--primary-strong);
+    text-decoration: underline;
+  }
+
+  /* ---- Icon-only buttons ---- */
+  .icon-button {
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    color: var(--muted);
+    background: transparent;
+    border: 0;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: color 180ms var(--ease), background 180ms var(--ease), border-color 180ms var(--ease);
+  }
+
+  .icon-button:hover {
+    color: var(--ink);
+    background: var(--surface-hover);
+  }
+
+  .icon-button.small {
+    width: 30px;
+    height: 30px;
+  }
+
+  .icon-button.small .icon {
+    width: 15px;
+    height: 15px;
+  }
+
+  .danger-text {
+    color: var(--danger);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .primary-button:active {
+      transform: none;
+    }
+  }
+}

@@ -1,0 +1,402 @@
+/* Character generation (wizard step 13) and the candidate panel shown there and on the review page. */
+@layer features {
+  .generation-step {
+    display: grid;
+    gap: 22px;
+  }
+
+  /* ---- Input summary ---- */
+  .input-summary {
+    padding: 18px;
+    background: #e9f0ff;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+  }
+
+  .input-summary dl {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 26px;
+  }
+
+  .input-summary dl div {
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 12px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .input-summary dt {
+    color: var(--muted);
+    font-size: .8rem;
+  }
+
+  .input-summary dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* ---- Ready / in-progress banners ---- */
+  .generation-ready,
+  .generation-progress {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    min-height: 120px;
+    padding: 22px;
+    border-top: 1px solid var(--line-strong);
+    border-bottom: 1px solid var(--line);
+    border-radius: 14px;
+  }
+
+  .generation-progress {
+    justify-content: flex-start;
+    background: var(--info-soft);
+  }
+
+  .generation-ready p,
+  .generation-progress p {
+    max-width: 65ch;
+    color: var(--muted);
+  }
+
+  .generation-progress > div:nth-child(2) {
+    flex: 1;
+  }
+
+  .pulse-rune {
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    color: var(--primary);
+    font-size: 1.8rem;
+    background: #fff0b8;
+    border: 1px solid var(--primary-strong);
+    border-radius: 12px;
+    animation: rune-pulse 2.8s ease-in-out infinite;
+  }
+
+  /* ---- Candidate panel ---- */
+  .candidate-panel {
+    margin-top: 8px;
+    overflow: hidden;
+    background: var(--surface);
+    border: 2px solid var(--outline);
+    border-radius: 18px;
+    box-shadow: 4px 4px 0 var(--card-shadow-color);
+  }
+
+  .candidate-panel li::marker {
+    color: var(--primary);
+  }
+
+  .candidate-panel > header {
+    display: flex;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 24px;
+    background: #e4eeff;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .candidate-panel > header h2 {
+    font-size: 1.55rem;
+  }
+
+  .candidate-panel > header p {
+    color: var(--muted);
+  }
+
+  .candidate-validity {
+    align-self: flex-start;
+    padding: 4px 9px;
+    font-size: .75rem;
+    font-weight: 650;
+    border: 1px solid;
+    border-radius: 7px;
+  }
+
+  .candidate-validity.valid {
+    color: var(--success);
+    background: var(--success-soft);
+    border-color: var(--success-line);
+  }
+
+  .candidate-validity.invalid {
+    color: var(--danger);
+    background: var(--danger-soft);
+    border-color: var(--danger-line);
+  }
+
+  .candidate-panel > section {
+    padding: 22px 24px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .candidate-panel > section > h3 {
+    margin-bottom: 13px;
+  }
+
+  .candidate-summary p {
+    max-width: 72ch;
+    color: var(--muted);
+  }
+
+  /* Long-term attributes with a 0-100 meter. */
+  .attribute-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+
+  .attribute-row > div:first-child {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .attribute-row > div:first-child span {
+    color: var(--muted);
+  }
+
+  .attribute-row > div:first-child strong {
+    color: var(--primary);
+    font-size: 1.45rem;
+  }
+
+  .attribute-meter {
+    height: 5px;
+    overflow: hidden;
+    margin: 7px 0 9px;
+    background: var(--bg);
+    border-radius: 3px;
+  }
+
+  .attribute-meter span {
+    display: block;
+    height: 100%;
+    background: var(--primary);
+  }
+
+  .attribute-row p {
+    color: var(--muted);
+    font-size: .8rem;
+  }
+
+  /* Short-term resources and starting money. */
+  .resource-list {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+
+  .resource-list > div,
+  .currency-denominations > span {
+    background: #edf3ff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+
+  .resource-list > div {
+    padding: 12px;
+  }
+
+  .resource-list span,
+  .resource-list small {
+    display: block;
+    color: var(--muted);
+    font-size: .75rem;
+  }
+
+  .resource-list strong {
+    display: block;
+    font-size: 1.15rem;
+  }
+
+  .currency-denominations {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .currency-denominations > span {
+    min-width: 108px;
+    padding: 12px 14px;
+    color: var(--muted);
+  }
+
+  .currency-denominations strong {
+    display: block;
+    color: var(--accent);
+    font-size: 1.35rem;
+  }
+
+  .starting-currency p {
+    max-width: 72ch;
+    margin-top: 12px;
+    color: var(--muted);
+  }
+
+  /* Power: big number on the left, modifiers on the right. */
+  .power-section {
+    display: grid;
+    grid-template-columns: 190px minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .power-section > div:first-child span {
+    display: block;
+    color: var(--muted);
+  }
+
+  .power-number {
+    display: block;
+    color: var(--accent);
+    font-size: 2rem;
+    line-height: 1.2;
+  }
+
+  .power-section ul {
+    padding-left: 20px;
+  }
+
+  .power-section li strong {
+    display: block;
+  }
+
+  .power-section li span {
+    display: block;
+    color: var(--muted);
+  }
+
+  .power-section > div:nth-child(2) p {
+    color: var(--muted);
+  }
+
+  /* Strengths / limitations and the description list. */
+  .candidate-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+  }
+
+  .candidate-columns ul {
+    padding-left: 20px;
+    color: var(--muted);
+  }
+
+  .candidate-columns p {
+    color: var(--muted);
+  }
+
+  .description-section dl {
+    display: grid;
+    gap: 13px;
+  }
+
+  .description-section dl div {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 14px;
+  }
+
+  .description-section dt {
+    color: var(--muted);
+  }
+
+  .description-section dd {
+    max-width: 72ch;
+    margin: 0;
+    color: var(--muted);
+  }
+
+  .candidate-footer {
+    display: flex;
+    justify-content: space-between;
+    padding: 18px 24px;
+  }
+
+  /* ---- Regenerate with feedback ---- */
+  .regenerate-panel {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 20px 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .regenerate-panel p {
+    max-width: 66ch;
+    color: var(--muted);
+  }
+
+  .regenerate-form {
+    width: min(100%, 560px);
+  }
+
+  .regenerate-form .form-actions {
+    margin-top: 10px;
+  }
+
+  @media (max-width: 1023px) {
+    .input-summary {
+      padding: 15px;
+    }
+
+    .input-summary dl {
+      grid-template-columns: 1fr;
+    }
+
+    .input-summary dl div {
+      grid-template-columns: 72px minmax(0,1fr);
+      gap: 8px;
+    }
+
+    .generation-ready,
+    .generation-progress,
+    .regenerate-panel {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .candidate-panel > header {
+      flex-direction: column;
+    }
+
+    .candidate-panel > header,
+    .candidate-panel > section {
+      padding: 22px 20px;
+    }
+
+    .attribute-grid,
+    .power-section,
+    .candidate-columns {
+      grid-template-columns: 1fr;
+    }
+
+    .resource-list {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .description-section dl div {
+      grid-template-columns: 1fr;
+      gap: 2px;
+    }
+
+    .candidate-footer {
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 18px;
+    }
+
+    .candidate-footer > * {
+      flex: 1;
+    }
+  }
+}

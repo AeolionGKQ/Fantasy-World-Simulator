@@ -1,0 +1,513 @@
+/* World catalogue browsers in the wizard: race, rank, location and faction profiles. */
+@layer features {
+  /* ---- Shared profile frame: artwork on top, reading column below ---- */
+  .race-profile,
+  .world-profile {
+    margin-top: 7px;
+    padding-bottom: 30px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .race-reading,
+  .world-reading {
+    max-width: 48em;
+    padding: 28px 0 0;
+  }
+
+  .race-description,
+  .world-description {
+    color: var(--body);
+    font-size: 1rem;
+    line-height: 1.95;
+  }
+
+  .race-lore-sections p,
+  .world-section p {
+    color: var(--muted);
+    font-size: .9rem;
+    line-height: 1.85;
+  }
+
+  /* ---- Race profile ---- */
+  .race-heading {
+    margin-bottom: 20px;
+  }
+
+  .race-heading h3 {
+    font-size: 1.6rem;
+  }
+
+  .race-heading p,
+  .race-branch-detail header p {
+    margin-top: 3px;
+    color: var(--muted);
+  }
+
+  /* Fact strip: label/value pairs separated by vertical rules (stacked on mobile). */
+  .race-facts {
+    display: flex;
+    margin: 0 0 24px;
+    padding: 12px 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .race-facts > div {
+    flex: 1 1 150px;
+    min-width: 0;
+    padding: 0 13px;
+  }
+
+  .race-facts > div:first-child {
+    padding-left: 0;
+  }
+
+  .race-facts > div + div {
+    border-left: 1px solid var(--line);
+  }
+
+  .race-facts dt {
+    color: var(--muted);
+    font-size: .75rem;
+  }
+
+  .race-facts dd {
+    margin: 2px 0 0;
+    color: var(--ink);
+    font-size: .875rem;
+    font-weight: 650;
+    line-height: 1.5;
+  }
+
+  .race-lore-sections {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 32px;
+    margin-top: 28px;
+  }
+
+  .race-lore-sections section {
+    padding: 17px 0 20px;
+    border-top: 1px solid var(--line);
+  }
+
+  .race-lore-sections h4 {
+    margin: 0 0 7px;
+    font-size: 1rem;
+    line-height: 1.4;
+    text-wrap: balance;
+  }
+
+  .race-lore-sections p + p {
+    margin-top: 8px;
+  }
+
+  .race-lore-sections .race-creation-notes,
+  .race-lore-sections .race-representatives {
+    grid-column: 1 / -1;
+  }
+
+  .race-creation-notes h4 {
+    color: var(--accent);
+  }
+
+  /* Branch selector (e.g. orc / half-orc): two large radio cards. */
+  .race-branch-selector {
+    margin: 28px 0 0;
+    padding: 18px 0 22px;
+    border: 0;
+    border-top: 1px solid var(--line-strong);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .race-branch-selector legend {
+    padding: 0;
+    font-size: 1rem;
+    font-weight: 650;
+  }
+
+  .race-branch-selector > p {
+    margin: 5px 0 13px;
+    color: var(--muted);
+    font-size: .875rem;
+  }
+
+  .race-branch-selector > div {
+    display: flex;
+    gap: 8px;
+  }
+
+  .race-branch-selector label {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .race-branch-selector input {
+    position: absolute;
+    opacity: 0;
+  }
+
+  .race-branch-selector label > span {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 66px;
+    padding: 10px 13px;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: 11px;
+    cursor: pointer;
+    transition: background 180ms var(--ease), border-color 180ms var(--ease);
+  }
+
+  .race-branch-selector label:hover > span {
+    background: var(--surface-raised);
+    border-color: var(--muted);
+  }
+
+  .race-branch-selector input:checked + span {
+    color: var(--primary);
+    background: var(--selected);
+    border-color: var(--primary);
+    font-weight: 650;
+  }
+
+  .race-branch-selector input:focus-visible + span {
+    outline: 3px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  .race-branch-selector strong {
+    display: block;
+  }
+
+  .race-branch-selector small {
+    display: block;
+    color: var(--muted);
+  }
+
+  .race-branch-detail {
+    margin-top: 28px;
+  }
+
+  .race-branch-detail > header {
+    margin-bottom: 18px;
+  }
+
+  .race-branch-detail h4 {
+    margin: 0 0 7px;
+    font-size: 1.35rem;
+    line-height: 1.4;
+    text-wrap: balance;
+  }
+
+  /* ---- Rank step: rank system summary, rank list and the sticky note for the selected rank ---- */
+  .rank-system {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(230px, .8fr);
+    gap: 28px;
+    margin-bottom: 26px;
+    padding: 22px 0;
+    border-top: 1px solid var(--line-strong);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .rank-system h3 {
+    margin-bottom: 8px;
+    font-size: 1.35rem;
+  }
+
+  .rank-system p {
+    max-width: 72ch;
+    color: var(--body);
+  }
+
+  .rank-system ul {
+    align-self: center;
+    display: grid;
+    gap: 7px;
+    margin: 0;
+    padding-left: 20px;
+    color: var(--muted);
+    font-size: .875rem;
+  }
+
+  .rank-system li::marker {
+    color: var(--accent);
+  }
+
+  .rank-step {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(230px, 32%);
+    gap: 24px;
+  }
+
+  .rank-list {
+    border-top: 1px solid var(--line);
+  }
+
+  .rank-list label {
+    position: relative;
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    min-height: 58px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+    cursor: pointer;
+  }
+
+  .rank-list label:hover {
+    background: var(--surface);
+  }
+
+  .rank-list input {
+    position: absolute;
+    opacity: 0;
+  }
+
+  .rank-list .rank-number {
+    display: grid;
+    place-items: center;
+    width: 31px;
+    height: 31px;
+    color: var(--accent);
+    font-size: .78rem;
+    font-weight: 700;
+    background: #fff8e4;
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+  }
+
+  .rank-list label > span:nth-of-type(2) strong {
+    display: block;
+  }
+
+  .rank-list label > span:nth-of-type(2) small {
+    display: block;
+    color: var(--muted);
+  }
+
+  .rank-list .power-value {
+    color: var(--muted);
+    font-size: .75rem;
+  }
+
+  .rank-list input:checked ~ .rank-number {
+    color: var(--primary-ink);
+    background: var(--primary);
+    border-color: var(--primary);
+  }
+
+  .rank-list label:has(input:checked) {
+    background: var(--surface-raised);
+  }
+
+  .rank-list label:has(input:focus-visible) {
+    z-index: 1;
+    outline: 3px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  .rank-list label.disabled {
+    opacity: .42;
+    cursor: not-allowed;
+  }
+
+  .rank-note {
+    position: sticky;
+    top: calc(var(--toolbar-height) + 20px);
+    align-self: start;
+    padding: 17px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+
+  .rank-note.warning {
+    background: var(--warning-soft);
+    border-color: var(--warning-line);
+  }
+
+  .rank-note strong {
+    color: var(--warning);
+  }
+
+  .rank-note p {
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: .875rem;
+  }
+
+  /* ---- Location and faction profiles ---- */
+  .world-heading {
+    margin-bottom: 20px;
+  }
+
+  .world-heading h3 {
+    font-size: 1.6rem;
+  }
+
+  .world-heading p {
+    margin-top: 3px;
+    color: var(--muted);
+  }
+
+  .world-facts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin: 0 0 24px;
+    padding: 12px 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .world-facts > div {
+    min-width: 0;
+    padding: 0 13px;
+  }
+
+  .world-facts > div:first-child {
+    padding-left: 0;
+  }
+
+  .world-facts > div + div {
+    border-left: 1px solid var(--line);
+  }
+
+  .world-facts dt {
+    color: var(--muted);
+    font-size: .75rem;
+  }
+
+  .world-facts dd {
+    margin: 2px 0 0;
+    color: var(--ink);
+    font-size: .875rem;
+    font-weight: 650;
+    line-height: 1.5;
+  }
+
+  .world-sections {
+    margin-top: 28px;
+  }
+
+  .world-section {
+    padding: 17px 0 20px;
+    border-top: 1px solid var(--line);
+  }
+
+  .world-section.notice {
+    padding: 16px;
+    background: var(--warning-soft);
+    border-radius: 12px;
+  }
+
+  .world-section h4 {
+    margin: 0 0 7px;
+    font-size: 1rem;
+    line-height: 1.4;
+    text-wrap: balance;
+  }
+
+  .world-section.notice h4 {
+    color: var(--accent);
+  }
+
+  .world-section p + p {
+    margin-top: 8px;
+  }
+
+  .world-section ul {
+    display: grid;
+    gap: 6px;
+    margin: 8px 0 0;
+    padding-left: 20px;
+    color: var(--muted);
+    font-size: .9rem;
+  }
+
+  .world-section li::marker {
+    color: var(--primary);
+  }
+
+  @media (max-width: 1023px) {
+    .race-reading,
+    .world-reading {
+      padding-top: 22px;
+    }
+
+    .race-heading h3,
+    .world-heading h3 {
+      font-size: 1.45rem;
+    }
+
+    .race-facts {
+      flex-direction: column;
+      padding: 0;
+    }
+
+    .race-facts > div,
+    .race-facts > div:first-child {
+      flex: none;
+      padding: 10px 0;
+    }
+
+    .race-facts > div + div,
+    .world-facts > div + div {
+      border-top: 1px solid var(--line);
+      border-left: 0;
+    }
+
+    .race-lore-sections {
+      grid-template-columns: 1fr;
+      gap: 0;
+    }
+
+    .race-lore-sections .race-creation-notes {
+      grid-column: 1;
+    }
+
+    .race-branch-selector > div {
+      flex-direction: column;
+    }
+
+    .rank-system {
+      grid-template-columns: minmax(0,1fr);
+      gap: 16px;
+    }
+
+    .rank-system h3 {
+      font-size: 1.17rem;
+    }
+
+    .rank-step {
+      grid-template-columns: 1fr;
+    }
+
+    .rank-list label {
+      grid-template-columns: 34px minmax(0, 1fr);
+    }
+
+    .rank-list .power-value {
+      grid-column: 2;
+    }
+
+    .rank-note {
+      position: static;
+      order: -1;
+    }
+
+    .world-facts {
+      grid-template-columns: 1fr;
+      padding: 0;
+    }
+
+    .world-facts > div,
+    .world-facts > div:first-child {
+      padding: 10px 0;
+    }
+  }
+}

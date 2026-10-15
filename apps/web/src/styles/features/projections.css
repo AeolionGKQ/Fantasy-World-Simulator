@@ -1,0 +1,517 @@
+/* Game tabs other than the story: character, inventory, quests, journal, memory, bonds and reputation. */
+@layer features {
+  /* ---- Shared tab card ---- */
+  .projection-page {
+    padding: 28px 30px;
+    background: var(--surface);
+    border: 2px solid var(--outline);
+    border-radius: 22px;
+    box-shadow: 4px 4px 0 var(--card-shadow-color);
+  }
+
+  .projection-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    min-height: 74px;
+    padding-bottom: 22px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .projection-header h2 {
+    font-size: 1.7rem;
+    font-weight: 750;
+  }
+
+  .projection-header p {
+    margin-top: 5px;
+    color: var(--muted);
+  }
+
+  .projection-footnote {
+    margin-top: 16px;
+    color: var(--muted);
+    font-size: .8rem;
+  }
+
+  .plain-section {
+    padding: 24px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .plain-section h3 {
+    margin-bottom: 14px;
+  }
+
+  .section-line {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+  }
+
+  .game-empty {
+    max-width: 580px;
+    margin: 55px auto;
+    padding: 34px;
+    text-align: center;
+    background: var(--surface);
+    border: 2px solid var(--outline);
+    border-radius: 22px;
+    box-shadow: 4px 4px 0 var(--card-shadow-color);
+  }
+
+  .game-empty > span {
+    color: var(--primary);
+    font-size: 1.5rem;
+  }
+
+  .game-empty h3 {
+    margin: 8px 0 4px;
+  }
+
+  .game-empty p {
+    color: var(--muted);
+  }
+
+  .detail-list,
+  .inventory-list,
+  .record-list,
+  .arc-list,
+  .memory-list,
+  .relationship-list,
+  .reputation-list {
+    padding: 0;
+    list-style: none;
+  }
+
+  .detail-list li {
+    display: grid;
+    gap: 2px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .detail-list span,
+  .detail-list small {
+    color: var(--muted);
+  }
+
+  /* ---- Character ---- */
+  .rank-mark {
+    color: var(--accent);
+    font-size: 1.55rem;
+  }
+
+  .status-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    margin: 25px 0 5px;
+    overflow: hidden;
+    background: #f7f4ec;
+    border: 1px solid #ddd7c9;
+    border-radius: 13px;
+  }
+
+  .status-strip > div {
+    padding: 14px;
+  }
+
+  .status-strip span {
+    display: block;
+    color: var(--muted);
+    font-size: .74rem;
+  }
+
+  .status-strip strong {
+    display: block;
+    margin-top: 5px;
+    font-size: 1.1rem;
+  }
+
+  .status-strip meter {
+    width: 100%;
+    height: 6px;
+    accent-color: var(--primary);
+  }
+
+  .status-strip small {
+    display: block;
+    margin-top: 3px;
+    color: var(--muted);
+    font-size: .7rem;
+    line-height: 1.4;
+  }
+
+  .status-strip .resource-condition {
+    color: var(--primary);
+    font-weight: 650;
+  }
+
+  .status-strip .resource-condition.exhausted {
+    color: var(--danger);
+  }
+
+  .projection-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(250px, .8fr);
+    gap: 32px;
+  }
+
+  .attribute-list {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+
+  .attribute-list > div {
+    padding: 12px;
+    background: #f7f4ec;
+    border: 1px solid #ddd7c9;
+    border-radius: 11px;
+  }
+
+  .attribute-list dt {
+    color: var(--muted);
+    font-size: .75rem;
+  }
+
+  .attribute-list dd {
+    margin: 0;
+    color: var(--primary);
+    font-size: 1.3rem;
+    font-weight: 700;
+  }
+
+  .attribute-list small {
+    color: var(--muted);
+  }
+
+  .key-values {
+    display: grid;
+    gap: 8px;
+  }
+
+  .key-values > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .key-values dt {
+    color: var(--muted);
+  }
+
+  .key-values dd {
+    margin: 0;
+    font-weight: 650;
+  }
+
+  .key-values .effective dd {
+    color: var(--accent);
+  }
+
+  /* ---- Inventory ---- */
+  .currency {
+    display: flex;
+    gap: 18px;
+  }
+
+  .currency div {
+    min-width: 58px;
+    text-align: right;
+  }
+
+  .currency dt {
+    color: var(--muted);
+    font-size: .7rem;
+  }
+
+  .currency dd {
+    margin: 0;
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .inventory-list > li {
+    display: flex;
+    justify-content: space-between;
+    gap: 28px;
+    padding: 18px 4px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .inventory-list p,
+  .inventory-list small {
+    color: var(--muted);
+  }
+
+  .equipped-mark {
+    margin-left: 10px;
+    padding: 2px 7px;
+    color: var(--primary);
+    font-size: .7rem;
+    border: 1px solid var(--primary-strong);
+    border-radius: 6px;
+  }
+
+  .item-data {
+    flex: 0 0 auto;
+    text-align: right;
+  }
+
+  .item-data span {
+    display: block;
+    color: var(--muted);
+  }
+
+  /* ---- Quests, story arcs and long-term memories (record lists) ---- */
+  .record-list > li,
+  .arc-list > li,
+  .memory-list > li {
+    padding: 18px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .record-heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+  }
+
+  .record-heading span,
+  .record-list > li > p,
+  .arc-list p,
+  .arc-list small,
+  .memory-list span,
+  .memory-list p,
+  .memory-list small {
+    color: var(--muted);
+  }
+
+  .record-list ul {
+    margin-top: 8px;
+    padding-left: 20px;
+  }
+
+  .record-list .progress-copy {
+    margin-top: 6px;
+    color: var(--primary);
+  }
+
+  .arc-merge-action {
+    display: grid;
+    justify-items: end;
+    gap: 6px;
+    max-width: 360px;
+    text-align: right;
+  }
+
+  .arc-merge-action small {
+    color: var(--muted);
+    font-size: .78rem;
+  }
+
+  .memory-policy {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 22px;
+    padding: 15px 0;
+    color: var(--muted);
+    font-size: .82rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .memory-list > li {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 4px 12px;
+  }
+
+  .memory-list > li > p,
+  .memory-list > li > small {
+    grid-column: 2;
+  }
+
+  .memory-list .memory-number {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    color: var(--primary);
+    font-size: .75rem;
+    font-weight: 700;
+    border: 1px solid var(--primary-strong);
+    border-radius: 50%;
+  }
+
+  .memory-list .recall-reason {
+    color: var(--primary);
+  }
+
+  /* ---- Journal ---- */
+  .chronicle-list {
+    position: relative;
+    padding: 0;
+    list-style: none;
+  }
+
+  .chronicle-list li {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .chronicle-list button {
+    width: 100%;
+    padding: 16px 4px;
+    color: inherit;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+  }
+
+  .chronicle-list button:hover {
+    background: var(--surface);
+  }
+
+  .chronicle-list span {
+    display: block;
+    color: var(--muted);
+    font-size: .75rem;
+  }
+
+  .chronicle-list strong {
+    display: block;
+  }
+
+  .chronicle-list p {
+    color: var(--muted);
+  }
+
+  /* ---- Bonds and reputation: name, -100..100 meter, value ---- */
+  .relationship-list li,
+  .reputation-list li {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) minmax(160px, 2fr) 54px;
+    align-items: center;
+    gap: 20px;
+    min-height: 68px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .relationship-list span,
+  .reputation-list span {
+    display: block;
+    color: var(--muted);
+    font-size: .78rem;
+  }
+
+  .relationship-list meter,
+  .reputation-list meter {
+    width: 100%;
+    accent-color: var(--primary);
+  }
+
+  .relationship-list b,
+  .reputation-list b {
+    text-align: right;
+  }
+
+  .reputation-list li.primary {
+    margin-bottom: 12px;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+  }
+
+  .reputation-list li.local {
+    background: var(--surface-raised);
+    border-radius: 12px;
+  }
+
+  .reputation-list li.local strong,
+  .reputation-list li.local span {
+    color: var(--primary);
+  }
+
+  @media (max-width: 1023px) {
+    .projection-page {
+      padding: 25px 20px;
+      border-radius: 20px;
+    }
+
+    .projection-header {
+      flex-direction: column;
+    }
+
+    .projection-header h2 {
+      font-size: 1.5rem;
+    }
+
+    .record-heading,
+    .section-line {
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .game-empty {
+      margin: 25px auto;
+      padding: 28px 20px;
+    }
+
+    .status-strip {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .status-strip > div {
+      padding: 12px;
+    }
+
+    .status-strip strong {
+      font-size: .95rem;
+    }
+
+    .projection-columns {
+      grid-template-columns: 1fr;
+      gap: 0;
+    }
+
+    .attribute-list {
+      grid-template-columns: 1fr;
+    }
+
+    .currency {
+      justify-content: space-between;
+      width: 100%;
+    }
+
+    .currency div {
+      text-align: left;
+    }
+
+    .inventory-list > li {
+      gap: 12px;
+    }
+
+    .item-data {
+      font-size: .8rem;
+    }
+
+    .relationship-list li,
+    .reputation-list li {
+      grid-template-columns: minmax(0, 1fr) 46px;
+      gap: 8px 14px;
+      padding: 14px 10px;
+    }
+
+    .relationship-list meter,
+    .reputation-list meter {
+      grid-row: 2;
+      grid-column: 1 / -1;
+    }
+  }
+}
