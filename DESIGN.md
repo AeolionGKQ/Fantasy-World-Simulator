@@ -49,8 +49,8 @@
 
 - 界面字体：`"Noto Sans SC", "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif`。
 - 阅读字体 `--font-reading`：Noto Serif SC（`@fontsource/noto-serif-sc`，400 与 700 两个字重，打包在本地，不依赖网络）。只用于剧情章节标题与正文、世界资料的条目标题与正文；按字符范围分片，只在用到的页面下载。
-- 字号只用令牌：`--text-xs` 13px、`--text-sm` 14px、`--text-base` 16px、`--text-md` 18px（h3）、`--text-read` 18px（阅读正文）、`--text-lg` 22px（h2）、`--text-xl` 28px（h1）、`--text-display` clamp(32px, 2.8vw, 44px)（角色名、章节标题、首页标题）。中文最小 13px。
-- 界面正文 16px/1.65；剧情正文 18px/1.85，每行约 36 个汉字（`max-width: 36em`）。
+- 字号只用令牌：`--text-xs` 13px、`--text-sm` 14px、`--text-base` 16px、`--text-md` 18px（h3）、`--text-read` 18px（世界资料正文）、`--text-story` 20px（剧情正文）、`--text-lg` 22px（h2）、`--text-xl` 28px（h1）、`--text-display` clamp(32px, 2.8vw, 44px)（角色名、章节标题、首页标题）。中文最小 13px。
+- 界面正文 16px/1.65；剧情正文 20px/1.85（手机 18px），颜色 `--reading-ink`（比 `--body` 略深），每行约 36 个汉字（`--story-measure`）。剧情卡片顶部的时间地点与章节标题靠卡片左侧对齐，右侧是生命/魔力/精神/精力四条简洁资源条（角色当前数值，配色与角色页一致；平时只显示进度条，鼠标悬停、键盘聚焦或手机点击某一行时，进度条收起、换成“当前/上限”数值；卡片宽度 ≤ 640px 时移到标题下方，两列排布），下面用一条贯穿卡片的 2px `--line` 细线隔开，细线中央有一个小菱形；下方的正文、变化记录和翻页按钮共用这一列，并在卡片中居中；每个自然段首行缩进两字（`text-indent: 2em`），段首自带的空格会在显示前去掉。
 - 字重 750，页面主标题 800；宋体标题 700。
 - 标题使用 `text-wrap: balance`，正文使用 `text-wrap: pretty`。
 

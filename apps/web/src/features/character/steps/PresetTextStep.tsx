@@ -17,7 +17,7 @@ export function PresetTextStep({ label, presets, raceId, value, update, placehol
     <div className="focused-form wide">
       {note && <div className="rule-note preset-note"><span className="state-symbol" aria-hidden="true">i</span><p>{note}</p></div>}
       <div className="preset-section">
-        <span className="field-label">追加预设词</span>
+        <span className="field-label">点选预设词</span>
         {groups.length ? (
           <div className="preset-groups">
             {groups.map((group) => (
@@ -29,12 +29,12 @@ export function PresetTextStep({ label, presets, raceId, value, update, placehol
               </section>
             ))}
           </div>
-        ) : <p className="muted-copy">当前种族暂无适用预设词，你仍可自由填写。</p>}
+        ) : <p className="muted-copy">这个种族暂时没有可用的预设词，你可以自由填写。</p>}
       </div>
       <label className="field">
         <span>{label}</span>
         <textarea ref={textRef} rows={8} maxLength={2000} value={value} placeholder={placeholder} onChange={(e) => update(e.target.value)} />
-        <small className="char-count">{value.length} / 2000，可直接修改已追加的词</small>
+        <small className="char-count">{value.length} / 2000，加入的词也可以直接修改</small>
       </label>
     </div>
   );

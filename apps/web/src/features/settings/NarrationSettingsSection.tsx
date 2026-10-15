@@ -18,7 +18,7 @@ export function NarrationSettingsSection({ ctl, settings }: { ctl: SettingsContr
         <p className="field-help full">日常偏向旅行、交友和生活；战斗更容易遇到冒险与危险；平衡兼顾两者。日常模式也不会消除危险地区的风险。</p>
         <SegmentedField label="内容详细度" value={settings.narration.detail} options={[{ value: "concise", label: "简洁" }, { value: "standard", label: "标准" }, { value: "detailed", label: "详细" }]} disabled={saving} onChange={(detail) => update("detail", detail)} />
         <p className="field-help full">简洁着重交代发生了什么；标准保留适量场景描写；详细会展开环境、动作和对话。详细度不会改变每轮推进的剧情多少。</p>
-        <SegmentedField label="GM对玩家角色的称呼" value={settings.narration.player_address} options={playerAddressOptions} disabled={saving} onChange={(playerAddress) => update("player_address", playerAddress)} />
+        <SegmentedField label="GM 对角色的称呼" value={settings.narration.player_address} options={playerAddressOptions} disabled={saving} onChange={(playerAddress) => update("player_address", playerAddress)} />
         <p className="field-help full">选择 GM 在剧情中如何称呼你：全名如“菲亚·维洛拉”，名字如“菲亚”，或直接用“你”。故事中的人物仍会根据关系和场合使用各自的称呼。</p>
         <div className="form-actions full">
           <button className="primary-button" disabled={!canStartSettingRequest(ctl.modelState, narrationState, ctl.testState)}>{narrationState === "saving" ? "正在保存…" : narrationState === "saved" ? "偏好已保存" : "保存叙事设置"}</button>

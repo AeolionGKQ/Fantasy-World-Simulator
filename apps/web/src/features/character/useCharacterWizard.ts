@@ -171,7 +171,7 @@ export function useCharacterWizard(saveId: string, step: number, actions: ShellA
       } else if (saveStatus === "saving") {
         actions.setNotice("草稿正在保存，请在保存完成后切换页面。");
       } else {
-        actions.setNotice("草稿尚未保存，请先重试保存或处理版本冲突。");
+        actions.setNotice("草稿还没有保存，请先重试保存，或载入最新版本。");
       }
     };
     document.addEventListener("click", protectInternalNavigation, true);

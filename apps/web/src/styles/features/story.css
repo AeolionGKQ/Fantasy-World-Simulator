@@ -18,13 +18,18 @@
     box-shadow: 5px 5px 0 var(--card-shadow-color);
   }
 
+  /* The heading stays on the card's left edge; everything below it shares one centred reading column. */
+  .story-reading > :not(.story-heading) {
+    max-width: var(--story-measure);
+    margin-inline: auto;
+  }
+
   .scene-meta {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
-    margin-bottom: 10px;
     color: var(--muted);
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
   }
 
   .scene-meta span + span::before {
@@ -37,7 +42,7 @@
   }
 
   .story-heading h2 {
-    margin-top: 18px;
+    margin-top: 8px;
     font-family: var(--font-reading);
     font-size: var(--text-display);
     font-weight: 700;
@@ -46,19 +51,133 @@
     overflow-wrap: anywhere;
   }
 
-  /* Reading column: serif, 18px, about 36 characters per line. */
+  /* Chapter break between heading and text: a hairline across the card with a small diamond at its centre. */
+  .story-heading {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start; /* bars start level with the time/location line */
+    gap: 20px 40px;
+    padding-bottom: 24px;
+    border-bottom: 2px solid var(--line);
+  }
+
+  .story-title {
+    min-width: 0;
+  }
+
+  /*
+   * Current HP/MP/SP/ST at the heading's right. Each row shows a bar; hovering it (tapping on touch
+   * screens, or keyboard focus) folds the bar away and slides the numbers in, in the same slot.
+   */
+  .story-vitals {
+    display: grid;
+    gap: 0;
+    width: 204px;
+  }
+
+  .story-vital {
+    display: grid;
+    grid-template-columns: 2.4em minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    min-height: 22px; /* four rows ≈ the height of the meta line plus a one-line title */
+    margin-inline: -6px;
+    padding: 0 6px;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    line-height: 1.4;
+    text-align: left;
+    background: none;
+    border: 0;
+    border-radius: var(--radius-sm);
+    transition: background var(--dur-state) var(--ease-out);
+  }
+
+  /* Bar and numbers share one grid cell so they can cross over in place. */
+  .vital-slot {
+    display: grid;
+    align-items: center;
+  }
+
+  .vital-slot > * {
+    grid-area: 1 / 1;
+  }
+
+  .story-vital .resource-bar {
+    margin-top: 0;
+    transform-origin: left center;
+    transition: opacity var(--dur-state) var(--ease-out), transform var(--dur-enter) var(--ease-out);
+  }
+
+  .story-vital strong {
+    color: var(--ink);
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    opacity: 0;
+    transform: translateX(10px);
+    transition: opacity var(--dur-state) var(--ease-out), transform var(--dur-enter) var(--ease-out);
+  }
+
+  .story-vital[aria-pressed="true"] .resource-bar,
+  .story-vital:focus-visible .resource-bar {
+    opacity: 0;
+    transform: scaleX(.2);
+  }
+
+  .story-vital[aria-pressed="true"] strong,
+  .story-vital:focus-visible strong {
+    opacity: 1;
+    transform: none;
+  }
+
+  .story-vital[aria-pressed="true"] {
+    background: var(--selected);
+  }
+
+  /* Hover only where a real pointer exists, so a tap on a phone does not leave a stuck hover state. */
+  @media (hover: hover) {
+    .story-vital:hover {
+      background: var(--selected);
+    }
+
+    .story-vital:hover .resource-bar {
+      opacity: 0;
+      transform: scaleX(.2);
+    }
+
+    .story-vital:hover strong {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .story-heading::after {
+    content: "";
+    position: absolute;
+    bottom: -1px; /* centre on the 2px border, which sits outside the padding box */
+    left: 50%;
+    width: 9px;
+    height: 9px;
+    background: var(--surface);
+    border: 1.5px solid var(--line-strong);
+    box-shadow: 0 0 0 6px var(--surface);
+    transform: translate(-50%, 50%) rotate(45deg);
+  }
+
+  /* Reading column: serif, 20px, about 36 characters per line; paragraphs indent two characters. */
   .story-body {
     display: grid;
-    gap: 1em;
-    max-width: 36em;
-    margin-top: 23px;
-    color: var(--body);
+    gap: .75em;
+    margin-top: 32px;
+    color: var(--reading-ink);
     font-family: var(--font-reading);
-    font-size: var(--text-read);
+    font-size: var(--text-story);
     line-height: 1.85;
   }
 
   .story-body p {
+    text-indent: 2em;
     white-space: pre-wrap;
   }
 
@@ -444,7 +563,7 @@
     }
 
     .story-body {
-      font-size: var(--text-md);
+      font-size: var(--text-read);
       line-height: 1.85;
     }
 
@@ -488,6 +607,24 @@
 
     .prerequisite-actions {
       grid-template-columns: 1fr;
+    }
+  }
+
+  /* Narrow cards: the bars move under the title, two per row. */
+  @media (max-width: 640px) {
+    .story-heading {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .story-vitals {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px 20px;
+      width: auto;
+      padding-bottom: 0;
+    }
+
+    .story-vital {
+      min-height: 32px; /* comfortable tap target */
     }
   }
 }

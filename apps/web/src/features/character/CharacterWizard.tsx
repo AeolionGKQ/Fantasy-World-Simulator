@@ -42,7 +42,7 @@ export function CharacterWizard({ actions }: { actions: ShellActions }) {
           </div>
           <h1 id="step-title">{stepTitle(step)}</h1>
         </div>
-        <DraftStatus status={saveStatus} revision={draft.draft_revision} onRetry={() => void wizard.persistDraft()} onReload={() => void wizard.load()} />
+        <DraftStatus status={saveStatus} onRetry={() => void wizard.persistDraft()} onReload={() => void wizard.load()} />
       </header>
       <div className="wizard-layout">
         <WizardStepNav step={step} draft={draft} catalog={catalog} onSelect={(number) => void wizard.go(number)} />
@@ -104,11 +104,11 @@ function WizardStepBody({ step, catalog, wizard }: { step: number; catalog: Worl
     case 5: return <PresetTextStep label="外貌描述" presets={catalog.presets.appearance} raceId={draft.race_id} value={draft.appearance} update={(value) => updateDraft("appearance", value)} placeholder="描述体态、面容、发色、衣着或显著特征" />;
     case 6: return <PresetTextStep label="性格描述" presets={catalog.presets.personality} raceId={draft.race_id} value={draft.personality} update={(value) => updateDraft("personality", value)} placeholder="描述性情、习惯、价值观与待人方式" />;
     case 7: return <RankStep catalog={catalog} draft={draft} update={updateDraft} />;
-    case 8: return <PresetTextStep label="天赋描述" presets={catalog.presets.talent} raceId={draft.race_id} value={draft.talent} update={(value) => updateDraft("talent", value)} placeholder="描述与生俱来或后天形成的突出能力" note="这些预设是玩家描述词，不直接提供程序数值加成。最终属性由模型结合完整角色设定生成，并由程序校验。" />;
+    case 8: return <PresetTextStep label="天赋描述" presets={catalog.presets.talent} raceId={draft.race_id} value={draft.talent} update={(value) => updateDraft("talent", value)} placeholder="描述与生俱来或后天形成的突出能力" note="预设词只是描述，本身不会直接提高属性。角色的最终属性由 AI 根据完整设定生成，并按世界规则检查。" />;
     case 9: return <TextStep label="身世与经历" value={draft.background} onChange={(value) => updateDraft("background", value)} maxLength={4000} optional multiline placeholder="可以留空。写下角色的成长环境、重要经历或未解心结。" />;
     case 10: return <LocationStep catalog={catalog} draft={draft} update={updateDraft} />;
     case 11: return <FactionStep factions={catalog.factions} activeId={wizard.browsedFactionId} setActiveId={wizard.setBrowsedFactionId} />;
-    case 12: return <TextStep label="其他补充" value={draft.additional} onChange={(value) => updateDraft("additional", value)} maxLength={4000} optional multiline placeholder="可以留空。补充上述步骤没有覆盖、但希望模型理解的角色信息。" />;
+    case 12: return <TextStep label="其他补充" value={draft.additional} onChange={(value) => updateDraft("additional", value)} maxLength={4000} optional multiline placeholder="可以留空。补充前面没有提到、但希望 AI 了解的角色信息。" />;
     case 13: return <GenerationStep catalog={catalog} draft={draft} job={wizard.job} candidate={wizard.candidate} error={wizard.generationError} onGenerate={wizard.startGeneration} onCancel={wizard.cancelGeneration} />;
     default: return null;
   }

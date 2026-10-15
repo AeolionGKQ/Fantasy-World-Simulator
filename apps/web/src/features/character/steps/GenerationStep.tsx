@@ -25,7 +25,7 @@ export function GenerationStep({ catalog, draft, job, candidate, error, onGenera
   return (
     <div className="generation-step">
       <section className="input-summary">
-        <div className="section-heading"><h3>输入摘要</h3><button className="text-button" type="button" onClick={() => navigate(`/saves/${saveId}/create/1`)}>返回修改</button></div>
+        <div className="section-heading"><h3>已填写的内容</h3><button className="text-button" type="button" onClick={() => navigate(`/saves/${saveId}/create/1`)}>返回修改</button></div>
         <dl>
           <div><dt>身份</dt><dd>{draft.name || "未填写"} · {draft.gender || "未填写"} · {draft.age ? `${draft.age} 岁` : "未填写"}</dd></div>
           <div><dt>种族</dt><dd>{race?.name || "未选择"}</dd></div>
@@ -43,9 +43,9 @@ export function GenerationStep({ catalog, draft, job, candidate, error, onGenera
         <section className="generation-progress" aria-live="polite">
           <div className="pulse-rune" aria-hidden="true">◇</div>
           <div>
-            <span className="world-label">任务 {job.id.slice(0, 8)}</span>
+            <span className="world-label">角色生成</span>
             <h3>{jobLabel[job.status]}</h3>
-            <p>{job.progress_message || "模型正在依据当前草稿生成属性、资源与战力候选。你可以切换到其他存档，任务会在后端继续。"}</p>
+            <p>{job.progress_message || "AI 正在根据你填写的内容生成角色的属性、资源与战力。你可以先去看其他存档，生成会在后台继续。"}</p>
           </div>
           <button type="button" className="secondary-button" disabled={job.status === "cancel_requested"} onClick={() => void onCancel()}>{job.status === "cancel_requested" ? "正在取消…" : "取消生成"}</button>
         </section>
@@ -55,7 +55,7 @@ export function GenerationStep({ catalog, draft, job, candidate, error, onGenera
           <span className="state-symbol" aria-hidden="true">!</span>
           <div>
             <h3>{jobLabel[job.status]}</h3>
-            <p>{job.error?.message || (job.status === "stale" ? "草稿已更新，旧结果不会覆盖当前版本。" : "可以使用当前草稿重新发起生成。")}</p>
+            <p>{job.error?.message || (job.status === "stale" ? "你修改了角色设定，这次的结果不会覆盖新内容。" : "可以按当前设定重新生成。")}</p>
             <button className="primary-button" type="button" onClick={() => void onGenerate()}>重试生成</button>
           </div>
         </section>
@@ -68,7 +68,7 @@ export function GenerationStep({ catalog, draft, job, candidate, error, onGenera
       )}
       {!active && !candidate && !failed && (
         <div className="generation-ready">
-          <div><h3>准备生成角色候选</h3><p>生成是异步任务，结果会绑定当前存档与草稿修订。切换存档不会串入其他角色。</p></div>
+          <div><h3>准备生成角色</h3><p>AI 会根据以上内容生成角色候选，你可以先查看，再决定是否接受。生成期间切换到其他存档，也不会混入别的角色。</p></div>
           <button className="primary-button" type="button" onClick={() => void onGenerate()}>生成角色</button>
         </div>
       )}

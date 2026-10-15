@@ -21,6 +21,7 @@
     --outline: #344675;
     --ink: #1f2850;
     --body: #354467;
+    --reading-ink: #29355a; /* story body: a step darker than --body for long reading */
     --muted: #53617c;
 
     /* Brand */
@@ -77,7 +78,9 @@
     --text-sm: 14px;      /* secondary copy, hints, tabs */
     --text-base: 16px;    /* interface body */
     --text-md: 18px;      /* small headings (h3) */
-    --text-read: 18px;    /* story and world-lore reading text */
+    --text-read: 18px;    /* world-lore reading text */
+    --text-story: 20px;   /* story body text */
+    --story-measure: calc(var(--text-story) * 36); /* story card column: about 36 characters per line */
     --text-lg: 22px;      /* section headings (h2) */
     --text-xl: 28px;      /* page headings (h1) */
     --text-display: clamp(32px, 2.8vw, 44px); /* character name, chapter title, home title */

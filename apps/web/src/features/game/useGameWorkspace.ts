@@ -243,7 +243,7 @@ export function useGameWorkspace(saveId: string, onSaveChanged: () => Promise<vo
       await api.resolveStartPrerequisite(requestedId, data.story.state.state_version, resolution, locationId, requestId, nextController.signal);
       if (nextController.signal.aborted || token !== session.current) return;
       prerequisiteRequest.current = null;
-      setNotice({ id: Date.now(), tone: "info", text: resolution === "relocate" ? "角色起点已更换，可以开始冒险。" : "已确认使用所需防护与许可，角色将保留当前起点。" });
+      setNotice({ id: Date.now(), tone: "info", text: resolution === "relocate" ? "角色起点已更换，可以开始冒险。" : "已确认所需的防护与许可，角色将从当前起点出发。" });
       await refresh(true);
     } catch (reason) {
       if (!nextController.signal.aborted && token === session.current) showProblem(reason);
@@ -269,7 +269,7 @@ export function useGameWorkspace(saveId: string, onSaveChanged: () => Promise<vo
         story: { ...current.story, state: { ...current.story.state, narration: save.narration ?? { ...current.story.state.narration, player_address: playerAddress } } },
       } : current);
       await onSaveChanged();
-      setNotice({ id: Date.now(), tone: "info", text: "该存档的GM称呼已更新，下一次生成起生效。" });
+      setNotice({ id: Date.now(), tone: "info", text: "GM 对角色的称呼已更新，从下一段剧情开始生效。" });
     } catch (reason) {
       if (!nextController.signal.aborted && token === session.current) {
         showProblem(reason);

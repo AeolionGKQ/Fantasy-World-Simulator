@@ -12,7 +12,7 @@ export function AgeStep({ catalog, draft, update }: { catalog: WorldCatalog; dra
         <span className="state-symbol" aria-hidden="true">i</span>
         <div>
           <strong>{branch?.name || race?.name || "所选种族"}寿命提示</strong>
-          <p>{branch?.lifespan_text || race?.lifespan_text || "世界资料尚未提供寿命文案。"} 平均寿命不是年龄上限，系统不会据此自创成年年龄限制。</p>
+          <p>{branch?.lifespan_text || race?.lifespan_text || "暂无寿命资料。"} 平均寿命不是年龄上限，游戏也不会据此另设成年年龄。</p>
         </div>
       </div>
       <label className="field compact">

@@ -109,6 +109,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
             viewedTurn={game.viewedTurn}
             busy={stateBusy}
             catalog={data.catalog}
+            resources={data.projections.character.resources}
             onNavigate={game.showTurn}
             onOpen={(guidance) => void game.startStateJob((version, signal) => api.startOpening(saveId, version, guidance, crypto.randomUUID(), signal))}
             onResolvePrerequisite={(resolution, locationId) => void game.resolveStartPrerequisite(resolution, locationId)}

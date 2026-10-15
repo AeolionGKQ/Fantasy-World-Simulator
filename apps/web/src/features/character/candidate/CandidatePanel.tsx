@@ -11,7 +11,7 @@ function denominations(totalCopper: number) {
 }
 
 function TextList({ items }: { items?: string[] }) {
-  return items?.length ? <ul>{items.map((item) => <li key={item}>{item}</li>)}</ul> : <p>模型未列出。</p>;
+  return items?.length ? <ul>{items.map((item) => <li key={item}>{item}</li>)}</ul> : <p>暂无。</p>;
 }
 
 export function CandidatePanel({ candidate, footer }: { candidate: CharacterCandidate; footer?: ReactNode }) {
@@ -29,7 +29,7 @@ export function CandidatePanel({ candidate, footer }: { candidate: CharacterCand
           <p>{[candidate.identity?.race_name, candidate.identity?.race_branch_name, candidate.identity?.rank_name, candidate.identity?.location_name].filter(Boolean).join(" · ")}</p>
           <p>{[candidate.identity?.gender, candidate.identity?.age ? `${candidate.identity.age} 岁` : null].filter(Boolean).join(" · ")}</p>
         </div>
-        <span className={`candidate-validity ${candidate.valid === false ? "invalid" : "valid"}`}>{candidate.valid === false ? "存在规则冲突" : "规则校验通过"}</span>
+        <span className={`candidate-validity ${candidate.valid === false ? "invalid" : "valid"}`}>{candidate.valid === false ? "不符合世界规则" : "符合世界规则"}</span>
       </header>
       {candidate.summary && <section className="candidate-summary"><h3>能力概述</h3><p>{candidate.summary}</p></section>}
       <section>
@@ -74,7 +74,7 @@ export function CandidatePanel({ candidate, footer }: { candidate: CharacterCand
                 <li key={`${modifier.label}-${modifier.value}`}><strong>{modifier.label} {modifier.value >= 0 ? "+" : ""}{modifier.value}</strong>{modifier.reason && <span>{modifier.reason}</span>}</li>
               ))}
             </ul>
-          ) : <p>当前没有已裁决的战力修正。</p>}
+          ) : <p>目前没有额外的战力加成或削弱。</p>}
           {candidate.power.explanation && <p>{candidate.power.explanation}</p>}
         </div>
       </section>

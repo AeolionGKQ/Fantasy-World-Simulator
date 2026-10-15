@@ -7,7 +7,6 @@ import {
   modelCapabilityKey,
   thinkingCapabilityLabel,
   thinkingCapabilityMessage,
-  thinkingStrategyLabel,
 } from "./settingsLogic";
 import type { SettingsController } from "./useSettingsPage";
 
@@ -84,7 +83,7 @@ function ModelTestResultPanel({ result }: { result: ModelTestResult }) {
       <div className="capabilities">
         <span>目标模型：{result.model_available === false ? "不可用" : result.model_available === true ? "可用" : "尚未确认"}</span>
         {result.latency_ms !== undefined && <span>测试用时：{(result.latency_ms / 1000).toFixed(1)} 秒</span>}
-        <span>思考：{thinkingCapabilityLabel(result.thinking_capability)}{result.thinking_strategy ? `（${thinkingStrategyLabel(result.thinking_strategy)}）` : ""}</span>
+        <span>思考：{thinkingCapabilityLabel(result.thinking_capability)}</span>
         <span>规范回复格式：{capabilityLabel(result.structured_output_capability)}</span>
       </div>
       <p>{thinkingCapabilityMessage(result.thinking_capability, result.thinking_confidence, result.thinking_strategy)}</p>

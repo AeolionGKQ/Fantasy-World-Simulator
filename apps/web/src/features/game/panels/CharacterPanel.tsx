@@ -2,11 +2,9 @@ import type { CSSProperties } from "react";
 import { SegmentedField } from "../../../components/SegmentedField";
 import type { CharacterState, WorldCatalog } from "../../../types";
 import { playerAddressOptions, type PlayerAddress } from "../../settings/settingsLogic";
-import { resourceCondition, resourceExhaustion } from "../helpers";
+import { resourceCondition, resourceExhaustion, resourceFill, resourceLevel } from "../helpers";
 
 const resources = [["生命 HP", "hp"], ["魔力 MP", "mp"], ["精神 SP", "sp"], ["精力 ST", "st"]] as const;
-/** Fill colour of a resource bar; the condition is also written out next to it. */
-const conditionLevel = { 状态良好: "good", 轻度影响: "mild", 明显影响: "marked", 严重影响: "severe", 耗尽: "exhausted" } as const;
 
 const attributes = [["体质 CON", "con"], ["智力 INT", "int"], ["魅力 CHA", "cha"]] as const;
 
@@ -40,7 +38,7 @@ export function CharacterPanel({ character, catalog, playerAddress, addressBusy,
               <span>{label}</span>
               <strong>{resource.current} / {resource.max}</strong>
               <div className="resource-bar" role="meter" aria-valuemin={0} aria-valuemax={resource.max} aria-valuenow={resource.current} aria-label={`${label} ${resource.current}/${resource.max}，${condition}`}>
-                <span data-level={conditionLevel[condition]} style={{ "--fill": resource.max > 0 ? Math.min(1, Math.max(0, resource.current / resource.max)) : 0, "--i": index } as CSSProperties} />
+                <span data-level={resourceLevel[condition]} style={{ "--fill": resourceFill(resource.current, resource.max), "--i": index } as CSSProperties} />
               </div>
               <small className={`resource-condition ${condition === "耗尽" ? "exhausted" : ""}`}>{condition}</small>
               <small>{condition === "耗尽" ? resourceExhaustion[key] : resource.reason}</small>
@@ -62,7 +60,7 @@ export function CharacterPanel({ character, catalog, playerAddress, addressBusy,
         <aside>
           <section className="plain-section">
             <h3>存档叙事设置</h3>
-            <SegmentedField label="GM对玩家角色的称呼" name="存档GM称呼" full={false} value={playerAddress} options={playerAddressOptions} disabled={addressBusy} onChange={onPlayerAddress} />
+            <SegmentedField label="GM 对角色的称呼" name="存档GM称呼" full={false} value={playerAddress} options={playerAddressOptions} disabled={addressBusy} onChange={onPlayerAddress} />
             <p className="projection-footnote">选择 GM 在这个存档中使用全名、名字或“你”来称呼角色。故事中的人物会按各自的关系和场合称呼你。</p>
           </section>
           <section className="plain-section">

@@ -4,15 +4,19 @@ import { scrollIntoViewIfAbove } from "../../../app/scroll";
 import { runViewTransition } from "../../../app/viewTransition";
 import { usePresence } from "../../../components/usePresence";
 import { useSlidingIndicator } from "../../../components/useSlidingIndicator";
-import type { StartPrerequisiteResolution, StoryView, Turn, WorldCatalog } from "../../../types";
+import type { CharacterState, StartPrerequisiteResolution, StoryView, Turn, WorldCatalog } from "../../../types";
 import { isNarrativeJobActive, isStoryReadOnly, visibleAuthoritativeChanges } from "../helpers";
 import { JobPanel } from "./JobPanel";
 import { StartPrerequisitePanel } from "./StartPrerequisitePanel";
+import { StoryVitals } from "./StoryVitals";
 
 type CommandMode = "action" | "intervene" | "reshape";
 
 /** Position in the arrival stagger (motion.css); capped so long turns do not keep the reader waiting. */
 const stagger = (index: number) => ({ "--i": Math.min(index, 10) }) as CSSProperties;
+
+/** Story paragraphs without leading spaces (including full-width ones), since the CSS adds the two-character indent. */
+const storyParagraphs = (body: string) => body.split(/\n+/).map((paragraph) => paragraph.replace(/^[\s　]+/, "")).filter(Boolean);
 
 /**
  * Returns the key of a turn that just arrived (a new latest turn, or a reshaped version of it) while
@@ -34,9 +38,9 @@ function useArrivedTurn(latest: Turn | null) {
   return arrived;
 }
 
-export function StoryPanel({ story, turns, viewedTurn, busy, catalog, onNavigate, onOpen, onResolvePrerequisite, onTurn, onIntervene, onReshape, onCancel }: {
+export function StoryPanel({ story, turns, viewedTurn, busy, catalog, resources, onNavigate, onOpen, onResolvePrerequisite, onTurn, onIntervene, onReshape, onCancel }: {
   story: StoryView; turns: Turn[]; viewedTurn: Turn | null; busy: boolean;
-  catalog: WorldCatalog;
+  catalog: WorldCatalog; resources: CharacterState["resources"];
   onNavigate: (turn: Turn) => void; onOpen: (guidance: string) => void;
   onResolvePrerequisite: (resolution: StartPrerequisiteResolution, locationId: string | null) => void;
   onTurn: (action: string, optionId: string | null) => void; onIntervene: (guidance: string) => void;
@@ -84,10 +88,13 @@ export function StoryPanel({ story, turns, viewedTurn, busy, catalog, onNavigate
     <div className={`story-layout ${arriving ? "arriving" : ""}`}>
       <article className="story-reading">
         <header className="story-heading">
-          <div className="scene-meta"><span>{story.state.time.label}</span><span>{story.state.location.name}</span><span>第 {turn.sequence} 段</span>{readOnly && !isNarrativeJobActive(story.active_job) && <strong>正在回看</strong>}</div>
-          <h2 style={stagger(0)}>{turn.title}</h2>
+          <div className="story-title">
+            <div className="scene-meta"><span>{story.state.time.label}</span><span>{story.state.location.name}</span><span>第 {turn.sequence} 段</span>{readOnly && !isNarrativeJobActive(story.active_job) && <strong>正在回看</strong>}</div>
+            <h2 style={stagger(0)}>{turn.title}</h2>
+          </div>
+          <StoryVitals resources={resources} />
         </header>
-        <div className="story-body">{turn.body.split(/\n+/).filter(Boolean).map((paragraph, index) => <p key={`${turn.id}-${index}`} style={stagger(index + 1)}>{paragraph}</p>)}</div>
+        <div className="story-body">{storyParagraphs(turn.body).map((paragraph, index) => <p key={`${turn.id}-${index}`} style={stagger(index + 1)}>{paragraph}</p>)}</div>
         {turn.warnings && turn.warnings.length > 0 && <section className="gm-warnings" aria-label="叙事提示"><h3>GM 提示</h3>{turn.warnings.map((warning) => <p key={warning}>{warning}</p>)}</section>}
         {displayedChanges.length > 0 && (
           <details className="changes" open style={stagger(11)}>

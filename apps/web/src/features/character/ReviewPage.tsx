@@ -56,9 +56,9 @@ export function ReviewPage({ actions }: { actions: ShellActions }) {
   if (!save || !candidate) return <div className="page page-enter" key="missing"><ErrorPanel error={new ApiError(404, { code: "candidate_not_found", message: "当前存档没有可审阅的角色候选。" })} /></div>;
   return (
     <div className="page review-page page-enter" key="ready">
-      <header className="page-header"><div><span className="step-count">接受前检查</span><h1>确认角色候选</h1><p>模型建议不是正式状态。接受后，程序才会将此候选原子写入存档。</p></div></header>
+      <header className="page-header"><div><span className="step-count">接受前检查</span><h1>确认角色候选</h1><p>这是 AI 生成的角色候选，接受后才会正式成为你的角色。</p></div></header>
       {Boolean(error) && <ErrorPanel error={error} onRetry={() => void load()} />}
-      {regenBusy && <div className="inline-status"><StatusDot state="busy" />正在创建新的生成任务…</div>}
+      {regenBusy && <div className="inline-status"><StatusDot state="busy" />正在按你的意见重新生成…</div>}
       <CandidatePanel
         candidate={candidate}
         footer={(

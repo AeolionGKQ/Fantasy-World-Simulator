@@ -91,7 +91,7 @@ export default function App() {
     try {
       const { blob, filename } = await api.exportSave(currentSave.id);
       downloadBlob(blob, filename);
-      setNotice("存档已导出，不包含模型服务密钥。");
+      setNotice("存档已导出，文件中不含 AI 服务密钥。");
     } catch (error) {
       setNotice(playerProblemMessage(asApiError(error).problem));
     }

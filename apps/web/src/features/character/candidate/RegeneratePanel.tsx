@@ -12,7 +12,7 @@ export function RegeneratePanel({ onGenerate }: { onGenerate: (feedback?: string
   };
   return (
     <section className="regenerate-panel">
-      <div><h3>需要调整候选？</h3><p>提供明确修改意见会创建新的生成任务，当前候选在新结果完成前仍会保留。</p></div>
+      <div><h3>需要调整候选？</h3><p>写下具体的修改意见，AI 会据此重新生成；新结果出来之前，当前候选会一直保留。</p></div>
       {open ? (
         <div className="regenerate-form">
           <label className="field"><span>修改意见</span><textarea rows={4} maxLength={1200} value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="例如：提高魅力，但降低体质，并保留当前背景解释。" /></label>

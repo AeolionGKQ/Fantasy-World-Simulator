@@ -108,7 +108,7 @@ function ImportPreviewDetails({ preview }: { preview: ImportPreview }) {
         <div><dt>存档</dt><dd>{preview.save_name || "未命名"}</dd></div>
         <div><dt>阶段</dt><dd>{preview.phase ? phaseLabel[preview.phase] : "未知"}</dd></div>
         <div><dt>角色</dt><dd>{preview.character_name || "尚未确认"}</dd></div>
-        <div><dt>规则版本</dt><dd>{preview.ruleset_version || "未知"}</dd></div>
+        <div><dt>游戏规则版本</dt><dd>{preview.ruleset_version || "未知"}</dd></div>
       </dl>
       {preview.confirmation_required && <p className="warning-text">此存档附带了本机尚未确认的规则与世界设定，导入前需要你确认来源。</p>}
       {preview.warnings?.map((warning) => <p className="warning-text" key={warning}>注意：{warning === "导入时将分配新的本地存档ID" ? "导入会新增一份存档，不覆盖已有存档。" : warning}</p>)}

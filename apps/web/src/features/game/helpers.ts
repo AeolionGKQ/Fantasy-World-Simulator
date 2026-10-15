@@ -19,6 +19,14 @@ export function resourceCondition(current: number, maximum: number): "状态良�
   return "严重影响";
 }
 
+/** Fill colour of a resource bar; the condition is also written out next to it. */
+export const resourceLevel = { 状态良好: "good", 轻度影响: "mild", 明显影响: "marked", 严重影响: "severe", 耗尽: "exhausted" } as const;
+
+/** Share of a resource bar to fill, clamped to 0–1. */
+export function resourceFill(current: number, maximum: number) {
+  return maximum > 0 ? Math.min(1, Math.max(0, current / maximum)) : 0;
+}
+
 export function validateArcSelection(arcs: StoryArc[], selectedIds: string[]): { valid: boolean; message: string } {
   if (selectedIds.length < 2) return { valid: false, message: "请选择至少两个故事弧。" };
   const selected = arcs.filter((arc) => selectedIds.includes(arc.id) && arc.status === "current")

@@ -25,16 +25,16 @@ export function StartPrerequisitePanel({ prerequisite, catalog, busy, onResolve 
         <span className="state-symbol" aria-hidden="true">!</span>
         <div>
           <h2 id="start-prerequisite-title">开始前，请确认角色如何进入起点</h2>
-          <p>角色进入当前起点需要下列防护或通行许可。你可以确认使用旧存档所需的防护与许可，或更换起点后开始冒险。</p>
+          <p>进入当前起点需要下列防护或通行许可。你可以确认角色具备这些条件，或换一个起点开始冒险。</p>
           <ul>{prerequisite.requirements.map((requirement) => <li key={requirement}>{requirementNames[requirement] ?? requirement}</li>)}</ul>
-          <p className="command-note">这些防护与许可用于让旧存档继续冒险，不代表角色在故事中获得了人物赠送的物品或能力。</p>
+          <p className="command-note">这些防护与许可只用于让这份存档能开始冒险，不代表故事里有人送给角色相应的物品或能力。</p>
         </div>
       </div>
       <div className="prerequisite-actions">
         {acceptsLegacy && (
           <section>
             <h3>保留当前起点</h3>
-            <p>确认使用上述防护或许可，让角色从原地点继续冒险。</p>
+            <p>确认角色具备上述防护或许可，从当前起点开始冒险。</p>
             <button className="secondary-button" type="button" disabled={busy} onClick={() => onResolve("accept_legacy_protection", null)}>确认并保留起点</button>
           </section>
         )}

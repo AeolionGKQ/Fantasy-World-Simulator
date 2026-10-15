@@ -5,7 +5,7 @@ export function InventoryPanel({ inventory }: { inventory: InventoryProjection }
   return (
     <div className="projection-page">
       <header className="projection-header">
-        <div><h2>背包</h2><p>{inventory.items.length} 类物品</p></div>
+        <div><h2>背包</h2><p>共 {inventory.items.length} 种物品</p></div>
         <dl className="currency">
           <div><dt>金币</dt><dd>{inventory.currency.gold}</dd></div>
           <div><dt>银币</dt><dd>{inventory.currency.silver}</dd></div>
