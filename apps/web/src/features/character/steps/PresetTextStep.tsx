@@ -1,3 +1,4 @@
+import { useAutoFocus } from "../../../components/useAutoFocus";
 import { appendPreset, groupPresets, type PresetDefinition } from "../../../types";
 
 export function PresetTextStep({ label, presets, raceId, value, update, placeholder, note }: {
@@ -9,6 +10,7 @@ export function PresetTextStep({ label, presets, raceId, value, update, placehol
   placeholder: string;
   note?: string;
 }) {
+  const textRef = useAutoFocus<HTMLTextAreaElement>();
   const available = presets.filter((preset) => !preset.race_ids?.length || preset.race_ids.includes(raceId));
   const groups = groupPresets(available);
   return (
@@ -31,7 +33,7 @@ export function PresetTextStep({ label, presets, raceId, value, update, placehol
       </div>
       <label className="field">
         <span>{label}</span>
-        <textarea autoFocus rows={8} maxLength={2000} value={value} placeholder={placeholder} onChange={(e) => update(e.target.value)} />
+        <textarea ref={textRef} rows={8} maxLength={2000} value={value} placeholder={placeholder} onChange={(e) => update(e.target.value)} />
         <small className="char-count">{value.length} / 2000，可直接修改已追加的词</small>
       </label>
     </div>

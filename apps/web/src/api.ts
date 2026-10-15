@@ -126,6 +126,7 @@ export const api = {
   testImageModel: (settings: Pick<ImageModelSettings, "base_url" | "model" | "timeout_seconds"> & { api_key?: string }) =>
     request<ImageModelTestResult>("/api/settings/image-model/test", { method: "POST", body: settings }),
 
+  getServiceStatus: () => request<import("./types").ServiceStatuses>("/api/status/services"),
   listSaves: async () => unwrapList(await request<SaveSummary[] | { items: SaveSummary[] }>("/api/saves")),
   getSave: (saveId: string, signal?: AbortSignal) =>
     request<SaveSummary>(`/api/saves/${encodeURIComponent(saveId)}`, { signal }),

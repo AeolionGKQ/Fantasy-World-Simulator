@@ -1601,6 +1601,49 @@ class PhaseTwoApiTest(unittest.TestCase):
                                  "action": "前进", "option_id": None}, 409)
         self.assertEqual("STATE_VERSION_CONFLICT", conflict["error"]["code"])
 
+    def test_save_list_reports_latest_story_segment(self):
+        def summary(save_id):
+            items = self.request("GET", "/api/saves")["items"]
+            return next(item for item in items if item["id"] == save_id)
+
+        draft = self.request("POST", "/api/saves", {"name": "草稿", "request_id": "draft-only"}, 201)
+        self.assertIsNone(summary(draft["id"])["latest_turn"])
+        self.assertIsNone(summary(self.save_id)["latest_turn"])
+
+        self.provider.responses.append(gm_response("opening"))
+        job = self.request("POST", f"/api/saves/{self.save_id}/story/opening",
+                           {"request_id": "list-opening", "expected_state_version": 0, "guidance": ""}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        story = self.request("GET", f"/api/saves/{self.save_id}/story")
+        self.assertEqual({"title": "旅程开始", "location_name": story["state"]["location"]["name"],
+                          "time_label": story["state"]["time"]["label"], "sequence": 1},
+                         summary(self.save_id)["latest_turn"])
+        first_turn_id = story["latest_turn"]["id"]
+
+        second = gm_response("turn")
+        second["narrative"]["title"] = "第二段"
+        self.provider.responses.append(second)
+        job = self.request("POST", f"/api/saves/{self.save_id}/turns",
+                           {"request_id": "list-turn", "expected_state_version": 1,
+                            "action": "环顾四周", "option_id": None}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        latest = summary(self.save_id)["latest_turn"]
+        self.assertEqual(("第二段", 2), (latest["title"], latest["sequence"]))
+
+        # Reading an older turn does not change what the list reports.
+        self.request("GET", f"/api/saves/{self.save_id}/turns/{first_turn_id}")
+        self.assertEqual("第二段", summary(self.save_id)["latest_turn"]["title"])
+
+        reshaped = gm_response("reshape")
+        reshaped["narrative"]["title"] = "改写后的第二段"
+        self.provider.responses.append(reshaped)
+        second_id = self.request("GET", f"/api/saves/{self.save_id}/story")["latest_turn"]["id"]
+        job = self.request("POST", f"/api/saves/{self.save_id}/turns/{second_id}/reshape",
+                           {"request_id": "list-reshape", "expected_state_version": 2, "guidance": "改写"}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        latest = summary(self.save_id)["latest_turn"]
+        self.assertEqual(("改写后的第二段", 2), (latest["title"], latest["sequence"]))
+
     def test_interrupted_narrative_idempotent_retry_is_requeued(self):
         body = {"request_id": "resume-interrupted-turn", "expected_state_version": 0,
                 "guidance": ""}

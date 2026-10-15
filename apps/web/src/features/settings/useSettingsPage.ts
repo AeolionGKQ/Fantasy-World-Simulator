@@ -96,6 +96,7 @@ export function useSettingsPage(actions: ShellActions) {
       setModelState("idle");
     } finally {
       settingRequestInFlight.current = false;
+      void actions.refreshServiceStatus();
     }
   };
 
@@ -118,6 +119,7 @@ export function useSettingsPage(actions: ShellActions) {
     finally {
       settingRequestInFlight.current = false;
       if (requestToken === testRequestToken.current) setTestState("idle");
+      void actions.refreshServiceStatus();
     }
   };
 
@@ -148,6 +150,7 @@ export function useSettingsPage(actions: ShellActions) {
     } finally {
       settingRequestInFlight.current = false;
       if (requestToken === testRequestToken.current) setTestState("idle");
+      void actions.refreshServiceStatus();
     }
   };
 
@@ -193,6 +196,7 @@ export function useSettingsPage(actions: ShellActions) {
       setSettings(updated); setImageApiKey(""); setImageModelState("saved");
       window.setTimeout(() => setImageModelState("idle"), 1800);
     } catch (reason) { setActionError(playerProblemMessage(asApiError(reason).problem)); setImageModelState("idle"); }
+    void actions.refreshServiceStatus();
   };
 
   const testImageModel = async () => {
@@ -205,7 +209,7 @@ export function useSettingsPage(actions: ShellActions) {
         ...(imageApiKey ? { api_key: imageApiKey } : {}) });
       setImageModelTestResult(result);
     } catch (reason) { setActionError(playerProblemMessage(asApiError(reason).problem)); }
-    finally { setImageModelState("idle"); }
+    finally { setImageModelState("idle"); void actions.refreshServiceStatus(); }
   };
 
   return {

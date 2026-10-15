@@ -23,10 +23,10 @@ export function RenameSaveModal({ save, onClose, onRenamed }: { save: SaveSummar
   return (
     <Modal title="重命名存档" onClose={onClose} labelledBy="rename-save-title">
       <form onSubmit={(event) => void submit(event)}>
-        <label className="field"><span>存档名称</span><input autoFocus value={name} maxLength={80} onChange={(e) => setName(e.target.value)} /></label>
+        <label className="field"><span>存档名称</span><input data-autofocus value={name} maxLength={80} onChange={(e) => setName(e.target.value)} /></label>
         {error && <p className="field-error">{error}</p>}
         <div className="modal-actions">
-          <button className="secondary-button" type="button" onClick={onClose}>取消</button>
+          <button className="secondary-button" type="button" data-modal-close>取消</button>
           <button className="primary-button" disabled={busy}>{busy ? "正在保存…" : "保存名称"}</button>
         </div>
       </form>

@@ -1,7 +1,10 @@
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useParams } from "react-router-dom";
+import { prefersReducedMotion } from "../../app/viewTransition";
 import type { ShellActions } from "../../app/shellActions";
 import { ErrorPanel } from "../../components/ErrorPanel";
 import { LoadingPanel } from "../../components/LoadingPanel";
+import { useSlidingIndicator } from "../../components/useSlidingIndicator";
 import type { CharacterDraft, WorldCatalog } from "../../types";
 import { DraftConflict } from "./DraftConflict";
 import { DraftStatus } from "./DraftStatus";
@@ -15,7 +18,7 @@ import { RaceStep } from "./steps/RaceStep";
 import { RankStep } from "./steps/RankStep";
 import { TextStep } from "./steps/TextStep";
 import { useCharacterWizard } from "./useCharacterWizard";
-import { stepDescription, steps, stepSummary, stepTitle, TOTAL_STEPS } from "./wizardSteps";
+import { stepDescription, stepProgressLabel, steps, stepSummary, stepTitle, TOTAL_STEPS } from "./wizardSteps";
 
 export function CharacterWizard({ actions }: { actions: ShellActions }) {
   const { saveId = "", step: stepParam = "1" } = useParams();
@@ -23,23 +26,35 @@ export function CharacterWizard({ actions }: { actions: ShellActions }) {
   const wizard = useCharacterWizard(saveId, step, actions);
   const { catalog, save, draft, saveStatus } = wizard;
 
-  if (wizard.loading) return <div className="page"><LoadingPanel label="正在载入角色草稿" /></div>;
-  if (wizard.error || !catalog || !save) return <div className="page"><ErrorPanel error={wizard.error} onRetry={() => void wizard.load()} title="无法载入角色草稿" /></div>;
+  if (wizard.loading) return <div className="page page-loading" key="loading"><LoadingPanel label="正在载入角色草稿" /></div>;
+  if (wizard.error || !catalog || !save) return <div className="page page-enter" key="error"><ErrorPanel error={wizard.error} onRetry={() => void wizard.load()} title="无法载入角色草稿" /></div>;
 
   return (
-    <div className="page wizard-page">
+    <div className="page wizard-page page-enter" key="ready">
       <header className="wizard-header">
-        <div><span className="step-count">第 {step} 步，共 13 步</span><h1>{steps[step - 1]}</h1></div>
+        {/* One heading per step (D-04): progress above, the step's title as the page h1. */}
+        <div className="wizard-heading">
+          <div className="wizard-progress">
+            <span className="step-count" id="wizard-progress-label">{stepProgressLabel(step)}</span>
+            <div className="progress-track" role="progressbar" aria-valuemin={1} aria-valuemax={TOTAL_STEPS} aria-valuenow={step} aria-labelledby="wizard-progress-label">
+              <span style={{ "--progress": step / TOTAL_STEPS } as CSSProperties} />
+            </div>
+          </div>
+          <h1 id="step-title">{stepTitle(step)}</h1>
+        </div>
         <DraftStatus status={saveStatus} revision={draft.draft_revision} onRetry={() => void wizard.persistDraft()} onReload={() => void wizard.load()} />
       </header>
       <div className="wizard-layout">
         <WizardStepNav step={step} draft={draft} catalog={catalog} onSelect={(number) => void wizard.go(number)} />
         <section className="step-content" aria-labelledby="step-title">
-          <div className="step-title"><h2 id="step-title">{stepTitle(step)}</h2><p>{stepDescription(step)}</p></div>
-          {wizard.validationError && <p className="validation-banner" role="alert">{wizard.validationError}</p>}
-          {saveStatus === "conflict" && <DraftConflict serverDraft={wizard.serverDraft} catalog={catalog} onUseServer={wizard.adoptServerDraft} onReload={() => void wizard.load()} />}
-          {/* keyed so every step mounts fresh (autofocus, local state), as separate steps always have */}
-          <WizardStepBody key={step} step={step} catalog={catalog} wizard={wizard} />
+          {/* step-body slides when the step changes; the action row below stays in place */}
+          <div className="step-body">
+            <p className="step-description">{stepDescription(step)}</p>
+            {wizard.validationError && <p className="validation-banner" role="alert">{wizard.validationError}</p>}
+            {saveStatus === "conflict" && <DraftConflict serverDraft={wizard.serverDraft} catalog={catalog} onUseServer={wizard.adoptServerDraft} onReload={() => void wizard.load()} />}
+            {/* keyed so every step mounts fresh (autofocus, local state), as separate steps always have */}
+            <WizardStepBody key={step} step={step} catalog={catalog} wizard={wizard} />
+          </div>
           {step < TOTAL_STEPS && (
             <div className="wizard-actions">
               <button className="secondary-button" type="button" disabled={step === 1 || saveStatus === "saving"} onClick={() => void wizard.go(step - 1)}>上一步</button>
@@ -53,13 +68,24 @@ export function CharacterWizard({ actions }: { actions: ShellActions }) {
 }
 
 function WizardStepNav({ step, draft, catalog, onSelect }: { step: number; draft: CharacterDraft; catalog: WorldCatalog; onSelect: (step: number) => void }) {
+  const { containerRef, indicator } = useSlidingIndicator<HTMLElement>("button.active", [step]);
+  // The step just left by moving forward gets a one-off check-mark pop, kept until it finishes.
+  const previousStep = useRef(step);
+  const [justCompleted, setJustCompleted] = useState<number | null>(null);
+  useEffect(() => {
+    if (step > previousStep.current) setJustCompleted(previousStep.current);
+    previousStep.current = step;
+    // On the mobile strip, keep the current step visible.
+    containerRef.current?.querySelector("button.active")?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+  }, [containerRef, step]);
   return (
-    <nav className="step-nav" aria-label="角色创建步骤">
+    <nav className="step-nav" aria-label="角色创建步骤" ref={containerRef}>
+      <span className={`slide-indicator step-nav-indicator ${indicator.className}`} style={indicator.style} aria-hidden="true" />
       {steps.map((label, index) => {
         const number = index + 1;
         return (
-          <button type="button" key={label} className={`${number === step ? "active" : ""} ${number < step ? "complete" : ""}`} aria-current={number === step ? "step" : undefined} onClick={() => onSelect(number)}>
-            <span>{number < step ? "✓" : number}</span>
+          <button type="button" key={label} className={`${number === step ? "active" : ""} ${number < step ? "complete" : ""} ${number === justCompleted ? "just-completed" : ""}`} aria-current={number === step ? "step" : undefined} onClick={() => onSelect(number)}>
+            <span onAnimationEnd={() => setJustCompleted(null)}>{number < step ? "✓" : number}</span>
             <span>{label}<small>{stepSummary(number, draft, catalog)}</small></span>
           </button>
         );

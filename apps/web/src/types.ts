@@ -34,6 +34,31 @@ export interface SaveSummary {
   generation?: GenerationSummary | null;
   narration?: StoryNarrationSettings;
   updated_at?: string;
+  /** The current story segment; null until the opening is written (and for drafts). */
+  latest_turn?: LatestTurnSummary | null;
+}
+
+/** Stored connection outcome for the current model configuration (GET /api/status/services). */
+export type ServiceState = "not_configured" | "unverified" | "connected" | "failed";
+
+export interface ServiceStatus {
+  state: ServiceState;
+  model: string;
+  checked_at: string | null;
+  error_code: string | null;
+  message: string;
+}
+
+export interface ServiceStatuses {
+  story_model: ServiceStatus;
+  image_model: ServiceStatus;
+}
+
+export interface LatestTurnSummary {
+  title: string;
+  location_name: string;
+  time_label: string;
+  sequence: number;
 }
 
 export interface RankDefinition {
@@ -810,9 +835,9 @@ export function logicalRequestIdentity(
 }
 
 export const phaseLabel: Record<SavePhase, string> = {
-  draft: "创建中",
+  draft: "角色创建中",
   review: "待确认",
-  ready: "已就绪",
+  ready: "剧情推进中",
 };
 
 export const jobLabel: Record<JobStatus, string> = {

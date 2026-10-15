@@ -20,7 +20,7 @@
     min-height: 100dvh;
     background: var(--bg);
     color: var(--ink);
-    font-size: 16px;
+    font-size: var(--text-base);
     line-height: 1.65;
   }
 
@@ -37,7 +37,7 @@
   a {
     -webkit-tap-highlight-color: transparent;
     color: inherit;
-    transition-duration: 160ms;
+    transition-duration: var(--dur-state);
   }
 
   /* ---- Typography ---- */
@@ -51,23 +51,28 @@
   }
 
   h1 {
-    font-size: 1.75rem;
+    font-size: var(--text-xl);
     line-height: 1.25;
   }
 
   h2 {
-    font-size: 1.375rem;
+    font-size: var(--text-lg);
     line-height: 1.3;
   }
 
   h3 {
-    font-size: 1.125rem;
+    font-size: var(--text-md);
     line-height: 1.4;
   }
 
   p {
     margin: 0;
     text-wrap: pretty;
+  }
+
+  /* The browser default ("smaller") would shrink nested Chinese text below the 13px minimum. */
+  small {
+    font-size: var(--text-xs);
   }
 
   ul,
@@ -83,7 +88,7 @@
 
   ::selection {
     color: var(--ink);
-    background: #dce7ff;
+    background: var(--selection);
   }
 
   /* ---- Helpers ---- */
@@ -95,9 +100,9 @@
     padding: 8px 14px;
     color: var(--primary-ink);
     background: var(--primary);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     transform: translateY(-150%);
-    transition: transform 160ms var(--ease);
+    transition: transform var(--dur-state) var(--ease-out);
   }
 
   .skip-link:focus {
@@ -116,17 +121,78 @@
   }
 
   /* ---- Keyframes ---- */
-  @keyframes page-in {
-    from { transform: translateY(4px); }
-    to { transform: translateY(0); }
+  /* Entrances only define their starting frame, so content is never left hidden by a static style. */
+  @keyframes fade-in {
+    from { opacity: 0; }
+  }
+
+  @keyframes content-in {
+    from { opacity: 0; transform: translateY(var(--rise)); }
+  }
+
+  @keyframes vt-rise-in {
+    from { opacity: 0; transform: translateY(var(--rise)); }
+  }
+
+  @keyframes vt-fade-out {
+    to { opacity: 0; transform: translateY(-4px); }
+  }
+
+  @keyframes modal-in {
+    from { opacity: 0; transform: scale(.96); }
+  }
+
+  @keyframes modal-out {
+    to { opacity: 0; transform: scale(.96); }
+  }
+
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(12px); }
+  }
+
+  @keyframes toast-out {
+    to { opacity: 0; transform: translateY(4px); }
+  }
+
+  @keyframes notice-in {
+    from { opacity: 0; transform: translateY(6px); }
+  }
+
+  @keyframes bar-grow {
+    from { transform: scaleX(0); }
+  }
+
+  @keyframes image-reveal {
+    from { opacity: 0; transform: scale(1.02); }
+  }
+
+  @keyframes check-pop {
+    from { opacity: .4; transform: scale(.6); }
+  }
+
+  @keyframes fade-out {
+    to { opacity: 0; }
+  }
+
+  /* Directional: --vt-shift is positive going forward, negative going back (motion.css). */
+  @keyframes vt-shift-out {
+    to { opacity: 0; transform: translateX(calc(var(--vt-shift) * -1)); }
+  }
+
+  @keyframes vt-shift-in {
+    from { opacity: 0; transform: translateX(var(--vt-shift)); }
   }
 
   @keyframes status-pulse {
     50% { opacity: .42; transform: scale(.78); }
   }
 
+  @keyframes soft-pulse {
+    50% { opacity: .45; }
+  }
+
   @keyframes rune-pulse {
-    50% { border-color: var(--primary); box-shadow: 0 0 0 5px #3548bd12; }
+    50% { border-color: var(--primary); box-shadow: 0 0 0 5px var(--focus-ring); }
   }
 
   @keyframes skeleton {
@@ -140,12 +206,17 @@
     *::after {
       scroll-behavior: auto !important;
       animation-duration: .01ms !important;
+      animation-delay: 0s !important;
       animation-iteration-count: 1 !important;
       transition-duration: .01ms !important;
+      transition-delay: 0s !important;
     }
 
-    .page {
-      transform: none;
+    /* View transitions are skipped in script; this covers any started elsewhere (React Router). */
+    ::view-transition-group(*),
+    ::view-transition-old(*),
+    ::view-transition-new(*) {
+      animation: none !important;
     }
   }
 }

@@ -19,6 +19,7 @@
 @import "./components/feedback.css";
 @import "./components/modal.css";
 @import "./components/artwork.css";
+@import "./components/motion.css";
 @import "./layout/shell.css";
 @import "./layout/page.css";
 @import "./features/home.css";

@@ -1,4 +1,5 @@
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import { useAppNavigate } from "../../../app/viewTransition";
 import { ErrorPanel } from "../../../components/ErrorPanel";
 import { isActiveJobStatus, jobLabel, type CharacterCandidate, type CharacterDraft, type GenerationJob, type WorldCatalog } from "../../../types";
 import { CandidatePanel } from "../candidate/CandidatePanel";
@@ -15,7 +16,7 @@ export function GenerationStep({ catalog, draft, job, candidate, error, onGenera
   onGenerate: (feedback?: string) => Promise<void>;
   onCancel: () => Promise<void>;
 }) {
-  const navigate = useNavigate();
+  const navigate = useAppNavigate();
   const { saveId = "" } = useParams();
   const active = job && isActiveJobStatus(job.status);
   const failed = job && failedStatuses.includes(job.status);

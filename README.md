@@ -12,6 +12,8 @@ Windows 11 下双击根目录的 `启动游戏.bat`。脚本会使用项目自�
 
 设置页的“测试连接”会在基础连接成功后，以最小聊天请求探测模型服务能否控制思考，因此可能产生少量费用。探测覆盖七种兼容参数：`enable_thinking`、`thinking.type`、`reasoning_effort`、`chat_template_kwargs.enable_thinking`、`reasoning.enabled`、`reasoning.effort` 和 `thinking_config.thinking_budget`。能力按 Base URL、模型和探测配置版本缓存；未测试或不支持关闭时，开关保持开启并禁用，表示模型使用服务默认行为或不受应用控制。只有探测到可控策略后才能保存开启/关闭偏好。
 
+存档侧栏底部显示剧情 AI 与图片 AI 的连接状态：未配置、已配置但未测试、已连接（附模型名）或连接失败（附简短原因），点击可进入设置页。这一状态只读取最近一次“测试连接”或真实生成的结果，不会另外请求模型服务，因此不产生费用。修改服务地址、模型或密钥后，状态回到“已配置，未测试”。
+
 ## 开发与测试
 
 ```powershell

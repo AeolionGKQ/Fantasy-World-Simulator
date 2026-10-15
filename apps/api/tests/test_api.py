@@ -60,10 +60,13 @@ class FakeProvider:
         self.response_format_probe_calls = 0
         self.response_format_capability = "supported"
         self.capability_update = None
+        self.test_error = None
 
     def test_connection(self, config, api_key, cached_capability=None,
                         force_thinking_probe=False):
         self.test_calls += 1
+        if self.test_error:
+            raise self.test_error
         self.test_config = dict(config)
         self.test_api_key = api_key
         thinking = (cached_capability if not force_thinking_probe else {
@@ -1648,6 +1651,76 @@ class ApiTestCase(unittest.TestCase):
         db._initialize()
         self.assertEqual("second_person", self.request("GET", "/api/settings")["narration"]["player_address"])
         self.assertEqual("second_person", self.request("GET", f"/api/saves/{save['id']}")["narration"]["player_address"])
+
+    def test_service_status_follows_current_configuration_without_calling_provider(self):
+        def status(service="story_model"):
+            return self.request("GET", "/api/status/services")[service]
+
+        self.assertEqual("not_configured", status()["state"])
+        self.assertEqual("not_configured", status("image_model")["state"])
+        self.configure_model()
+        self.assertEqual(("unverified", "test-model"), (status()["state"], status()["model"]))
+
+        self.request("POST", "/api/settings/model/test", {})
+        connected = status()
+        self.assertEqual("connected", connected["state"])
+        self.assertIsNotNone(connected["checked_at"])
+        calls = self.provider.test_calls
+        status(); status()
+        self.assertEqual(calls, self.provider.test_calls)
+
+        # A different model is a different configuration: nothing is known about it yet.
+        self.set_model(model="other-model")
+        self.assertEqual("unverified", status()["state"])
+
+        self.provider.test_error = ProviderError("MODEL_AUTH_FAILED", "密钥无效")
+        self.request("POST", "/api/settings/model/test", {}, 401)
+        failed = status()
+        self.assertEqual(("failed", "MODEL_AUTH_FAILED"), (failed["state"], failed["error_code"]))
+
+        # Rate limiting means the service answered; it does not change the stored outcome.
+        self.provider.test_error = ProviderError("MODEL_RATE_LIMITED", "请求过多")
+        self.request("POST", "/api/settings/model/test", {}, 429)
+        self.assertEqual("failed", status()["state"])
+
+        # A real call that succeeds marks the service connected again.
+        self.provider.test_error = None
+        save = self.create_save()
+        updated = self.save_draft(save)
+        current = self.request("GET", f"/api/saves/{save['id']}")
+        job = self.start_generation(save["id"], updated["draft_revision"], current["revision"])
+        self.assertEqual("succeeded", self.wait_job(save["id"], job["id"])["status"])
+        self.assertEqual("connected", status()["state"])
+
+        # Testing unsaved settings records them under their own fingerprint, not the saved one.
+        self.provider.test_error = ProviderError("MODEL_NETWORK_ERROR", "网络不可达")
+        self.request("POST", "/api/settings/model/test", {"model": "draft-model"}, 502)
+        self.assertEqual("unverified", status()["state"])
+
+        with self.server.app_context.database.connect() as connection:
+            stored = connection.execute("SELECT * FROM service_status").fetchall()
+        self.assertNotIn("test-secret-key", repr(stored))
+
+    def test_image_service_status_uses_image_settings(self):
+        def status():
+            return self.request("GET", "/api/status/services")["image_model"]
+
+        revision = self.request("GET", "/api/settings")["revision"]
+        self.request("PUT", "/api/settings/image-model", {
+            "request_id": "image-settings", "expected_revision": revision,
+            "base_url": "https://api.openai.com/v1", "model": "gpt-image-2.5-sunburst",
+            "timeout_seconds": 60, "api_key": "image-secret-key"})
+        self.assertEqual("unverified", status()["state"])
+        image_provider = mock.Mock()
+        image_provider.test_connection.return_value = {"ok": True, "model_available": True,
+                                                       "model": "gpt-image-2.5-sunburst",
+                                                       "message": "ok", "latency_ms": 1}
+        with mock.patch.object(self.server.app_context, "image_provider", image_provider):
+            self.request("POST", "/api/settings/image-model/test", {})
+            self.assertEqual("connected", status()["state"])
+            image_provider.test_connection.side_effect = ProviderError("MODEL_AUTH_FAILED", "密钥无效")
+            self.request("POST", "/api/settings/image-model/test", {}, 401)
+            self.assertEqual("failed", status()["state"])
 
     def test_model_not_configured_is_explicit(self):
         save = self.create_save()

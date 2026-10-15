@@ -30,10 +30,9 @@
     padding: 26px;
     background: var(--surface);
     border: 2px solid var(--outline);
-    border-radius: 20px;
+    border-radius: var(--radius-xl);
   }
 
-  /* Note: "pulse" has no @keyframes yet, so this marker does not animate. */
   .image-progress > span {
     display: grid;
     place-items: center;
@@ -41,7 +40,7 @@
     height: 44px;
     color: var(--primary);
     border: 1px solid currentColor;
-    animation: pulse 1.8s infinite;
+    animation: soft-pulse 1.8s ease-in-out infinite;
   }
 
   .image-progress p,
@@ -74,7 +73,7 @@
     padding: 24px;
     background: var(--warning-soft);
     border: 2px solid var(--outline);
-    border-radius: 20px;
+    border-radius: var(--radius-xl);
   }
 
   .image-options .choice-field > div {
@@ -84,7 +83,7 @@
 
   .image-options .choice-field span {
     min-width: 0;
-    font-size: .8rem;
+    font-size: var(--text-xs);
   }
 
   .image-options .choice-field label span {
@@ -94,7 +93,7 @@
   .image-options .choice-field small {
     display: block;
     color: var(--muted);
-    font-size: .68rem;
+    font-size: var(--text-xs);
   }
 
   .image-options > button {
@@ -106,7 +105,7 @@
     align-items: flex-start;
     gap: 8px;
     color: var(--warning);
-    font-size: .78rem;
+    font-size: var(--text-xs);
   }
 
   .cost-confirm input {
@@ -125,7 +124,7 @@
     overflow: hidden;
     background: var(--surface);
     border: 2px solid var(--outline);
-    border-radius: 18px;
+    border-radius: var(--radius-lg);
     cursor: zoom-in;
   }
 
@@ -147,7 +146,7 @@
   .image-result > div > span {
     margin-right: auto;
     color: var(--muted);
-    font-size: .82rem;
+    font-size: var(--text-xs);
   }
 
   .image-dialog {
@@ -156,11 +155,19 @@
     padding: 0;
     background: var(--bg);
     border: 1px solid var(--line-strong);
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
   }
 
   .image-dialog::backdrop {
-    background: #1f2850b3;
+    background: var(--backdrop-strong);
+  }
+
+  .image-dialog[open] {
+    animation: modal-in var(--dur-enter) var(--ease-out) both;
+  }
+
+  .image-dialog[open]::backdrop {
+    animation: fade-in var(--dur-enter) var(--ease-out) both;
   }
 
   .image-dialog > button {
@@ -174,7 +181,7 @@
     color: var(--ink);
     background: var(--surface-raised);
     border: 1px solid var(--line);
-    border-radius: 11px;
+    border-radius: var(--radius-md);
     cursor: pointer;
   }
 

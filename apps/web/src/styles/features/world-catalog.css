@@ -17,14 +17,16 @@
   .race-description,
   .world-description {
     color: var(--body);
-    font-size: 1rem;
-    line-height: 1.95;
+    font-family: var(--font-reading);
+    font-size: var(--text-read);
+    line-height: 1.85;
   }
 
   .race-lore-sections p,
   .world-section p {
-    color: var(--muted);
-    font-size: .9rem;
+    color: var(--body);
+    font-family: var(--font-reading);
+    font-size: var(--text-base);
     line-height: 1.85;
   }
 
@@ -34,7 +36,8 @@
   }
 
   .race-heading h3 {
-    font-size: 1.6rem;
+    font-family: var(--font-reading);
+    font-size: var(--text-xl);
   }
 
   .race-heading p,
@@ -68,13 +71,13 @@
 
   .race-facts dt {
     color: var(--muted);
-    font-size: .75rem;
+    font-size: var(--text-xs);
   }
 
   .race-facts dd {
     margin: 2px 0 0;
     color: var(--ink);
-    font-size: .875rem;
+    font-size: var(--text-sm);
     font-weight: 650;
     line-height: 1.5;
   }
@@ -93,7 +96,7 @@
 
   .race-lore-sections h4 {
     margin: 0 0 7px;
-    font-size: 1rem;
+    font-size: var(--text-base);
     line-height: 1.4;
     text-wrap: balance;
   }
@@ -122,14 +125,14 @@
 
   .race-branch-selector legend {
     padding: 0;
-    font-size: 1rem;
+    font-size: var(--text-base);
     font-weight: 650;
   }
 
   .race-branch-selector > p {
     margin: 5px 0 13px;
     color: var(--muted);
-    font-size: .875rem;
+    font-size: var(--text-sm);
   }
 
   .race-branch-selector > div {
@@ -156,9 +159,9 @@
     padding: 10px 13px;
     background: var(--surface);
     border: 1px solid var(--line-strong);
-    border-radius: 11px;
+    border-radius: var(--radius-md);
     cursor: pointer;
-    transition: background 180ms var(--ease), border-color 180ms var(--ease);
+    transition: background var(--dur-state) var(--ease-out), border-color var(--dur-state) var(--ease-out);
   }
 
   .race-branch-selector label:hover > span {
@@ -197,7 +200,7 @@
 
   .race-branch-detail h4 {
     margin: 0 0 7px;
-    font-size: 1.35rem;
+    font-size: var(--text-lg);
     line-height: 1.4;
     text-wrap: balance;
   }
@@ -215,7 +218,7 @@
 
   .rank-system h3 {
     margin-bottom: 8px;
-    font-size: 1.35rem;
+    font-size: var(--text-lg);
   }
 
   .rank-system p {
@@ -230,7 +233,7 @@
     margin: 0;
     padding-left: 20px;
     color: var(--muted);
-    font-size: .875rem;
+    font-size: var(--text-sm);
   }
 
   .rank-system li::marker {
@@ -274,11 +277,11 @@
     width: 31px;
     height: 31px;
     color: var(--accent);
-    font-size: .78rem;
+    font-size: var(--text-xs);
     font-weight: 700;
-    background: #fff8e4;
+    background: var(--surface-tint);
     border: 1px solid var(--line-strong);
-    border-radius: 50%;
+    border-radius: var(--radius-full);
   }
 
   .rank-list label > span:nth-of-type(2) strong {
@@ -292,7 +295,7 @@
 
   .rank-list .power-value {
     color: var(--muted);
-    font-size: .75rem;
+    font-size: var(--text-xs);
   }
 
   .rank-list input:checked ~ .rank-number {
@@ -321,14 +324,14 @@
     top: calc(var(--toolbar-height) + 20px);
     align-self: start;
     padding: 17px;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 14px;
+    background: var(--surface-sunken);
+    border-radius: var(--radius-lg);
   }
 
+  /* Warnings keep a border: status is shown by more than colour. */
   .rank-note.warning {
     background: var(--warning-soft);
-    border-color: var(--warning-line);
+    border: 1px solid var(--warning-line);
   }
 
   .rank-note strong {
@@ -338,7 +341,7 @@
   .rank-note p {
     margin-top: 8px;
     color: var(--muted);
-    font-size: .875rem;
+    font-size: var(--text-sm);
   }
 
   /* ---- Location and faction profiles ---- */
@@ -347,7 +350,8 @@
   }
 
   .world-heading h3 {
-    font-size: 1.6rem;
+    font-family: var(--font-reading);
+    font-size: var(--text-xl);
   }
 
   .world-heading p {
@@ -379,13 +383,13 @@
 
   .world-facts dt {
     color: var(--muted);
-    font-size: .75rem;
+    font-size: var(--text-xs);
   }
 
   .world-facts dd {
     margin: 2px 0 0;
     color: var(--ink);
-    font-size: .875rem;
+    font-size: var(--text-sm);
     font-weight: 650;
     line-height: 1.5;
   }
@@ -402,12 +406,12 @@
   .world-section.notice {
     padding: 16px;
     background: var(--warning-soft);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
   }
 
   .world-section h4 {
     margin: 0 0 7px;
-    font-size: 1rem;
+    font-size: var(--text-base);
     line-height: 1.4;
     text-wrap: balance;
   }
@@ -426,7 +430,7 @@
     margin: 8px 0 0;
     padding-left: 20px;
     color: var(--muted);
-    font-size: .9rem;
+    font-size: var(--text-sm);
   }
 
   .world-section li::marker {
@@ -441,7 +445,7 @@
 
     .race-heading h3,
     .world-heading h3 {
-      font-size: 1.45rem;
+      font-size: var(--text-lg);
     }
 
     .race-facts {
@@ -480,7 +484,7 @@
     }
 
     .rank-system h3 {
-      font-size: 1.17rem;
+      font-size: var(--text-md);
     }
 
     .rank-step {

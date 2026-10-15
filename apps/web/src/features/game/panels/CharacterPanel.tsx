@@ -1,9 +1,13 @@
+import type { CSSProperties } from "react";
 import { SegmentedField } from "../../../components/SegmentedField";
 import type { CharacterState, WorldCatalog } from "../../../types";
 import { playerAddressOptions, type PlayerAddress } from "../../settings/settingsLogic";
 import { resourceCondition, resourceExhaustion } from "../helpers";
 
 const resources = [["生命 HP", "hp"], ["魔力 MP", "mp"], ["精神 SP", "sp"], ["精力 ST", "st"]] as const;
+/** Fill colour of a resource bar; the condition is also written out next to it. */
+const conditionLevel = { 状态良好: "good", 轻度影响: "mild", 明显影响: "marked", 严重影响: "severe", 耗尽: "exhausted" } as const;
+
 const attributes = [["体质 CON", "con"], ["智力 INT", "int"], ["魅力 CHA", "cha"]] as const;
 
 export function CharacterPanel({ character, catalog, playerAddress, addressBusy, onPlayerAddress }: {
@@ -21,20 +25,23 @@ export function CharacterPanel({ character, catalog, playerAddress, addressBusy,
       <header className="projection-header">
         <div>
           <span className="ready-mark">{character.alive ? "存活" : "已死亡"}</span>
-          <h2>{identity.name || "未命名角色"}</h2>
-          <p>{[identity.gender, identity.age ? `${identity.age} 岁` : null, race?.name ?? identity.race_id, raceBranch?.name ?? identity.race_branch_id, character.profession, character.growth_path].filter(Boolean).join(" · ") || "尚无职业与成长路径"}</p>
+          {/* The name is already the page title; this tab leads with identity and rank (V-11). */}
+          <h2 className="identity-line">{[identity.gender, identity.age ? `${identity.age} 岁` : null, race?.name ?? identity.race_id, raceBranch?.name ?? identity.race_branch_id].filter(Boolean).join(" · ") || identity.name || "未命名角色"}</h2>
+          <p>{[character.profession, character.growth_path].filter(Boolean).join(" · ") || "尚无职业与成长路径"}</p>
         </div>
         <strong className="rank-mark">{character.rank} 阶</strong>
       </header>
       <section className="status-strip">
-        {resources.map(([label, key]) => {
+        {resources.map(([label, key], index) => {
           const resource = character.resources[key];
           const condition = resourceCondition(resource.current, resource.max);
           return (
             <div key={key}>
               <span>{label}</span>
               <strong>{resource.current} / {resource.max}</strong>
-              <meter min={0} max={resource.max} value={resource.current} aria-label={`${label} ${resource.current}/${resource.max}，${condition}`} />
+              <div className="resource-bar" role="meter" aria-valuemin={0} aria-valuemax={resource.max} aria-valuenow={resource.current} aria-label={`${label} ${resource.current}/${resource.max}，${condition}`}>
+                <span data-level={conditionLevel[condition]} style={{ "--fill": resource.max > 0 ? Math.min(1, Math.max(0, resource.current / resource.max)) : 0, "--i": index } as CSSProperties} />
+              </div>
               <small className={`resource-condition ${condition === "耗尽" ? "exhausted" : ""}`}>{condition}</small>
               <small>{condition === "耗尽" ? resourceExhaustion[key] : resource.reason}</small>
             </div>

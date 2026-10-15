@@ -5,7 +5,7 @@
     padding: 28px 30px;
     background: var(--surface);
     border: 2px solid var(--outline);
-    border-radius: 22px;
+    border-radius: var(--radius-xl);
     box-shadow: 4px 4px 0 var(--card-shadow-color);
   }
 
@@ -20,7 +20,7 @@
   }
 
   .projection-header h2 {
-    font-size: 1.7rem;
+    font-size: var(--text-xl);
     font-weight: 750;
   }
 
@@ -29,10 +29,15 @@
     color: var(--muted);
   }
 
+  .projection-header h2.identity-line {
+    margin-top: 6px;
+    font-size: var(--text-lg);
+  }
+
   .projection-footnote {
     margin-top: 16px;
     color: var(--muted);
-    font-size: .8rem;
+    font-size: var(--text-xs);
   }
 
   .plain-section {
@@ -58,13 +63,13 @@
     text-align: center;
     background: var(--surface);
     border: 2px solid var(--outline);
-    border-radius: 22px;
+    border-radius: var(--radius-xl);
     box-shadow: 4px 4px 0 var(--card-shadow-color);
   }
 
   .game-empty > span {
     color: var(--primary);
-    font-size: 1.5rem;
+    font-size: var(--text-xl);
   }
 
   .game-empty h3 {
@@ -101,7 +106,7 @@
   /* ---- Character ---- */
   .rank-mark {
     color: var(--accent);
-    font-size: 1.55rem;
+    font-size: var(--text-xl);
   }
 
   .status-strip {
@@ -109,9 +114,8 @@
     grid-template-columns: repeat(4, 1fr);
     margin: 25px 0 5px;
     overflow: hidden;
-    background: #f7f4ec;
-    border: 1px solid #ddd7c9;
-    border-radius: 13px;
+    background: var(--surface-sunken);
+    border-radius: var(--radius-md);
   }
 
   .status-strip > div {
@@ -121,26 +125,53 @@
   .status-strip span {
     display: block;
     color: var(--muted);
-    font-size: .74rem;
+    font-size: var(--text-xs);
   }
 
   .status-strip strong {
     display: block;
     margin-top: 5px;
-    font-size: 1.1rem;
+    font-size: var(--text-md);
   }
 
-  .status-strip meter {
-    width: 100%;
+  /* Resource bar: grows in on first show, then slides to new values (M-13). */
+  .resource-bar {
     height: 6px;
-    accent-color: var(--primary);
+    margin-top: 8px;
+    overflow: hidden;
+    background: var(--line);
+    border-radius: 3px;
+  }
+
+  .resource-bar > span {
+    display: block;
+    height: 100%;
+    background: var(--success);
+    border-radius: inherit;
+    transform: scaleX(var(--fill));
+    transform-origin: left center;
+    transition: transform 600ms var(--ease-out);
+    animation: bar-grow 600ms var(--ease-out) calc(var(--i, 0) * var(--stagger)) backwards;
+  }
+
+  .resource-bar > span[data-level="mild"] {
+    background: var(--primary);
+  }
+
+  .resource-bar > span[data-level="marked"] {
+    background: var(--warning);
+  }
+
+  .resource-bar > span[data-level="severe"],
+  .resource-bar > span[data-level="exhausted"] {
+    background: var(--danger);
   }
 
   .status-strip small {
     display: block;
     margin-top: 3px;
     color: var(--muted);
-    font-size: .7rem;
+    font-size: var(--text-xs);
     line-height: 1.4;
   }
 
@@ -167,20 +198,19 @@
 
   .attribute-list > div {
     padding: 12px;
-    background: #f7f4ec;
-    border: 1px solid #ddd7c9;
-    border-radius: 11px;
+    background: var(--surface-sunken);
+    border-radius: var(--radius-md);
   }
 
   .attribute-list dt {
     color: var(--muted);
-    font-size: .75rem;
+    font-size: var(--text-xs);
   }
 
   .attribute-list dd {
     margin: 0;
     color: var(--primary);
-    font-size: 1.3rem;
+    font-size: var(--text-lg);
     font-weight: 700;
   }
 
@@ -227,7 +257,7 @@
 
   .currency dt {
     color: var(--muted);
-    font-size: .7rem;
+    font-size: var(--text-xs);
   }
 
   .currency dd {
@@ -253,9 +283,9 @@
     margin-left: 10px;
     padding: 2px 7px;
     color: var(--primary);
-    font-size: .7rem;
+    font-size: var(--text-xs);
     border: 1px solid var(--primary-strong);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
   }
 
   .item-data {
@@ -312,7 +342,7 @@
 
   .arc-merge-action small {
     color: var(--muted);
-    font-size: .78rem;
+    font-size: var(--text-xs);
   }
 
   .memory-policy {
@@ -321,7 +351,7 @@
     gap: 8px 22px;
     padding: 15px 0;
     color: var(--muted);
-    font-size: .82rem;
+    font-size: var(--text-xs);
     border-bottom: 1px solid var(--line);
   }
 
@@ -342,10 +372,32 @@
     width: 28px;
     height: 28px;
     color: var(--primary);
-    font-size: .75rem;
+    font-size: var(--text-xs);
     font-weight: 700;
-    border: 1px solid var(--primary-strong);
-    border-radius: 50%;
+    background: var(--surface-sunken);
+    border-radius: var(--radius-full);
+  }
+
+  /* Summary in regular weight and full ink; importance as a small tag beside it (V-10). */
+  .memory-summary {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .memory-list .memory-summary p {
+    color: var(--ink);
+  }
+
+  .memory-list .memory-importance {
+    flex: none;
+    padding: 2px 8px;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    white-space: nowrap;
+    background: var(--surface-sunken);
+    border-radius: var(--radius-sm);
   }
 
   .memory-list .recall-reason {
@@ -371,6 +423,7 @@
     background: transparent;
     border: 0;
     cursor: pointer;
+    transition: background var(--dur-state) var(--ease-out);
   }
 
   .chronicle-list button:hover {
@@ -380,7 +433,7 @@
   .chronicle-list span {
     display: block;
     color: var(--muted);
-    font-size: .75rem;
+    font-size: var(--text-xs);
   }
 
   .chronicle-list strong {
@@ -407,7 +460,7 @@
   .reputation-list span {
     display: block;
     color: var(--muted);
-    font-size: .78rem;
+    font-size: var(--text-xs);
   }
 
   .relationship-list meter,
@@ -425,12 +478,12 @@
     margin-bottom: 12px;
     background: var(--surface);
     border: 1px solid var(--line-strong);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
   }
 
   .reputation-list li.local {
     background: var(--surface-raised);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
   }
 
   .reputation-list li.local strong,
@@ -441,7 +494,7 @@
   @media (max-width: 1023px) {
     .projection-page {
       padding: 25px 20px;
-      border-radius: 20px;
+      border-radius: var(--radius-xl);
     }
 
     .projection-header {
@@ -449,7 +502,7 @@
     }
 
     .projection-header h2 {
-      font-size: 1.5rem;
+      font-size: var(--text-xl);
     }
 
     .record-heading,
@@ -472,7 +525,7 @@
     }
 
     .status-strip strong {
-      font-size: .95rem;
+      font-size: var(--text-base);
     }
 
     .projection-columns {
@@ -498,7 +551,7 @@
     }
 
     .item-data {
-      font-size: .8rem;
+      font-size: var(--text-xs);
     }
 
     .relationship-list li,

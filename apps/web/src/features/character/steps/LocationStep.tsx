@@ -1,3 +1,5 @@
+import { flushSync } from "react-dom";
+import { runViewTransition } from "../../../app/viewTransition";
 import { ResponsiveArtwork } from "../../../components/ResponsiveArtwork";
 import type { CharacterDraft, WorldCatalog } from "../../../types";
 import type { DraftUpdater } from "../wizardSteps";
@@ -10,13 +12,13 @@ export function LocationStep({ catalog, draft, update }: { catalog: WorldCatalog
       <div className="option-track location-track" role="radiogroup" aria-label="初始地点">
         {catalog.locations.map((location) => (
           <label key={location.id} className={location.disabled ? "disabled" : ""}>
-            <input type="radio" name="location" disabled={location.disabled} checked={draft.location_id === location.id} onChange={() => update("location_id", location.id)} />
+            <input type="radio" name="location" disabled={location.disabled} checked={draft.location_id === location.id} onChange={() => runViewTransition("world", () => flushSync(() => update("location_id", location.id)))} />
             <span>{location.name}</span>
           </label>
         ))}
       </div>
       {selected && (
-        <article className="world-profile">
+        <article className="world-profile world-entry">
           <ResponsiveArtwork key={selected.id} item={selected} alt={`${selected.name}地点设定图`} kind="地点" />
           <div className="world-reading">
             <header className="world-heading"><span className="world-label">地点资料</span><h3>{selected.name}</h3><p>{selected.tagline}</p></header>

@@ -1,3 +1,5 @@
+import { flushSync } from "react-dom";
+import { runViewTransition } from "../../../app/viewTransition";
 import { ResponsiveArtwork } from "../../../components/ResponsiveArtwork";
 import { selectedRaceBranch, type CharacterDraft, type RaceDefinition, type WorldCatalog } from "../../../types";
 import type { DraftUpdater } from "../wizardSteps";
@@ -34,13 +36,13 @@ export function RaceStep({ catalog, draft, update }: { catalog: WorldCatalog; dr
       <div className="option-track race-track" role="radiogroup" aria-label="可玩种族">
         {catalog.races.map((race) => (
           <label key={race.id}>
-            <input type="radio" name="race" checked={draft.race_id === race.id} onChange={() => { update("race_id", race.id); update("race_branch_id", null); }} />
+            <input type="radio" name="race" checked={draft.race_id === race.id} onChange={() => runViewTransition("world", () => flushSync(() => { update("race_id", race.id); update("race_branch_id", null); }))} />
             <span>{race.name}</span>
           </label>
         ))}
       </div>
       {selected && (
-        <article className="race-profile">
+        <article className="race-profile world-entry">
           <ResponsiveArtwork key={selected.id} item={selected} alt={`${selected.name}种族设定图`} kind="种族" />
           <div className="race-reading">
             <header className="race-heading"><span className="world-label">种族资料</span><h3>{selected.name}</h3><p>{selected.tagline}</p></header>

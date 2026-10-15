@@ -1,4 +1,4 @@
-/* World artwork (races, locations, factions) with a titled placeholder when the image is missing. */
+/* World artwork (races, locations, factions); a missing image collapses to a compact titled band. */
 @layer components {
   .responsive-artwork {
     position: relative;
@@ -6,9 +6,8 @@
     aspect-ratio: 12 / 5;
     margin: 0;
     overflow: hidden;
-    background: #e2ebfc;
-    border: 1px solid var(--line);
-    border-radius: 16px;
+    background: var(--surface-sunken);
+    border-radius: var(--radius-lg);
   }
 
   .responsive-artwork picture,
@@ -22,42 +21,44 @@
     object-fit: cover;
   }
 
+  /* No image: a 96px band (80px on mobile) instead of an empty 12:5 or 4:5 frame. */
+  .responsive-artwork.is-missing {
+    height: 96px;
+    aspect-ratio: auto;
+  }
+
   .responsive-artwork-placeholder {
     position: absolute;
     inset: 0;
-    display: grid;
-    place-content: center;
-    justify-items: center;
-    gap: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 0 24px;
     color: var(--muted);
-    text-align: center;
-    background: #e4edff;
-  }
-
-  .responsive-artwork-placeholder > span {
-    display: grid;
-    place-items: center;
-    width: 62px;
-    height: 62px;
-    color: var(--primary);
-    font-size: 1.6rem;
-    background: #fff3ce;
-    border: 1px solid var(--line-strong);
-    border-radius: 16px;
+    background: var(--surface-tint);
   }
 
   .responsive-artwork-placeholder strong {
     color: var(--ink);
-    font-size: 1.25rem;
+    font-size: var(--text-lg);
   }
 
   .responsive-artwork-placeholder small {
-    font-size: .75rem;
+    font-size: var(--text-xs);
   }
 
   @media (max-width: 1023px) {
     .responsive-artwork {
-      border-radius: 12px;
+      border-radius: var(--radius-md);
+    }
+
+    .responsive-artwork.is-missing {
+      height: 80px;
+    }
+
+    .responsive-artwork-placeholder {
+      padding: 0 18px;
     }
   }
 

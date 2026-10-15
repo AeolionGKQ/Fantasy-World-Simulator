@@ -12,18 +12,25 @@
     padding: var(--settings-padding);
     background: var(--surface);
     border: 2px solid var(--outline);
-    border-radius: 22px;
+    border-radius: var(--radius-xl);
     box-shadow: 4px 4px 0 var(--card-shadow-color);
   }
 
+  /* On desktop the section description follows the long form while it scrolls (V-12). */
+  .settings-copy {
+    position: sticky;
+    top: calc(var(--toolbar-height) + 24px);
+    align-self: start;
+  }
+
   .settings-copy h2 {
-    font-size: 1.35rem;
+    font-size: var(--text-lg);
   }
 
   .settings-copy p {
     margin-top: 7px;
     color: var(--muted);
-    font-size: .84rem;
+    font-size: var(--text-sm);
     line-height: 1.85;
   }
 
@@ -40,7 +47,7 @@
   .field-help {
     margin: -6px 0 0;
     color: var(--muted);
-    font-size: .82rem;
+    font-size: var(--text-xs);
     line-height: 1.65;
   }
 
@@ -63,7 +70,7 @@
 
   .switch-field div > span {
     display: block;
-    font-size: .875rem;
+    font-size: var(--text-sm);
     font-weight: 620;
   }
 
@@ -76,7 +83,7 @@
   .test-result {
     padding: 14px 16px;
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
   }
 
   .test-result.success {
@@ -106,7 +113,7 @@
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 3px;
-    font-size: .75rem;
+    font-size: var(--text-xs);
   }
 
   @media (max-width: 1023px) {
@@ -114,11 +121,15 @@
       grid-template-columns: 1fr;
       gap: 24px;
       padding: 24px 20px;
-      border-radius: 18px;
+      border-radius: var(--radius-lg);
+    }
+
+    .settings-copy {
+      position: static;
     }
 
     .settings-copy p {
-      font-size: .82rem;
+      font-size: var(--text-xs);
     }
 
     .settings-form {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { api, asApiError } from "../../api";
 import type { ShellActions } from "../../app/shellActions";
+import { useAppNavigate } from "../../app/viewTransition";
 import {
   emptyDraft,
   isActiveJobStatus,
@@ -21,7 +21,7 @@ export type SaveStatus = "saved" | "dirty" | "saving" | "error" | "conflict";
  * navigation guards, step changes and the asynchronous generation job.
  */
 export function useCharacterWizard(saveId: string, step: number, actions: ShellActions) {
-  const navigate = useNavigate();
+  const navigate = useAppNavigate();
   const [catalog, setCatalog] = useState<WorldCatalog | null>(null);
   const [save, setSave] = useState<SaveSummary | null>(null);
   const [draft, setDraft] = useState<CharacterDraft>(emptyDraft());
@@ -224,7 +224,7 @@ export function useCharacterWizard(saveId: string, step: number, actions: ShellA
       if (!saved) return;
       latest = saved;
     }
-    setDraft(latest); navigate(`/saves/${saveId}/create/${nextStep}`);
+    setDraft(latest); navigate(`/saves/${saveId}/create/${nextStep}`, { direction: nextStep > step ? "forward" : "back" });
   };
 
   const startGeneration = async (feedback = "") => {
@@ -233,7 +233,7 @@ export function useCharacterWizard(saveId: string, step: number, actions: ShellA
     const invalid = validateDraft(draft, catalog);
     if (invalid) {
       setValidationError(invalid.message);
-      navigate(`/saves/${saveId}/create/${invalid.step}`);
+      navigate(`/saves/${saveId}/create/${invalid.step}`, { direction: invalid.step > step ? "forward" : "back" });
       return;
     }
     let readyDraft = draft;

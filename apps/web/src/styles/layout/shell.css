@@ -1,7 +1,7 @@
 /* App shell: save sidebar (off-canvas drawer on mobile), sticky toolbar and toast. */
 @layer layout {
   .app-shell {
-    min-height: 100vh;
+    min-height: 100dvh;
   }
 
   /* ---- Sidebar ---- */
@@ -28,7 +28,7 @@
   .brand-block strong {
     display: block;
     color: var(--primary);
-    font-size: .84rem;
+    font-size: var(--text-sm);
     font-weight: 750;
     line-height: 1.3;
     letter-spacing: -.025em;
@@ -37,7 +37,7 @@
   .brand-block small {
     display: block;
     color: var(--muted);
-    font-size: .75rem;
+    font-size: var(--text-xs);
     line-height: 1.4;
   }
 
@@ -50,8 +50,8 @@
     text-decoration: none;
     background: var(--sunflower);
     border: 2px solid var(--outline);
-    border-radius: 11px;
-    box-shadow: 2px 2px 0 #cfb35a;
+    border-radius: var(--radius-md);
+    box-shadow: 2px 2px 0 var(--sunflower-shadow);
   }
 
   .brand-mark span {
@@ -68,13 +68,12 @@
     justify-content: space-between;
     padding: 24px 18px 12px;
     color: var(--muted);
-    font-size: .75rem;
+    font-size: var(--text-xs);
     font-weight: 700;
-    letter-spacing: .08em;
-    text-transform: uppercase;
   }
 
   .save-list {
+    position: relative;
     flex: 1;
     min-height: 0;
     overflow: auto;
@@ -83,26 +82,29 @@
 
   .save-row {
     position: relative;
+    z-index: 1;
     display: flex;
     margin-bottom: 7px;
     border: 1px solid transparent;
-    border-radius: 13px;
-    transition: background 160ms var(--ease), border-color 160ms var(--ease);
+    border-radius: var(--radius-md);
+    transition: background var(--dur-state) var(--ease-out);
   }
 
-  .save-row:hover {
-    background: var(--surface);
+  .save-row:not(.active):hover {
+    background: var(--bg);
   }
 
-  .save-row.active {
-    background: #e2edff;
-    border: 1px solid #8b9fc6;
+  /* The current-save highlight is one element that slides between rows (.slide-indicator, motion.css). */
+  .save-indicator {
+    background: var(--surface-raised);
+    border: 1px solid var(--info-line);
+    border-radius: var(--radius-md);
   }
 
-  .save-row.active::before {
+  .save-indicator::before {
     content: "";
     position: absolute;
-    inset: 13px auto 13px 0;
+    inset: 13px auto 13px -1px;
     width: 3px;
     background: var(--primary);
     border-radius: 2px;
@@ -119,35 +121,28 @@
     display: block;
     overflow: hidden;
     color: var(--ink);
-    font-size: .875rem;
+    font-size: var(--text-sm);
     font-weight: 700;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .save-meta {
-    display: flex;
-    gap: 7px;
-    min-width: 0;
-    margin-top: 4px;
+  /* Status, then character name (or creation step) on its own line; long names wrap instead of truncating. */
+  .save-phase,
+  .save-detail {
+    display: block;
+    margin-top: 3px;
+    font-size: var(--text-xs);
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .save-phase {
     color: var(--muted);
-    font-size: .72rem;
-    white-space: nowrap;
   }
 
-  .save-meta > span:first-child {
-    flex-shrink: 0;
-  }
-
-  .save-meta > span + span {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .save-meta span + span::before {
-    content: "·";
-    margin-right: 7px;
+  .save-detail {
+    color: var(--body);
   }
 
   .generation-mini {
@@ -155,7 +150,7 @@
     align-items: center;
     gap: 5px;
     color: var(--primary);
-    font-size: .72rem;
+    font-size: var(--text-xs);
   }
 
   /* Rename/delete buttons keep their space while hidden so hovering never reflows the row. */
@@ -175,7 +170,7 @@
   .sidebar-empty {
     padding: 14px 8px;
     color: var(--muted);
-    font-size: .875rem;
+    font-size: var(--text-sm);
   }
 
   .sidebar-footer {
@@ -183,30 +178,76 @@
     border-top: 1px solid var(--line);
   }
 
-  .sidebar-settings {
-    display: flex;
-    align-items: center;
-    gap: 10px;
+  /* Model service status (D-06): text, a symbol and colour together; the block links to settings. */
+  .service-status {
+    display: grid;
+    gap: 6px;
     min-height: 44px;
-    padding: 0 10px;
-    color: var(--muted);
+    padding: 10px;
+    color: var(--ink);
     text-decoration: none;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
+    transition: background var(--dur-state) var(--ease-out);
   }
 
-  .sidebar-settings:hover,
-  .sidebar-settings.active {
-    color: var(--ink);
+  a.service-status:hover {
     background: var(--surface-raised);
   }
 
-  .connection-line {
+  .service-row {
     display: flex;
     align-items: center;
-    gap: 7px;
-    padding: 10px 10px 0;
+    gap: 8px;
+    min-width: 0;
+    font-size: var(--text-sm);
+  }
+
+  .service-row.secondary {
     color: var(--muted);
-    font-size: .75rem;
+    font-size: var(--text-xs);
+  }
+
+  .service-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    animation: fade-in var(--dur-state) var(--ease-out);
+  }
+
+  /* Filled = known outcome (connected / failed); hollow = nothing confirmed yet. */
+  .service-dot {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 12px;
+    height: 12px;
+    color: var(--primary-ink);
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 1;
+    border: 2px solid var(--line-strong);
+    border-radius: var(--radius-full);
+    transition: background var(--dur-state) var(--ease-out), border-color var(--dur-state) var(--ease-out);
+  }
+
+  .service-dot[data-state="connected"] {
+    background: var(--success);
+    border-color: var(--success);
+  }
+
+  .service-dot[data-state="failed"] {
+    background: var(--danger);
+    border-color: var(--danger);
+  }
+
+  .service-dot[data-state="unverified"] {
+    border-color: var(--warning);
+  }
+
+  .service-reason {
+    padding-left: 20px;
+    color: var(--danger);
+    font-size: var(--text-xs);
   }
 
   .drawer-backdrop {
@@ -215,7 +256,7 @@
 
   /* ---- Workspace and toolbar ---- */
   .workspace {
-    min-height: 100vh;
+    min-height: 100dvh;
     margin-left: var(--sidebar-width);
   }
 
@@ -230,7 +271,7 @@
     padding: 0 var(--toolbar-padding-x);
     background: var(--toolbar-bg);
     border-bottom: 2px solid var(--outline);
-    box-shadow: 0 2px 0 #d5e1f54d;
+    box-shadow: var(--toolbar-shadow);
   }
 
   .mobile-menu {
@@ -245,7 +286,7 @@
   .toolbar-context span {
     display: block;
     overflow: hidden;
-    font-size: .95rem;
+    font-size: var(--text-base);
     font-weight: 750;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -258,6 +299,7 @@
 
   .toolbar-button {
     appearance: none;
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -265,13 +307,13 @@
     min-height: 40px;
     padding: 0 10px;
     color: var(--muted);
-    font-size: .8125rem;
+    font-size: var(--text-xs);
     text-decoration: none;
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     cursor: pointer;
-    transition: color 180ms var(--ease), background 180ms var(--ease), border-color 180ms var(--ease);
+    transition: color var(--dur-state) var(--ease-out), background var(--dur-state) var(--ease-out), border-color var(--dur-state) var(--ease-out);
   }
 
   .toolbar-button:hover {
@@ -280,30 +322,30 @@
     border-color: var(--line);
   }
 
+  .toolbar-button.active {
+    color: var(--ink);
+    background: var(--surface-raised);
+  }
+
+  /* The story AI needs attention (not configured / failed): visible even when the drawer is closed. */
+  .toolbar-button .attention-dot {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 8px;
+    height: 8px;
+    background: var(--danger);
+    border: 2px solid var(--toolbar-bg);
+    border-radius: var(--radius-full);
+  }
+
   .toolbar-button:disabled {
     opacity: .42;
     cursor: not-allowed;
   }
 
-  .toolbar-button.primary-compact {
-    color: var(--ink);
-    background: var(--sunflower);
-    border: 1px solid var(--outline);
-    box-shadow: 2px 2px 0 #c9ad56;
-  }
-
-  .toolbar-button.primary-compact:hover {
-    color: var(--ink);
-    background: #ffdc75;
-  }
-
-  .toolbar-button.primary-compact:active {
-    box-shadow: none;
-    transform: translate(1px, 1px);
-  }
-
   #main-content {
-    min-height: calc(100vh - var(--toolbar-height));
+    min-height: calc(100dvh - var(--toolbar-height));
   }
 
   .toast {
@@ -316,20 +358,30 @@
     color: var(--ink);
     background: var(--surface);
     border: 1px solid var(--outline);
-    border-radius: 14px;
-    box-shadow: 0 10px 24px #26375b1f;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-float);
+    animation: toast-in var(--dur-enter) var(--ease-out) both;
+  }
+
+  .toast.leaving {
+    animation: toast-out var(--dur-exit) var(--ease-in) both;
   }
 
   @media (max-width: 1023px) {
+    /* Closed: slides out quickly, then becomes hidden so its links leave the tab order. */
     .sidebar {
       width: min(310px, 86vw);
-      box-shadow: 12px 0 32px #26375b26;
+      visibility: hidden;
       transform: translateX(-101%);
-      transition: transform 200ms var(--ease);
+      transition: transform var(--dur-exit) var(--ease-in), box-shadow var(--dur-exit) var(--ease-in), visibility 0s linear var(--dur-exit);
     }
 
+    /* The shadow only exists while open; on the closed drawer its blur would bleed onto the page edge. */
     .sidebar.open {
+      visibility: visible;
+      box-shadow: var(--shadow-drawer);
       transform: translateX(0);
+      transition: transform var(--dur-enter) var(--ease-out), box-shadow var(--dur-enter) var(--ease-out), visibility 0s;
     }
 
     .sidebar-close,
@@ -348,6 +400,15 @@
       display: block;
       background: var(--backdrop);
       border: 0;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity var(--dur-exit) var(--ease-in);
+    }
+
+    .drawer-backdrop.open {
+      opacity: 1;
+      pointer-events: auto;
+      transition: opacity var(--dur-enter) var(--ease-out);
     }
 
     .workspace {
@@ -360,16 +421,15 @@
     }
 
     .toolbar-context span {
-      font-size: .8rem;
+      font-size: var(--text-xs);
     }
 
     .toolbar-actions {
       gap: 4px;
     }
 
-    /* Icon-only toolbar buttons; settings stays reachable from the drawer. */
-    .toolbar-button,
-    .toolbar-button.primary-compact {
+    /* Icon-only toolbar buttons. */
+    .toolbar-button {
       width: 36px;
       min-height: 38px;
     }
@@ -378,15 +438,9 @@
       padding: 0;
     }
 
-    .toolbar-button span,
-    .toolbar-button.settings-link {
+    /* Icon-only on mobile; settings stays in the toolbar because the drawer no longer has it. */
+    .toolbar-button span:not(.attention-dot) {
       display: none;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .toolbar-button.primary-compact:active {
-      transform: none;
     }
   }
 }

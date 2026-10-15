@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api, asApiError } from "../../api";
+import { useAppNavigate } from "../../app/viewTransition";
+import { FadeImage } from "../../components/FadeImage";
 import { playerProblemMessage } from "../../playerCopy";
 import { isActiveJobStatus, type ImageQuality, type ImageSize, type SceneImageSession } from "../../types";
 
@@ -17,7 +19,7 @@ const qualities: Array<{ value: ImageQuality; label: string }> = [
 
 export default function SceneImageWorkspace() {
   const { saveId = "" } = useParams();
-  const navigate = useNavigate();
+  const navigate = useAppNavigate();
   const [session, setSession] = useState<SceneImageSession | null>(null);
   const [prompt, setPrompt] = useState("");
   const [size, setSize] = useState<ImageSize>("1536x1024");
@@ -84,13 +86,13 @@ export default function SceneImageWorkspace() {
     void api.retryImagePrompt(saveId, session.id, crypto.randomUUID()).then(load).catch((reason) => setError(playerProblemMessage(asApiError(reason).problem)));
   };
 
-  if (loading) return <div className="page image-workspace"><div className="loading-panel" role="status">正在载入场景图片…</div></div>;
+  if (loading) return <div className="page image-workspace page-loading" key="loading"><div className="loading-panel" role="status">正在载入场景图片…</div></div>;
   if (!session) {
     return (
-      <div className="page image-workspace">
+      <div className="page image-workspace page-enter" key="empty">
         <header>
           <div><h1>生成此刻图片</h1><p>当前没有待生成的场景图片。请返回剧情页，选择“生成此刻图片”。</p></div>
-          <Link className="secondary-button" to={`/saves/${saveId}/game`}>返回剧情</Link>
+          <Link viewTransition className="secondary-button" to={`/saves/${saveId}/game`}>返回剧情</Link>
         </header>
         {error && <p className="inline-error">{error}</p>}
       </div>
@@ -103,11 +105,11 @@ export default function SceneImageWorkspace() {
   const imageReady = successful?.image_available;
   const imageUrl = `${api.sceneImageUrl(saveId, session.id)}?attempt=${successful?.id ?? ""}`;
   return (
-    <div className="page image-workspace">
+    <div className="page image-workspace page-enter" key="ready">
       <header>
         <div><span className="ready-mark">当前剧情画面</span><h1>生成此刻图片</h1><p>先根据当前剧情整理画面描述。你可以修改描述、画幅和质量，再确认生成图片。</p></div>
         <div className="image-header-actions">
-          <Link className="secondary-button" to={`/saves/${saveId}/game`}>返回剧情</Link>
+          <Link viewTransition className="secondary-button" to={`/saves/${saveId}/game`}>返回剧情</Link>
           <button className="danger-button" type="button" disabled={abandoning} onClick={() => void abandon()}>{abandoning ? "正在放弃…" : "放弃并退出"}</button>
         </div>
       </header>
@@ -149,7 +151,7 @@ export default function SceneImageWorkspace() {
       {session.image_attempt?.error && <p className="inline-error">{playerProblemMessage(session.image_attempt.error)}{outcomeUnknown ? " 上一次请求可能已经产生费用。" : ""}</p>}
       {imageReady && (
         <section className="image-result">
-          <button type="button" onClick={() => dialog.current?.showModal()} aria-label="放大查看生成图片"><img src={imageUrl} alt="根据当前剧情生成的画面" /></button>
+          <button type="button" onClick={() => dialog.current?.showModal()} aria-label="放大查看生成图片"><FadeImage key={imageUrl} src={imageUrl} alt="根据当前剧情生成的画面" /></button>
           <div>
             <span>{sizes.find((item) => item.value === successful?.requested_size)?.label} · {qualities.find((item) => item.value === successful?.requested_quality)?.label ?? "自动"}质量</span>
             <a className="secondary-button" href={`${api.sceneImageDownloadUrl(saveId, session.id)}?attempt=${successful?.id ?? ""}`}>保存图片</a>
@@ -159,7 +161,7 @@ export default function SceneImageWorkspace() {
       )}
       <dialog ref={dialog} className="image-dialog" onClick={(event) => { if (event.target === dialog.current) dialog.current?.close(); }}>
         <button type="button" onClick={() => dialog.current?.close()} aria-label="关闭大图">×</button>
-        {imageReady && <img src={imageUrl} alt="生成画面大图" />}
+        {imageReady && <FadeImage key={imageUrl} src={imageUrl} alt="生成画面大图" />}
       </dialog>
     </div>
   );

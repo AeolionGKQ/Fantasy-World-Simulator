@@ -30,11 +30,11 @@ export function NewSaveModal({ onClose, onCreated }: { onClose: () => void; onCr
       <form onSubmit={(event) => void submit(event)}>
         <label className="field">
           <span>存档名称</span>
-          <input autoFocus disabled={busy} value={name} maxLength={80} onChange={(e) => { requestIdentity.current = null; setName(e.target.value); }} aria-describedby={error ? "new-save-error" : undefined} />
+          <input data-autofocus disabled={busy} value={name} maxLength={80} onChange={(e) => { requestIdentity.current = null; setName(e.target.value); }} aria-describedby={error ? "new-save-error" : undefined} />
         </label>
         {error && <p className="field-error" id="new-save-error">{error}</p>}
         <div className="modal-actions">
-          <button className="secondary-button" type="button" onClick={onClose}>取消</button>
+          <button className="secondary-button" type="button" data-modal-close>取消</button>
           <button className="primary-button" disabled={busy}>{busy ? "正在创建…" : "创建存档"}</button>
         </div>
       </form>

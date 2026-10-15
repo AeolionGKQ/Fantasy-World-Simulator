@@ -45,12 +45,68 @@
     --info-soft: #e7efff;
     --info-line: #8094c4;
 
-    /* Elevation and overlays */
-    --card-shadow-color: #d2def0;
-    --backdrop: #1f285080;
+    /* Surface levels (V-01): L0 --bg page; L1 --surface with 2px --outline and offset shadow, one per
+       page region; L2 --surface-sunken inner groups, no border; L3 controls with a 1px --line. */
+    --surface-sunken: #eef3fd;
+    --surface-tint: #e4edff;   /* artwork placeholders, candidate header */
+    --selection: #dce7ff;
 
-    /* Motion and stacking */
+    /* Sunflower: brand mark and the current position (tab, step) only. */
+    --sunflower-light: #ffe59a;
+    --sunflower-line: #a89151;
+    --sunflower-shadow: #c9ad56;
+
+    /* Interaction tints */
+    --danger-hover: #fce0e3;
+    --focus-ring: #3548bd1a;
+    --success-halo: #2176531f;
+    --danger-halo: #b42e401f;
+
+    /* Elevation and overlays (shadows only on things that float or on L1 surfaces) */
+    --card-shadow-color: #d2def0;
+    --primary-shadow: #243777;
+    --toolbar-shadow: 0 2px 0 #d5e1f54d;
+    --shadow-float: 0 10px 24px #26375b1f;
+    --shadow-drawer: 12px 0 32px #26375b26;
+    --shadow-dialog: 0 24px 70px #26375b33;
+    --backdrop: #1f285080;
+    --backdrop-strong: #1f2850b3;
+
+    /* Type scale. Every font-size uses one of these; 13px is the smallest size for Chinese text. */
+    --text-xs: 13px;      /* meta, counts, trace ids */
+    --text-sm: 14px;      /* secondary copy, hints, tabs */
+    --text-base: 16px;    /* interface body */
+    --text-md: 18px;      /* small headings (h3) */
+    --text-read: 18px;    /* story and world-lore reading text */
+    --text-lg: 22px;      /* section headings (h2) */
+    --text-xl: 28px;      /* page headings (h1) */
+    --text-display: clamp(32px, 2.8vw, 44px); /* character name, chapter title, home title */
+
+    /* Reading face for story and world-lore text; the interface stays in the sans stack in base.css. */
+    --font-reading: "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
+
+    /* Corner radii. Thin bars and 1–3px marks keep their own small radius. */
+    --radius-sm: 8px;     /* chips, small buttons, badges */
+    --radius-md: 12px;    /* buttons, inputs, tabs, list rows */
+    --radius-lg: 16px;    /* inner groups (L2), artwork, notices */
+    --radius-xl: 22px;    /* primary surfaces (L1), dialogs */
+    --radius-full: 999px; /* dots, circles, pills */
+
+    /* Motion. Only transform and opacity move; exits are quicker than entrances. */
     --ease: cubic-bezier(0.25, 1, 0.5, 1);
+    --ease-out: var(--ease);
+    --ease-in: cubic-bezier(0.5, 0, 0.75, 0);
+    --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
+    --dur-press: 100ms;
+    --dur-state: 180ms;
+    --dur-exit: 140ms;
+    --dur-enter: 240ms;
+    --dur-move: 320ms;
+    --rise: 8px;
+    --slide: 24px;
+    --stagger: 50ms;
+
+    /* Stacking */
     --z-drawer: 30;
     --z-toast: 70;
 
@@ -69,7 +125,6 @@
     --story-actions-padding: clamp(18px, 2.28vw - 5.35px, 22px);      /* 18 -> 22 */
     --game-tabs-gap: clamp(5px, 2.85vw - 24.19px, 10px);              /* 5 -> 10 */
     --game-tab-padding-x: clamp(12px, 2.85vw - 17.19px, 17px);        /* 12 -> 17 */
-    --game-tab-font-size: clamp(12.8px, 0.46vw + 8.08px, 13.6px);     /* .8rem -> .85rem */
     --wizard-nav-width: clamp(164px, 14.78vw + 12.65px, 190px);       /* 164 -> 190 */
     --wizard-gap: clamp(20px, 4.55vw - 26.6px, 28px);                 /* 20 -> 28 */
     --step-content-padding: clamp(24px, 2.28vw + 0.65px, 28px) clamp(24px, 3.41vw - 10.92px, 30px); /* 24 24 -> 28 30 */
@@ -92,7 +147,6 @@
       --story-actions-padding: 22px;
       --game-tabs-gap: 10px;
       --game-tab-padding-x: 17px;
-      --game-tab-font-size: .85rem;
       --wizard-nav-width: 190px;
       --wizard-gap: 28px;
       --step-content-padding: 28px 30px;

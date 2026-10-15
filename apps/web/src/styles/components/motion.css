@@ -1,0 +1,213 @@
+/*
+ * Motion: view transitions and shared entrance classes. Keyframes live in base.css.
+ *
+ * View-transition names are scoped by <html data-vt> (set by runViewTransition in
+ * app/viewTransition.ts), so each kind of transition captures only its own elements:
+ *   (none)  route change started by React Router: the page body and the toolbar title
+ *   step    character-creation step change: the step card body and the page title
+ *   tab     game tab change: the tab panel
+ *   turn    story history navigation: the reading column
+ *   mode    story command mode change: the command form body
+ *   world   world catalog entry change: the entry artwork and text
+ * The root is never captured, so the sidebar and toolbar stay live and never cross-fade.
+ */
+@layer components {
+  :root {
+    view-transition-name: none;
+  }
+
+  /* ---- Route change ----
+   * Loading pages are not captured: they are replaced by the loaded page moments later, and
+   * removing a captured element cuts the transition short. The outgoing page still fades out
+   * over the live loading state, and the loaded page then enters with .page-enter. */
+  :root:not([data-vt]) #main-content > .page:not(.page-loading) {
+    view-transition-name: page;
+  }
+
+  :root:not([data-vt]) .toolbar-context {
+    view-transition-name: toolbar-context;
+  }
+
+  ::view-transition-group(page) {
+    animation: none;
+  }
+
+  ::view-transition-old(page) {
+    animation: vt-fade-out var(--dur-exit) var(--ease-in) both;
+  }
+
+  ::view-transition-new(page) {
+    animation: vt-rise-in var(--dur-enter) var(--ease-out) 60ms both;
+  }
+
+  /* Titles differ in width: cross-fade both at their natural size instead of stretching them. */
+  ::view-transition-group(toolbar-context) {
+    animation: none;
+  }
+
+  ::view-transition-old(toolbar-context),
+  ::view-transition-new(toolbar-context) {
+    width: auto;
+    height: 100%;
+    object-fit: none;
+    object-position: left center;
+  }
+
+  ::view-transition-old(toolbar-context) {
+    animation: vt-fade-out var(--dur-exit) var(--ease-in) both;
+  }
+
+  ::view-transition-new(toolbar-context) {
+    animation: fade-in var(--dur-enter) var(--ease-out) 60ms both;
+  }
+
+  /* ---- In-page transitions (runViewTransition) ---- */
+  :root {
+    --vt-distance: var(--slide);
+    --vt-shift: var(--vt-distance);
+  }
+
+  :root[data-vt="turn"] {
+    --vt-distance: 12px;
+  }
+
+  :root[data-vt-dir="back"] {
+    --vt-shift: calc(var(--vt-distance) * -1);
+  }
+
+  :root[data-vt="step"] .step-body {
+    view-transition-name: wizard-step;
+  }
+
+  :root[data-vt="step"] .wizard-header h1 {
+    view-transition-name: wizard-title;
+  }
+
+  :root[data-vt="tab"] .game-panel {
+    view-transition-name: game-panel;
+  }
+
+  :root[data-vt="turn"] .story-reading {
+    view-transition-name: story-reading;
+  }
+
+  :root[data-vt="mode"] .command-body {
+    view-transition-name: command-body;
+  }
+
+  :root[data-vt="world"] .world-entry {
+    view-transition-name: world-entry;
+  }
+
+  /* Sizes differ between old and new content: no size morph, the new box applies at once. */
+  ::view-transition-group(wizard-step),
+  ::view-transition-group(wizard-title),
+  ::view-transition-group(game-panel),
+  ::view-transition-group(story-reading),
+  ::view-transition-group(command-body),
+  ::view-transition-group(world-entry) {
+    animation: none;
+  }
+
+  /* Directional slide: step card body, game tab panel, story reading column. */
+  ::view-transition-old(wizard-step),
+  ::view-transition-old(game-panel),
+  ::view-transition-old(story-reading) {
+    animation: vt-shift-out var(--dur-exit) var(--ease-in) both;
+  }
+
+  ::view-transition-new(wizard-step),
+  ::view-transition-new(game-panel),
+  ::view-transition-new(story-reading) {
+    animation: vt-shift-in var(--dur-enter) var(--ease-out) 40ms both;
+  }
+
+  /* Cross-fade without movement: page title, command form body, world entry. */
+  ::view-transition-old(wizard-title),
+  ::view-transition-new(wizard-title) {
+    width: auto;
+    height: 100%;
+    object-fit: none;
+    object-position: left center;
+  }
+
+  ::view-transition-old(wizard-title),
+  ::view-transition-old(command-body),
+  ::view-transition-old(world-entry) {
+    animation: fade-out var(--dur-exit) var(--ease-in) both;
+  }
+
+  ::view-transition-new(wizard-title),
+  ::view-transition-new(command-body),
+  ::view-transition-new(world-entry) {
+    animation: fade-in var(--dur-enter) var(--ease-out) 40ms both;
+  }
+
+  /* ---- Sliding highlights (useSlidingIndicator) ---- */
+  .slide-indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .slide-indicator.visible {
+    opacity: 1;
+  }
+
+  .slide-indicator.animate {
+    transition: transform var(--dur-move) var(--ease-move), width var(--dur-move) var(--ease-move), height var(--dur-move) var(--ease-move), opacity var(--dur-state) var(--ease-out);
+  }
+
+  /* ---- Images fade in once loaded (FadeImage); the surface behind shows until then ---- */
+  .fade-image:not(.loaded) {
+    opacity: 0;
+  }
+
+  .fade-image.loaded {
+    animation: fade-in var(--dur-enter) var(--ease-out) both;
+  }
+
+  /* ---- A new story turn arrives: title, paragraphs, changes and options appear in sequence ---- */
+  .story-layout.arriving .story-heading h2,
+  .story-layout.arriving .story-body p,
+  .story-layout.arriving .changes,
+  .story-layout.arriving .option-button {
+    animation: content-in var(--dur-enter) var(--ease-out) both;
+    animation-delay: calc(var(--i, 0) * var(--stagger));
+  }
+
+  /* The finished job card fades out while the new turn comes in. */
+  .job-leaving {
+    animation: fade-out var(--dur-exit) var(--ease-in) both;
+  }
+
+  /* ---- Generated character candidate: header and sections enter in sequence ---- */
+  .candidate-panel > header,
+  .candidate-panel > section {
+    animation: content-in var(--dur-enter) var(--ease-out) both;
+  }
+
+  .candidate-panel > :nth-child(2) { animation-delay: calc(var(--stagger) * 1); }
+  .candidate-panel > :nth-child(3) { animation-delay: calc(var(--stagger) * 2); }
+  .candidate-panel > :nth-child(4) { animation-delay: calc(var(--stagger) * 3); }
+  .candidate-panel > :nth-child(5) { animation-delay: calc(var(--stagger) * 4); }
+  .candidate-panel > :nth-child(n + 6) { animation-delay: calc(var(--stagger) * 5); }
+
+  /* ---- Generated scene image settles in ---- */
+  .image-result .fade-image.loaded {
+    animation: image-reveal var(--dur-move) var(--ease-out) both;
+  }
+
+  /* ---- Content entrance (loading state -> loaded content) ---- */
+  .page-enter {
+    animation: content-in var(--dur-enter) var(--ease-out) both;
+  }
+
+  /* The skeleton waits briefly so fast local responses never flash it. */
+  .loading-panel {
+    animation: fade-in var(--dur-enter) var(--ease-out) 150ms both;
+  }
+}

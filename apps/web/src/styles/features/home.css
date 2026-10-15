@@ -1,67 +1,102 @@
-/* Home page: archive heading card and the recent-saves list. */
+/* Home page: a plain display-size heading, then recent saves as cards inside one L1 surface (V-07). */
 @layer features {
   .home-page {
     max-width: 1240px;
   }
 
   .home-heading {
-    display: flex;
-    align-items: center;
-    gap: 22px;
-    min-height: 160px;
-    margin: 0 0 32px;
-    padding: 34px;
-    background: #ddeaff;
-    border: 2px solid var(--outline);
-    border-radius: 24px;
-    box-shadow: 5px 5px 0 var(--card-shadow-color);
+    margin: 8px 0 32px;
   }
 
   .home-heading h1 {
     margin-bottom: 8px;
-    font-size: 2.25rem;
+    font-size: var(--text-display);
     font-weight: 800;
+    line-height: 1.15;
   }
 
   .home-heading p {
     color: var(--body);
+    font-size: var(--text-md);
   }
 
   .recent-list {
     padding: 27px;
     background: var(--surface);
     border: 2px solid var(--outline);
-    border-radius: 22px;
+    border-radius: var(--radius-xl);
     box-shadow: 4px 4px 0 var(--card-shadow-color);
   }
 
+  .recent-cards {
+    display: grid;
+    gap: 10px;
+    padding: 0;
+    list-style: none;
+  }
+
+  /* Each save is an L2 card: tone step, no border; the whole card is the link. */
   .recent-row {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto auto;
     align-items: center;
     gap: 16px;
-    min-height: 68px;
-    padding: 16px 10px;
+    min-height: 84px;
+    padding: 16px 20px;
+    color: var(--ink);
     text-decoration: none;
-    border-bottom: 1px solid var(--line);
-    border-radius: 10px;
-    transition: background 160ms var(--ease);
+    background: var(--surface-sunken);
+    border-radius: var(--radius-lg);
+    transition: background var(--dur-state) var(--ease-out);
   }
 
   .recent-row:hover {
     background: var(--selected);
   }
 
-  .recent-row strong {
+  .recent-row .row-arrow {
+    transition: transform var(--dur-state) var(--ease-out);
+  }
+
+  .recent-row:hover .row-arrow {
+    transform: translateX(3px);
+  }
+
+  .recent-main {
+    min-width: 0;
+  }
+
+  .recent-main strong {
     display: block;
+    font-size: var(--text-md);
     font-weight: 700;
   }
 
-  .recent-row small {
+  .recent-story {
     display: block;
-    margin-top: 3px;
+    overflow: hidden;
+    margin-top: 2px;
+    color: var(--body);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .recent-main small {
+    display: block;
+    margin-top: 2px;
     color: var(--muted);
-    font-size: .8rem;
+    font-size: var(--text-xs);
+  }
+
+  .recent-meta {
+    display: grid;
+    justify-items: end;
+    gap: 2px;
+  }
+
+  .recent-meta time {
+    color: var(--muted);
+    font-size: var(--text-xs);
   }
 
   /* Phase marker: circle = draft, diamond = review, filled = ready. */
@@ -69,7 +104,7 @@
     width: 10px;
     height: 10px;
     border: 2px solid var(--muted);
-    border-radius: 50%;
+    border-radius: var(--radius-full);
   }
 
   .phase-shape.review {
@@ -85,46 +120,34 @@
 
   .phase-label {
     color: var(--muted);
-    font-size: .875rem;
+    font-size: var(--text-sm);
   }
 
   @media (max-width: 1023px) {
     .home-heading {
-      align-items: flex-start;
-      gap: 16px;
-      min-height: 140px;
-      padding: 25px 22px;
-      border-radius: 20px;
+      margin-bottom: 24px;
     }
 
     .home-heading h1 {
-      font-size: 1.65rem;
+      font-size: var(--text-xl);
     }
 
     .home-heading p {
-      font-size: .84rem;
+      font-size: var(--text-sm);
       line-height: 1.8;
     }
 
-    .home-heading .archive-glyph {
-      flex: 0 0 auto;
-      width: 42px;
-      height: 42px;
-      font-size: 1.5rem;
-      border-radius: 12px;
-    }
-
     .recent-list {
-      padding: 23px 18px;
+      padding: 23px 16px;
     }
 
     .recent-row {
       grid-template-columns: auto minmax(0, 1fr) auto;
       gap: 12px;
-      padding: 15px 3px;
+      padding: 14px 16px;
     }
 
-    .recent-row .phase-label {
+    .recent-meta {
       display: none;
     }
   }

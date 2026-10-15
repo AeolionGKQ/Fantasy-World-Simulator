@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { flushSync } from "react-dom";
 import { api, asApiError } from "../../api";
+import { scrollIntoViewIfAbove } from "../../app/scroll";
+import { runViewTransition, useAppNavigate } from "../../app/viewTransition";
 import { playerProblemMessage } from "../../playerCopy";
 import type { ApiProblem, NarrativeJob, StartPrerequisiteResolution, Turn } from "../../types";
 import type { PlayerAddress } from "../settings/settingsLogic";
 import { getAllGameData, type GameData } from "./gameData";
-import type { GameTab } from "./gameTabs";
+import { gameTabs, type GameTab } from "./gameTabs";
 import { isNarrativeJobActive, narrativeJobMessage, refreshedViewedTurn } from "./helpers";
 
 export interface GameNotice {
@@ -22,7 +24,7 @@ type JobFactory = (version: number, signal: AbortSignal) => Promise<NarrativeJob
  * requested save id so responses that arrive after a save switch are dropped.
  */
 export function useGameWorkspace(saveId: string, onSaveChanged: () => Promise<void>) {
-  const navigate = useNavigate();
+  const navigate = useAppNavigate();
   const [data, setData] = useState<GameData | null>(null);
   const [tab, setTab] = useState<GameTab>("story");
   const [viewedTurn, setViewedTurn] = useState<Turn | null>(null);
@@ -222,7 +224,7 @@ export function useGameWorkspace(saveId: string, onSaveChanged: () => Promise<vo
   const readJournalTurn = async (turnId: string) => {
     try {
       const turn = data?.turns.find((item) => item.id === turnId) ?? await api.getTurn(saveId, turnId, stateActionController.current?.signal);
-      setViewedTurn(turn); setTab("story");
+      runViewTransition("tab", () => flushSync(() => { setViewedTurn(turn); setTab("story"); }), "back");
     } catch (reason) { showProblem(reason); }
   };
 
@@ -291,8 +293,24 @@ export function useGameWorkspace(saveId: string, onSaveChanged: () => Promise<vo
     finally { setStartingImage(false); }
   };
 
+  /** Switches tab with a slide toward the tab's side of the tab bar. */
+  const selectTab = (next: GameTab) => {
+    if (next === tab) return;
+    const order = (id: GameTab) => gameTabs.findIndex((item) => item.id === id);
+    runViewTransition("tab", () => flushSync(() => setTab(next)), order(next) > order(tab) ? "forward" : "back");
+  };
+
+  /** Pages through story history; brings the reading column back into view when it was scrolled past. */
+  const showTurn = (turn: Turn) => {
+    const current = viewedTurn ?? data?.story.latest_turn;
+    runViewTransition("turn", () => {
+      flushSync(() => setViewedTurn(turn));
+      scrollIntoViewIfAbove(".story-reading");
+    }, current && turn.sequence < current.sequence ? "back" : "forward");
+  };
+
   return {
-    data, tab, setTab, viewedTurn, setViewedTurn, loading, problem, notice, setNotice,
+    data, tab, setTab, selectTab, viewedTurn, setViewedTurn, showTurn, loading, problem, notice, setNotice,
     submittingState, submittingArc, savingPreferences, startingImage,
     refresh, startStateJob, startArcJob, cancelJob, readJournalTurn, resolveStartPrerequisite,
     updatePlayerAddress, startImageSession,

@@ -1,7 +1,9 @@
+import { useAutoFocus } from "../../../components/useAutoFocus";
 import type { CharacterDraft } from "../../../types";
 import type { DraftUpdater } from "../wizardSteps";
 
 export function GenderStep({ draft, update }: { draft: CharacterDraft; update: DraftUpdater }) {
+  const customRef = useAutoFocus<HTMLInputElement>();
   const custom = draft.gender !== "男" && draft.gender !== "女";
   return (
     <div className="focused-form">
@@ -13,7 +15,7 @@ export function GenderStep({ draft, update }: { draft: CharacterDraft; update: D
           <label><input type="radio" name="gender-choice" checked={custom} onChange={() => update("gender", "")} /><span>其他描述</span></label>
         </div>
       </fieldset>
-      {custom && <label className="field"><span>自定义性别</span><input autoFocus maxLength={80} value={draft.gender} placeholder="输入角色的性别描述" onChange={(e) => update("gender", e.target.value)} /></label>}
+      {custom && <label className="field"><span>自定义性别</span><input ref={customRef} maxLength={80} value={draft.gender} placeholder="输入角色的性别描述" onChange={(e) => update("gender", e.target.value)} /></label>}
     </div>
   );
 }

@@ -1,7 +1,10 @@
-import type { KeyboardEvent } from "react";
+import { useEffect, type KeyboardEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../api";
+import { prefersReducedMotion } from "../../app/viewTransition";
 import { LoadingPanel } from "../../components/LoadingPanel";
+import { usePresence } from "../../components/usePresence";
+import { useSlidingIndicator } from "../../components/useSlidingIndicator";
 import { playerProblemMessage } from "../../playerCopy";
 import type { ApiProblem } from "../../types";
 import { gameTabs, type GameTab } from "./gameTabs";
@@ -17,7 +20,7 @@ import { StoryPanel } from "./panels/StoryPanel";
 import { useGameWorkspace, type GameNotice } from "./useGameWorkspace";
 
 function LoadingGame() {
-  return <div className="page game-page"><LoadingPanel label="正在载入冒险" announce={false} /></div>;
+  return <div className="page game-page page-loading" key="loading"><LoadingPanel label="正在载入冒险" announce={false} /></div>;
 }
 
 function ProblemPanel({ problem, onRetry }: { problem: ApiProblem; onRetry: () => void }) {
@@ -36,9 +39,9 @@ function ProblemPanel({ problem, onRetry }: { problem: ApiProblem; onRetry: () =
   );
 }
 
-function GameNoticeBar({ notice, onDismiss }: { notice: GameNotice; onDismiss: () => void }) {
+function GameNoticeBar({ notice, leaving, onDismiss }: { notice: GameNotice; leaving: boolean; onDismiss: () => void }) {
   return (
-    <div className={`game-notice ${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}>
+    <div className={`game-notice ${notice.tone} ${leaving ? "leaving" : ""}`} role={notice.tone === "error" ? "alert" : "status"}>
       <span aria-hidden="true">{notice.tone === "error" ? "!" : "◇"}</span>
       <p>{notice.text}{notice.traceId && <small>问题编号：{notice.traceId}</small>}</p>
       <button type="button" onClick={onDismiss} aria-label="关闭游戏提示">×</button>
@@ -59,8 +62,14 @@ function handleTabKeys(event: KeyboardEvent<HTMLElement>) {
 }
 
 function GameTabs({ tab, onSelect }: { tab: GameTab; onSelect: (tab: GameTab) => void }) {
+  const { containerRef, indicator } = useSlidingIndicator<HTMLElement>('[role="tab"][aria-selected="true"]', [tab]);
+  // On narrow screens the tab strip scrolls; keep the selected tab visible.
+  useEffect(() => {
+    containerRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+  }, [containerRef, tab]);
   return (
-    <nav className="game-tabs" role="tablist" aria-label="游戏页签" onKeyDown={handleTabKeys}>
+    <nav className="game-tabs" role="tablist" aria-label="游戏页签" onKeyDown={handleTabKeys} ref={containerRef}>
+      <span className={`slide-indicator game-tab-indicator ${indicator.className}`} style={indicator.style} aria-hidden="true" />
       {gameTabs.map((item) => <button id={`tab-${item.id}`} aria-controls={`panel-${item.id}`} aria-selected={tab === item.id} role="tab" tabIndex={tab === item.id ? 0 : -1} type="button" key={item.id} onClick={() => onSelect(item.id)}>{item.label}</button>)}
     </nav>
   );
@@ -70,28 +79,28 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
   const { saveId = "" } = useParams();
   const game = useGameWorkspace(saveId, onSaveChanged);
   const { data, tab } = game;
+  const notice = usePresence(game.notice);
 
   if (game.loading && !data) return <LoadingGame />;
-  if (game.problem && !data) return <div className="page game-page"><ProblemPanel problem={game.problem} onRetry={() => void game.refresh()} /></div>;
+  if (game.problem && !data) return <div className="page game-page page-enter" key="problem"><ProblemPanel problem={game.problem} onRetry={() => void game.refresh()} /></div>;
   if (!data) return null;
   if (data.bootstrap.save_id !== saveId) return <LoadingGame />;
   const stateBusy = game.submittingState || isNarrativeJobActive(data.story.active_job);
   const arcBusy = game.submittingArc || isNarrativeJobActive(data.story.active_arc_job);
   const latestTurn = data.story.latest_turn;
   return (
-    <div className="page game-page">
+    <div className="page game-page page-enter" key="ready">
       <header className="game-header">
         <div>
-          <span className="ready-mark">游戏档案</span>
           <h1>{data.projections.character.identity.name || data.bootstrap.character.identity?.name || "未命名角色"}</h1>
           <p>{data.story.state.time.label} · {data.story.state.location.name}</p>
         </div>
         {data.imageSessionId
-          ? <Link className="secondary-button scene-image-button" to={`/saves/${saveId}/game/image`}>查看场景图片</Link>
+          ? <Link viewTransition className="secondary-button scene-image-button" to={`/saves/${saveId}/game/image`}>查看场景图片</Link>
           : <button className={`secondary-button scene-image-button ${data.imageConfigured ? "" : "unconfigured"}`} type="button" disabled={!latestTurn || game.startingImage} onClick={() => void game.startImageSession()}>{game.startingImage ? "正在创建…" : "生成此刻图片"}</button>}
       </header>
-      {game.notice && <GameNoticeBar key={game.notice.id} notice={game.notice} onDismiss={() => game.setNotice(null)} />}
-      <GameTabs tab={tab} onSelect={game.setTab} />
+      {notice.current && <GameNoticeBar key={notice.current.id} notice={notice.current} leaving={notice.leaving} onDismiss={() => game.setNotice(null)} />}
+      <GameTabs tab={tab} onSelect={game.selectTab} />
       <section className="game-panel" id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} tabIndex={0}>
         {tab === "story" && (
           <StoryPanel
@@ -100,7 +109,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
             viewedTurn={game.viewedTurn}
             busy={stateBusy}
             catalog={data.catalog}
-            onNavigate={game.setViewedTurn}
+            onNavigate={game.showTurn}
             onOpen={(guidance) => void game.startStateJob((version, signal) => api.startOpening(saveId, version, guidance, crypto.randomUUID(), signal))}
             onResolvePrerequisite={(resolution, locationId) => void game.resolveStartPrerequisite(resolution, locationId)}
             onTurn={(action, optionId) => void game.startStateJob((version, signal) => api.startTurn(saveId, version, action, optionId, crypto.randomUUID(), signal))}

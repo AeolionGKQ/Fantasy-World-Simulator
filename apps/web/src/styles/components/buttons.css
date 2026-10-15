@@ -14,9 +14,9 @@
     padding: 0 17px;
     font-weight: 650;
     text-decoration: none;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     cursor: pointer;
-    transition: background 180ms var(--ease), border-color 180ms var(--ease), color 180ms var(--ease), transform 100ms var(--ease);
+    transition: background var(--dur-state) var(--ease-out), border-color var(--dur-state) var(--ease-out), color var(--dur-state) var(--ease-out), transform var(--dur-press) var(--ease-out);
   }
 
   .primary-button {
@@ -24,7 +24,7 @@
     color: var(--primary-ink);
     background: var(--primary);
     border: 2px solid var(--primary-edge);
-    box-shadow: 2px 3px 0 #243777;
+    box-shadow: 2px 3px 0 var(--primary-shadow);
   }
 
   .primary-button:hover {
@@ -54,7 +54,7 @@
   }
 
   .danger-button:hover {
-    background: #fce0e3;
+    background: var(--danger-hover);
   }
 
   .secondary-button:active,
@@ -83,7 +83,7 @@
     color: var(--primary);
     background: transparent;
     border: 0;
-    border-radius: 7px;
+    border-radius: var(--radius-sm);
   }
 
   .text-button:hover {
@@ -102,9 +102,9 @@
     color: var(--muted);
     background: transparent;
     border: 0;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     cursor: pointer;
-    transition: color 180ms var(--ease), background 180ms var(--ease), border-color 180ms var(--ease);
+    transition: color var(--dur-state) var(--ease-out), background var(--dur-state) var(--ease-out), border-color var(--dur-state) var(--ease-out);
   }
 
   .icon-button:hover {

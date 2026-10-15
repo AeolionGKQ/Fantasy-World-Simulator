@@ -18,6 +18,11 @@ export const steps = [
 
 export const TOTAL_STEPS = steps.length;
 
+/** "第 N 步，共 13 步": shared by the wizard header, the save sidebar and the home page. */
+export function stepProgressLabel(step: number) {
+  return `第 ${step} 步，共 ${TOTAL_STEPS} 步`;
+}
+
 /** Steps the player must complete before a character can be generated. */
 const requiredSteps = [1, 2, 3, 4, 5, 6, 7, 8, 10];
 
@@ -48,7 +53,7 @@ export function validateDraft(draft: CharacterDraft, catalog: WorldCatalog): { s
 
 const stepTitles = ["选择角色种族", "为角色命名", "确定角色性别", "填写角色年龄", "描绘角色外貌", "塑造角色性格", "选择初始等阶", "描述角色天赋", "补充角色身世", "选择初始地点", "浏览世界势力", "添加其他信息", "生成并确认角色"];
 
-const stepDescriptions = ["浏览可玩种族的特征与寿命提示，然后作出选择。", "姓名将进入正式角色档案，确认前仍可修改。", "使用预设选项，或直接输入更符合角色的描述。", "平均寿命仅供参考，不作为年龄上限。", "预设词会追加到文本中，你可以继续编辑。", "用明确的性格特征帮助模型理解角色。", "选择角色开局时的战斗实力，了解各阶的能力范围与冒险侧重。", "预设词只提供方向，最终文本由你决定。", "此项可留空，不会阻止后续生成。", "浏览地点资料并选择角色开始冒险的位置。", "认识这片大陆上的主要势力", "此项可留空，用于记录额外约束或想法。", "检查输入，发起异步生成，并在接受前审阅完整候选。 "];
+const stepDescriptions = ["浏览可玩种族的特征与寿命提示，然后作出选择。", "姓名将进入正式角色档案，确认前仍可修改。", "使用预设选项，或直接输入更符合角色的描述。", "平均寿命仅供参考，不作为年龄上限。", "预设词会追加到文本中，你可以继续编辑。", "用明确的性格特征帮助模型理解角色。", "选择角色开局时的战斗实力，了解各阶的能力范围与冒险侧重。", "预设词只提供方向，最终文本由你决定。", "此项可留空，不会阻止后续生成。", "浏览地点资料并选择角色开始冒险的位置。", "认识这片大陆上的主要势力。", "此项可留空，用于记录额外约束或想法。", "检查输入，发起异步生成，并在接受前审阅完整候选。"];
 
 export function stepTitle(step: number) {
   return stepTitles[step - 1];

@@ -7,7 +7,7 @@ export function NotFoundPage() {
         <div className="empty-symbol" aria-hidden="true">?</div>
         <h1>页面不存在</h1>
         <p>此档案路径无效，或对应内容已被删除。</p>
-        <Link className="primary-button" to="/">返回档案总览</Link>
+        <Link viewTransition className="primary-button" to="/">返回档案总览</Link>
       </section>
     </div>
   );

@@ -1,6 +1,7 @@
 """SQLite persistence and atomic domain operations."""
 
 import copy
+import hashlib
 import json
 import os
 import sqlite3
@@ -25,6 +26,22 @@ except ImportError:  # Direct execution: python server.py
                                 MAX_STARTING_CURRENCY_COPPER, ProviderError,
                                 response_format_capability_key,
                                 thinking_capability_key, validate_candidate)
+
+
+# Provider errors that mean the model service could not be reached or refused the credentials.
+# Others (rate limits, malformed output, context length, rejected content) leave the status alone.
+SERVICE_CONNECTION_FAILURES = frozenset({
+    "MODEL_AUTH_FAILED", "MODEL_NETWORK_ERROR", "MODEL_TIMEOUT", "MODEL_NOT_FOUND",
+    "MODEL_SERVICE_ERROR"})
+
+
+def service_fingerprint(config, api_key):
+    """Identifies one service configuration; only a hash of the key is used, never the key itself."""
+    key_hash = hashlib.sha256((api_key or "").encode("utf-8")).hexdigest()
+    raw = "|".join([str(config.get("protocol") or "openai"),
+                    str(config.get("base_url") or "").rstrip("/"),
+                    str(config.get("model") or ""), key_hash])
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
 
 def utc_now():
@@ -294,6 +311,15 @@ CREATE TABLE IF NOT EXISTS model_capabilities (
     last_failure TEXT,
     probed_at TEXT NOT NULL,
     PRIMARY KEY(endpoint, model, config_version)
+);
+CREATE TABLE IF NOT EXISTS service_status (
+    service TEXT PRIMARY KEY CHECK (service IN ('story_model','image_model')),
+    fingerprint TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('ok','failed')),
+    error_code TEXT,
+    message TEXT,
+    source TEXT NOT NULL CHECK (source IN ('test','call')),
+    checked_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS saves (
     id TEXT PRIMARY KEY,
@@ -629,6 +655,37 @@ class Database:
         stored["message"] = result.get("message") or stored["message"]
         return stored
 
+    def record_service_check(self, service, config, api_key, ok, error_code=None, message="",
+                             source="call"):
+        """Remembers the latest connection outcome for the configuration actually used."""
+        if not ok and error_code not in SERVICE_CONNECTION_FAILURES:
+            return
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT INTO service_status(service,fingerprint,state,error_code,message,source,checked_at) "
+                "VALUES(?,?,?,?,?,?,?) ON CONFLICT(service) DO UPDATE SET fingerprint=excluded.fingerprint,"
+                "state=excluded.state,error_code=excluded.error_code,message=excluded.message,"
+                "source=excluded.source,checked_at=excluded.checked_at",
+                (service, service_fingerprint(config, api_key), "ok" if ok else "failed",
+                 None if ok else error_code, "" if ok else (message or ""), source, utc_now()))
+
+    def get_service_status(self, service, config, api_key):
+        """not_configured / unverified / connected / failed for the current configuration.
+        Reads stored outcomes only; it never contacts the model service."""
+        view = {"state": "not_configured", "model": config.get("model") or "",
+                "checked_at": None, "error_code": None, "message": ""}
+        if not (config.get("base_url") and config.get("model") and api_key):
+            return view
+        with self.connect() as connection:
+            row = connection.execute("SELECT * FROM service_status WHERE service=?", (service,)).fetchone()
+        if row is None or row["fingerprint"] != service_fingerprint(config, api_key):
+            view["state"] = "unverified"
+            return view
+        view.update({"state": "connected" if row["state"] == "ok" else "failed",
+                     "checked_at": row["checked_at"], "error_code": row["error_code"],
+                     "message": row["message"] or ""})
+        return view
+
     def invalidate_model_capability(self, config, failure=None):
         return self.set_model_capability(config, {
             "capability": "unknown", "strategy": None, "confidence": "unknown",
@@ -894,7 +951,13 @@ class Database:
                 "(SELECT status FROM generation_jobs j WHERE j.save_id=s.id ORDER BY j.created_at DESC LIMIT 1) generation_status, "
                 "(SELECT updated_at FROM generation_jobs j WHERE j.save_id=s.id ORDER BY j.created_at DESC LIMIT 1) generation_updated_at, "
                 "(SELECT data_json FROM characters c WHERE c.save_id=s.id) character_json, "
-                "(SELECT current_step FROM drafts d WHERE d.save_id=s.id) current_step "
+                "(SELECT current_step FROM drafts d WHERE d.save_id=s.id) current_step, "
+                # Latest story segment for the archive overview: the authoritative current turn plus
+                # the place and time read straight from the state JSON (no full parse per save).
+                "(SELECT t.title FROM story_states st JOIN turns t ON t.id=st.current_turn_id WHERE st.save_id=s.id) latest_turn_title, "
+                "(SELECT t.sequence FROM story_states st JOIN turns t ON t.id=st.current_turn_id WHERE st.save_id=s.id) latest_turn_sequence, "
+                "(SELECT json_extract(st.state_json, '$.location.name') FROM story_states st WHERE st.save_id=s.id) latest_location_name, "
+                "(SELECT json_extract(st.state_json, '$.time.label') FROM story_states st WHERE st.save_id=s.id) latest_time_label "
                 "FROM saves s ORDER BY s.updated_at DESC"
             ).fetchall()
         result = []
@@ -906,8 +969,15 @@ class Database:
                 generation = {"job_id": row["generation_id"],
                               "status": row["generation_status"],
                               "updated_at": row["generation_updated_at"]}
+            latest_turn = None
+            if row["latest_turn_title"] is not None:
+                latest_turn = {"title": row["latest_turn_title"],
+                               "location_name": row["latest_location_name"] or "",
+                               "time_label": row["latest_time_label"] or "",
+                               "sequence": row["latest_turn_sequence"]}
             item.update({"generation": generation,
-                         "character_name": character.get("identity", {}).get("name")})
+                         "character_name": character.get("identity", {}).get("name"),
+                         "latest_turn": latest_turn})
             result.append(item)
         return result
 

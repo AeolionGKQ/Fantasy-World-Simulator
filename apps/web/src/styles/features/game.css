@@ -15,14 +15,16 @@
   }
 
   .game-header h1 {
-    margin: 6px 0;
+    margin: 0 0 4px;
     color: var(--ink);
-    font-size: 1.8rem;
+    font-size: var(--text-display);
     font-weight: 800;
+    line-height: 1.15;
   }
 
   .game-header p {
     color: var(--muted);
+    font-size: var(--text-base);
   }
 
   .scene-image-button {
@@ -44,7 +46,13 @@
     padding: 6px 8px 6px 16px;
     background: var(--info-soft);
     border: 1px solid var(--info-line);
-    border-radius: 13px;
+    border-radius: var(--radius-md);
+    animation: notice-in var(--dur-enter) var(--ease-out) both;
+  }
+
+  /* Fades out without collapsing its height, so the content below does not jump mid-fade. */
+  .game-notice.leaving {
+    animation: fade-out var(--dur-exit) var(--ease-in) both;
   }
 
   .game-notice.error {
@@ -64,28 +72,28 @@
 
   .game-notice.error > span {
     color: var(--danger);
-    border-radius: 50%;
+    border-radius: var(--radius-full);
   }
 
   .game-notice p {
-    font-size: .875rem;
+    font-size: var(--text-sm);
   }
 
   .game-notice small {
     display: block;
     color: var(--muted);
     font-family: ui-monospace, monospace;
-    font-size: .72rem;
+    font-size: var(--text-xs);
   }
 
   .game-notice button {
     width: 44px;
     height: 44px;
     color: var(--muted);
-    font-size: 1.35rem;
+    font-size: var(--text-lg);
     background: transparent;
     border: 0;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
 
@@ -96,26 +104,37 @@
 
   /* ---- Tabs ---- */
   .game-tabs {
+    position: relative;
     display: flex;
     gap: var(--game-tabs-gap);
     overflow-x: auto;
     padding: 4px 3px 14px;
-    border-bottom: 2px solid var(--outline);
+    border-bottom: 1px solid var(--line);
     scrollbar-width: thin;
+  }
+
+  /* The selected-tab highlight is one element that slides between tabs (.slide-indicator). */
+  .game-tab-indicator {
+    background: var(--sunflower);
+    border: 1px solid var(--outline);
+    border-radius: var(--radius-md);
   }
 
   .game-tabs button {
     appearance: none;
+    position: relative;
+    z-index: 1;
     min-width: max-content;
     min-height: 42px;
     padding: 0 var(--game-tab-padding-x);
     color: var(--muted);
-    font-size: var(--game-tab-font-size);
+    font-size: var(--text-sm);
     font-weight: 620;
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 11px;
+    border-radius: var(--radius-md);
     cursor: pointer;
+    transition: color var(--dur-state) var(--ease-out), background var(--dur-state) var(--ease-out);
   }
 
   .game-tabs button:hover {
@@ -123,11 +142,10 @@
     background: var(--surface-raised);
   }
 
-  .game-tabs button[aria-selected="true"] {
+  .game-tabs button[aria-selected="true"],
+  .game-tabs button[aria-selected="true"]:hover {
     color: var(--ink);
-    background: var(--sunflower);
-    border: 1px solid var(--outline);
-    box-shadow: 2px 2px 0 #b49b4e;
+    background: transparent;
   }
 
   .game-panel {
@@ -144,11 +162,18 @@
       margin-bottom: 20px;
     }
 
-    /* Tabs scroll edge to edge. */
+    /* Tabs scroll edge to edge; the edges fade to show there is more to scroll. */
     .game-tabs {
       gap: 9px;
       margin: 0 -16px;
       padding: 4px 16px 13px;
+      scroll-padding-inline: 16px;
+      scroll-snap-type: x proximity;
+      mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 28px), transparent);
+    }
+
+    .game-tabs button {
+      scroll-snap-align: start;
     }
 
     .game-tabs button {

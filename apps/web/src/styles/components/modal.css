@@ -6,12 +6,29 @@
     color: var(--ink);
     background: var(--surface);
     border: 2px solid var(--outline);
-    border-radius: 20px;
-    box-shadow: 0 24px 70px #26375b33;
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-dialog);
   }
 
   .modal::backdrop {
     background: var(--backdrop);
+  }
+
+  /* Enter: scale up from 96% and fade; exit (Modal adds .closing): the reverse, quicker. */
+  .modal[open] {
+    animation: modal-in var(--dur-enter) var(--ease-out) both;
+  }
+
+  .modal[open]::backdrop {
+    animation: fade-in var(--dur-enter) var(--ease-out) both;
+  }
+
+  .modal.closing {
+    animation: modal-out var(--dur-exit) var(--ease-in) both;
+  }
+
+  .modal.closing::backdrop {
+    animation: fade-out var(--dur-exit) var(--ease-in) both;
   }
 
   .modal-heading {
@@ -24,7 +41,7 @@
   }
 
   .modal-heading h2 {
-    font-size: 1.125rem;
+    font-size: var(--text-md);
   }
 
   .modal > form,

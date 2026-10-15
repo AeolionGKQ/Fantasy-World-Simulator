@@ -39,7 +39,7 @@ export function MemoryPanel({ memory, memories, arcBusy, arcJob, onMerge }: {
             {memories.map((item) => (
               <li key={item.id}>
                 <span className="memory-number" aria-label={`长期记忆 ${item.memory_number}`}>{item.memory_number}</span>
-                <div><strong>{item.summary}</strong><span>重要度 {item.importance}</span></div>
+                <div className="memory-summary"><p>{item.summary}</p><span className="memory-importance">重要度 {item.importance}</span></div>
                 {item.recall_reason && <p className="recall-reason">与本轮剧情相关：{item.recall_reason}</p>}
                 {item.facts.length > 0 && <p>{item.facts.join("；")}</p>}
                 {item.unresolved.length > 0 && <small>尚未解决：{item.unresolved.join("；")}</small>}

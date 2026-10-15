@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Route, Routes, ScrollRestoration, useLocation } from "react-router-dom";
 import { api, asApiError } from "../api";
+import { usePresence } from "../components/usePresence";
 import { playerProblemMessage } from "../playerCopy";
-import { saveRoute, type SaveSummary } from "../types";
+import { saveRoute, type SaveSummary, type ServiceStatuses } from "../types";
 import { CharacterWizard } from "../features/character/CharacterWizard";
 import { ReviewPage } from "../features/character/ReviewPage";
 import GameWorkspace from "../features/game/GameWorkspace";
@@ -18,6 +19,7 @@ import { SettingsPage } from "../features/settings/SettingsPage";
 import { AppToolbar } from "./AppToolbar";
 import { SaveSidebar } from "./SaveSidebar";
 import type { ShellActions } from "./shellActions";
+import { useAppNavigate } from "./viewTransition";
 
 type ShellModal = "new" | "import" | "rename" | "delete";
 
@@ -29,10 +31,24 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [modal, setModal] = useState<ShellModal | null>(null);
   const [targetSave, setTargetSave] = useState<SaveSummary | null>(null);
-  const navigate = useNavigate();
+  const [services, setServices] = useState<ServiceStatuses | null>(null);
+  const [servicesError, setServicesError] = useState(false);
+  const navigate = useAppNavigate();
   const location = useLocation();
 
+  /** Model service status for the sidebar. Reads stored outcomes only, so it is free to call often. */
+  const refreshServiceStatus = useCallback(async () => {
+    try {
+      setServices(await api.getServiceStatus());
+      setServicesError(false);
+    } catch {
+      setServicesError(true);
+    }
+  }, []);
+
+  // Saves are refreshed after every job finishes, so the service status rides along with them.
   const refreshSaves = useCallback(async () => {
+    void refreshServiceStatus();
     try {
       setLoadError(null);
       const next = await api.listSaves();
@@ -42,9 +58,14 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [refreshServiceStatus]);
 
   useEffect(() => { void refreshSaves(); }, [refreshSaves]);
+  useEffect(() => {
+    const onFocus = () => { void refreshServiceStatus(); };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refreshServiceStatus]);
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
   useEffect(() => {
     if (!notice) return;
@@ -54,7 +75,11 @@ export default function App() {
 
   const currentId = /^\/saves\/([^/]+)/.exec(location.pathname)?.[1];
   const currentSave = saves.find((save) => save.id === currentId) ?? null;
-  const actions = useMemo<ShellActions>(() => ({ refreshSaves, setNotice }), [refreshSaves]);
+  const toast = usePresence(notice);
+  const actions = useMemo<ShellActions>(() => ({ refreshSaves, refreshServiceStatus, setNotice }), [refreshSaves, refreshServiceStatus]);
+  const offline = Boolean(loadError) || servicesError;
+  const storyState = services?.story_model.state;
+  const settingsAttention = !offline && (storyState === "not_configured" || storyState === "failed") ? storyState : null;
 
   const openFor = (kind: "rename" | "delete", save: SaveSummary) => {
     setTargetSave(save);
@@ -74,6 +99,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <ScrollRestoration />
       <a className="skip-link" href="#main-content">跳到主要内容</a>
       <SaveSidebar
         saves={saves}
@@ -81,19 +107,23 @@ export default function App() {
         loading={loading}
         loadError={loadError}
         open={drawerOpen}
-        settingsActive={location.pathname === "/settings"}
+        services={services}
+        offline={offline}
         onClose={() => setDrawerOpen(false)}
         onRetry={() => void refreshSaves()}
         onNew={() => setModal("new")}
         onRename={(save) => openFor("rename", save)}
         onDelete={(save) => openFor("delete", save)}
       />
-      {drawerOpen && <button className="drawer-backdrop" type="button" aria-label="关闭存档列表" onClick={() => setDrawerOpen(false)} />}
+      {/* Always rendered on mobile so it can fade out; inert while the drawer is closed. */}
+      <button className={`drawer-backdrop ${drawerOpen ? "open" : ""}`} type="button" aria-label="关闭存档列表" aria-hidden={!drawerOpen} tabIndex={drawerOpen ? 0 : -1} onClick={() => setDrawerOpen(false)} />
 
       <div className="workspace">
         <AppToolbar
           context={location.pathname === "/settings" ? "应用设置" : currentSave?.name ?? "档案总览"}
           canExport={Boolean(currentSave)}
+          settingsActive={location.pathname === "/settings"}
+          settingsAttention={settingsAttention}
           onMenu={() => setDrawerOpen(true)}
           onNew={() => setModal("new")}
           onImport={() => setModal("import")}
@@ -112,7 +142,7 @@ export default function App() {
         </main>
       </div>
 
-      {notice && <div className="toast" role="status">{notice}</div>}
+      {toast.current && <div className={`toast ${toast.leaving ? "leaving" : ""}`} role="status" key={toast.current}>{toast.current}</div>}
       {modal === "new" && (
         <NewSaveModal
           onClose={() => setModal(null)}

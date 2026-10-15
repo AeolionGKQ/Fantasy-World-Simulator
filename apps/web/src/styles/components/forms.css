@@ -11,7 +11,7 @@
   .field > span,
   .field-label {
     color: var(--ink);
-    font-size: .875rem;
+    font-size: var(--text-sm);
     font-weight: 620;
     line-height: 1.4;
   }
@@ -23,7 +23,7 @@
 
   .field > small {
     color: var(--muted);
-    font-size: .78rem;
+    font-size: var(--text-xs);
   }
 
   .field input,
@@ -34,9 +34,9 @@
     color: var(--ink);
     background: var(--field-bg);
     border: 1px solid var(--line-strong);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     outline: none;
-    transition: border-color 180ms var(--ease), box-shadow 180ms var(--ease);
+    transition: border-color var(--dur-state) var(--ease-out), box-shadow var(--dur-state) var(--ease-out);
   }
 
   .field textarea {
@@ -48,7 +48,7 @@
   .field select {
     color: var(--ink);
     background: var(--field-bg);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
   }
 
   .field input:hover,
@@ -59,7 +59,7 @@
   .field input:focus,
   .field textarea:focus {
     border-color: var(--primary);
-    box-shadow: 0 0 0 3px #3548bd1a;
+    box-shadow: 0 0 0 3px var(--focus-ring);
   }
 
   .field input::placeholder,
@@ -75,7 +75,7 @@
   .field-error {
     margin-top: 8px;
     color: var(--danger);
-    font-size: .875rem;
+    font-size: var(--text-sm);
   }
 
   .input-suffix {
@@ -115,7 +115,7 @@
   /* Segmented field: equal-width options in a three-column grid. */
   .segmented-field legend {
     margin-bottom: 7px;
-    font-size: .875rem;
+    font-size: var(--text-sm);
     font-weight: 620;
   }
 
@@ -132,7 +132,7 @@
     color: var(--muted);
     background: var(--bg);
     border: 1px solid var(--line-strong);
-    border-radius: 9px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
 
@@ -162,7 +162,7 @@
 
   .choice-field legend {
     margin-bottom: 9px;
-    font-size: .875rem;
+    font-size: var(--text-sm);
     font-weight: 620;
   }
 
@@ -180,8 +180,9 @@
     color: var(--muted);
     background: var(--surface);
     border: 1px solid var(--line-strong);
-    border-radius: 11px;
+    border-radius: var(--radius-md);
     cursor: pointer;
+    transition: color var(--dur-state) var(--ease-out), background var(--dur-state) var(--ease-out), border-color var(--dur-state) var(--ease-out);
   }
 
   .choice-field input:focus-visible + span {
@@ -212,9 +213,10 @@
     color: var(--muted);
     background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: 11px;
+    border-radius: var(--radius-md);
     white-space: nowrap;
     cursor: pointer;
+    transition: color var(--dur-state) var(--ease-out), background var(--dur-state) var(--ease-out), border-color var(--dur-state) var(--ease-out);
   }
 
   .option-track label:hover > span,
@@ -262,9 +264,9 @@
     padding: 3px;
     background: var(--surface);
     border: 1px solid var(--line-strong);
-    border-radius: 20px;
+    border-radius: var(--radius-xl);
     cursor: pointer;
-    transition: background 180ms var(--ease), border-color 180ms var(--ease);
+    transition: background var(--dur-state) var(--ease-out), border-color var(--dur-state) var(--ease-out);
   }
 
   .switch span::after {
@@ -273,8 +275,8 @@
     width: 18px;
     height: 18px;
     background: var(--muted);
-    border-radius: 50%;
-    transition: transform 180ms var(--ease), background 180ms var(--ease);
+    border-radius: var(--radius-full);
+    transition: transform var(--dur-state) var(--ease-out), background var(--dur-state) var(--ease-out);
   }
 
   .switch input:checked + span {
@@ -283,7 +285,7 @@
   }
 
   .switch input:checked + span::after {
-    background: #fff;
+    background: var(--primary-ink);
     transform: translateX(20px);
   }
 
@@ -315,7 +317,7 @@
   .cost-note {
     margin-right: auto;
     color: var(--muted);
-    font-size: .76rem;
+    font-size: var(--text-xs);
   }
 
   .form-actions .cost-note {

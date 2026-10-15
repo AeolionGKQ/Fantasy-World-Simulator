@@ -321,9 +321,14 @@ class AppContext:
                 config = self.database.get_image_model_config()
                 attempt, session = claimed["attempt"], claimed["session"]
                 with self._image_semaphore:
-                    result = self.image_provider.generate(
-                        config, self.image_secrets.get_api_key(), attempt["prompt_snapshot"],
-                        attempt["requested_size"], attempt["requested_quality"])
+                    try:
+                        result = self.image_provider.generate(
+                            config, self.image_secrets.get_api_key(), attempt["prompt_snapshot"],
+                            attempt["requested_size"], attempt["requested_quality"])
+                    except ProviderError as exc:
+                        self._record_service("image_model", config, None, False, exc.code, exc.message)
+                        raise
+                    self._record_service("image_model", config, None, True)
                 directory = os.path.join(self.image_root, session["save_id"], session["id"])
                 os.makedirs(directory, exist_ok=True)
                 target = os.path.join(directory, attempt_id + ".png")
@@ -414,7 +419,27 @@ class AppContext:
             self._provider_fallback_retries += 1
             self._provider_condition.notify_all()
 
-    def _call_provider_with_concurrency_fallback(self, config, provider_call):
+    def _call_provider_with_concurrency_fallback(self, config, provider_call, api_key=None, source="call"):
+        """Runs a story-model call under the provider concurrency limit and records whether the
+        service was reachable, for the sidebar status (Database.record_service_check)."""
+        try:
+            result = self._call_provider_limited(config, provider_call)
+        except ProviderError as exc:
+            self._record_service("story_model", config, api_key, False, exc.code, exc.message, source)
+            raise
+        self._record_service("story_model", config, api_key, True, source=source)
+        return result
+
+    def _record_service(self, service, config, api_key, ok, error_code=None, message="", source="call"):
+        """Best effort: a failure to record never affects the call itself."""
+        if api_key is None:
+            api_key = (self.secrets if service == "story_model" else self.image_secrets).get_api_key()
+        try:
+            self.database.record_service_check(service, config, api_key, ok, error_code, message, source)
+        except Exception:
+            print("service status could not be recorded")
+
+    def _call_provider_limited(self, config, provider_call):
         ticket = self._provider_enter(config)
         released = False
         try:
@@ -686,6 +711,14 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
             return 200, {"status": "ok", "app_id": APP_ID, "api_version": API_VERSION}, {}
         if method == "GET" and path == "/api/world/catalog":
             return 200, CATALOG, {}
+        if method == "GET" and path == "/api/status/services":
+            # Read-only: reports stored outcomes and never contacts a model service (no cost).
+            return 200, {
+                "story_model": db.get_service_status("story_model", db.get_model_config(),
+                                                     self.app.secrets.get_api_key()),
+                "image_model": db.get_service_status("image_model", db.get_image_model_config(),
+                                                     self.app.image_secrets.get_api_key()),
+            }, {}
         if method == "GET" and path == "/api/settings":
             return 200, db.get_settings(bool(self.app.secrets.get_api_key()),
                                         self.app.secrets.persistence,
@@ -750,7 +783,8 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
             if (body.get("probe_structured_output", False) or
                     body.get("force_response_format_probe", False)):
                 response_format = self.app._call_provider_with_concurrency_fallback(
-                    config, lambda: self.app.provider.probe_response_format(config, api_key))
+                    config, lambda: self.app.provider.probe_response_format(config, api_key),
+                    api_key=api_key, source="test")
                 response_format = db.set_response_format_capability(config, response_format)
                 thinking = db.get_model_capability(config)
                 result = {
@@ -770,7 +804,12 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
             result = self.app._call_provider_with_concurrency_fallback(
                 config, lambda: self.app.provider.test_connection(
                     config, api_key, cached,
-                    force_thinking_probe=force_thinking_probe))
+                    force_thinking_probe=force_thinking_probe),
+                api_key=api_key, source="test")
+            if result.get("model_available") is False:
+                # Reachable, but this model is not offered: generation would fail.
+                self.app._record_service("story_model", config, api_key, False, "MODEL_NOT_FOUND",
+                                         result.get("message", ""), "test")
             thinking = result.get("thinking")
             if isinstance(thinking, dict) and result.get("thinking_probed", True):
                 result["thinking"] = db.set_model_capability(config, thinking)
@@ -796,8 +835,13 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
             body = self._read_json(optional=True)
             config = db.get_image_model_config()
             config.update({key: body[key] for key in ("base_url", "model", "timeout_seconds") if key in body})
-            result = self.app.image_provider.test_connection(
-                config, body.get("api_key", self.app.image_secrets.get_api_key()))
+            api_key = body.get("api_key", self.app.image_secrets.get_api_key())
+            try:
+                result = self.app.image_provider.test_connection(config, api_key)
+            except ProviderError as exc:
+                self.app._record_service("image_model", config, api_key, False, exc.code, exc.message, "test")
+                raise
+            self.app._record_service("image_model", config, api_key, True, source="test")
             return 200, result, {}
         if path == "/api/saves":
             if method == "GET":

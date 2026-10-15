@@ -77,7 +77,7 @@ export function ImportSaveModal({ onClose, onImported }: { onClose: () => void; 
         <label className="file-picker">
           <Icon name="upload" />
           <span><strong>{filename || "选择存档文件"}</strong><small>选择从游戏中导出的 .json 存档文件，最大 64 MB。导入会新增一份存档，不覆盖已有冒险。</small></span>
-          <input type="file" disabled={busy} accept="application/json,.json" onChange={(e) => void choose(e.target.files?.[0])} />
+          <input data-autofocus type="file" disabled={busy} accept="application/json,.json" onChange={(e) => void choose(e.target.files?.[0])} />
         </label>
         {busy && !preview && <p className="inline-status"><StatusDot state="busy" />正在检查存档…</p>}
         {preview && !pending && <ImportPreviewDetails preview={preview} />}
@@ -90,7 +90,7 @@ export function ImportSaveModal({ onClose, onImported }: { onClose: () => void; 
         )}
         {error && <p className="field-error" role="alert">{error}</p>}
         <div className="modal-actions">
-          <button className="secondary-button" type="button" onClick={onClose}>取消</button>
+          <button className="secondary-button" type="button" data-modal-close>取消</button>
           {pending
             ? <button className="primary-button" type="button" disabled={!trusted || busy} onClick={() => void trustAndImport()}>{busy ? "正在导入…" : "确认来源并导入"}</button>
             : <button className="primary-button" type="button" disabled={!preview?.valid || busy} onClick={() => void submit()}>{busy && preview ? "正在导入…" : "确认导入"}</button>}
