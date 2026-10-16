@@ -51,7 +51,7 @@ class GMWritingContextTest(unittest.TestCase):
         messages, manifest = self.build('story_arc')
         self.assertNotIn(self.guide, messages[0]['content'])
         self.assertNotIn('gm_writing_guidelines', manifest)
-        self.assertIn('story-arc/1', messages[0]['content'])
+        self.assertIn('story-arc/2', messages[0]['content'])
 
     def test_image_prompt_does_not_receive_turn_writing_context(self):
         frozen = {'documents': self.documents, 'state': self.state, 'turn': {},

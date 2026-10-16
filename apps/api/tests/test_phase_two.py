@@ -16,14 +16,14 @@ if str(APPS_DIR) not in sys.path:
     sys.path.insert(0, str(APPS_DIR))
 
 from api.content_registry import (CANON_DOCUMENTS, PLAYER_ADDRESS_PROTOCOL_VERSION,
-                                  RULE_DOCUMENTS, ContentRegistry,
+                                  RULE_DOCUMENTS, STORY_ARC_POLICY_VERSION, ContentRegistry,
                                   player_address_directive, revision_identity)
 from api.contract_registry import contract_from_documents, load_contract, validate_json_schema
 from api.database import Database, DomainError
 from api.model_provider import (OpenAICompatibleProvider, ProviderError, _model_json_object,
                                 is_context_length_error)
 from api.narrative_contract import (QUEST_TRANSITIONS, REPUTATION_KEYS, ContractError,
-                                    adjudicate, validate_gm_response)
+                                    adjudicate, validate_gm_response, validate_story_arc)
 from api.story_repository import (StoryRepository, canonical_location_map, initial_story_state,
                                   number_active_memories, start_prerequisite)
 from api.server import create_server
@@ -86,6 +86,12 @@ def reputation_proposal(**changes):
     return result
 
 
+def story_arc_policy_rules(system_prompt):
+    """Rules of the RUNTIME_STORY_ARC_POLICY_JSON block in a story-arc system prompt."""
+    start = system_prompt.index("<RUNTIME_STORY_ARC_POLICY_JSON>") + len("<RUNTIME_STORY_ARC_POLICY_JSON>")
+    end = system_prompt.index("</RUNTIME_STORY_ARC_POLICY_JSON>")
+    return json.loads(system_prompt[start:end])["rules"]
+
 class PhaseTwoProvider:
     def __init__(self):
         self.character = {
@@ -118,8 +124,8 @@ class PhaseTwoProvider:
             if isinstance(response, Exception):
                 raise response
             return copy.deepcopy(response)
-        return {"schema_version": "story-arc/1", "title": "第一故事弧",
-                "summary": "一段连续旅程。", "key_events": ["旅程开始"], "unresolved": []}
+        return {"schema_version": "story-arc/2", "title": "第一故事弧",
+                "summary": "一段连续旅程，旅程从学院出发。", "unresolved": ["答应向导师回信，尚未兑现"]}
 
 
 class ContentTest(unittest.TestCase):
@@ -185,17 +191,56 @@ class ContentTest(unittest.TestCase):
         gm_contract = contract_from_documents("gm_turn", registry.documents)
         arc_contract = contract_from_documents("story_arc", registry.documents)
         validate_json_schema(gm_response("turn"), gm_contract["schema"])
-        validate_json_schema({"schema_version": "story-arc/1", "title": "弧", "summary": "摘要",
-                              "key_events": [], "unresolved": []}, arc_contract["schema"])
+        validate_json_schema({"schema_version": "story-arc/2", "title": "弧", "summary": "摘要",
+                              "unresolved": []}, arc_contract["schema"])
+        self.assertEqual("story-arc/2", arc_contract["version"])
         messages, manifest = registry.build_messages(
             {"state_version": 0, "location": {"id": "grand_academy"}, "regional_quests": {},
              "narration": {}}, {"action_type": "turn"}, [], [], [], [], {}, registry.documents,
             "gm_turn", registry.manifest)
         system = messages[0]["content"]
         self.assertIn(json.dumps(gm_contract["schema"], ensure_ascii=False, separators=(",", ":")), system)
-        self.assertNotIn("story-arc/1 JSON Schema", system)
+        self.assertNotIn("story-arc/2 JSON Schema", system)
+        self.assertNotIn("RUNTIME_STORY_ARC_POLICY_JSON", system)
         self.assertEqual("gm_turn", manifest["contract_kind"])
         self.assertIn("canonical_npc_catalog", json.loads(messages[1]["content"]))
+
+    def test_story_arc_v2_drops_key_events_and_keeps_old_saves_working(self):
+        registry = ContentRegistry(API_DIR)
+        current = contract_from_documents("story_arc", registry.documents)
+        arc = {"schema_version": "story-arc/2", "title": "弧", "summary": "梗概",
+               "unresolved": [" 约定在港口会面 ", ""]}
+        self.assertEqual({"schema_version": "story-arc/2", "title": "弧", "summary": "梗概",
+                          "unresolved": ["约定在港口会面"]}, validate_story_arc(arc, current))
+        with self.assertRaises(ContractError):
+            validate_story_arc({**arc, "key_events": []}, current)
+        # A save created before story-arc/2 keeps its frozen v1 contract: still accepted, key events dropped.
+        old_schema = copy.deepcopy(current["schema"])
+        old_schema["properties"]["schema_version"] = {"const": "story-arc/1"}
+        old_schema["properties"]["key_events"] = {"type": "array", "maxItems": 100,
+                                                  "items": {"type": "string", "maxLength": 4000}}
+        old_schema["required"] = ["schema_version", "title", "summary", "key_events", "unresolved"]
+        old_documents = [dict(item, text_content=json.dumps(old_schema, ensure_ascii=False))
+                         if item["document_id"] == "contract.story_arc.schema" else item
+                         for item in registry.documents]
+        old = contract_from_documents("story_arc", old_documents)
+        self.assertEqual("story-arc/1", old["version"])
+        result = validate_story_arc({"schema_version": "story-arc/1", "title": "弧", "summary": "梗概",
+                                     "key_events": ["出发"], "unresolved": ["欠船长一个人情"]}, old)
+        self.assertNotIn("key_events", result)
+        self.assertEqual(["欠船长一个人情"], result["unresolved"])
+
+    def test_story_arc_policy_reaches_every_save_and_merge_drops_resolved_items(self):
+        registry = ContentRegistry(API_DIR)
+        state = {"state_version": 0, "location": {"id": "grand_academy"}, "regional_quests": {}, "narration": {}}
+        for action_type, expects_merge_rule in (("turns_to_arc", False), ("arcs_to_arc", True)):
+            messages, manifest = registry.build_messages(
+                state, {"action_type": action_type, "frozen_sources": []}, [], [], [], [], {},
+                registry.documents, "story_arc", registry.manifest)
+            rules = story_arc_policy_rules(messages[0]["content"])
+            self.assertEqual(expects_merge_rule, any("不得再返回" in rule for rule in rules))
+            self.assertTrue(any("key_events" in rule and "[]" in rule for rule in rules))
+            self.assertEqual(STORY_ARC_POLICY_VERSION, manifest["story_arc_policy_version"])
 
     def test_player_address_modes_and_npc_scope_are_explicit(self):
         registry = ContentRegistry(API_DIR)
@@ -1784,9 +1829,9 @@ class PhaseTwoApiTest(unittest.TestCase):
             connection.execute("UPDATE story_states SET state_version=35,current_turn_id=? WHERE save_id=?",
                                ("arc-retry-turn-35", self.save_id))
         self.provider.responses.extend([
-            {"schema_version": "story-arc/1", "title": "缺字段"},
-            {"schema_version": "story-arc/1", "title": "修正故事弧", "summary": "摘要",
-             "key_events": [], "unresolved": []},
+            {"schema_version": "story-arc/2", "title": "缺字段"},
+            {"schema_version": "story-arc/2", "title": "修正故事弧", "summary": "摘要",
+             "unresolved": []},
         ])
         job, _ = self.server.app_context.story.create_arc_job(
             self.save_id, {"request_id": "arc-format-retry", "expected_state_version": 35})
@@ -1916,6 +1961,14 @@ class PhaseTwoApiTest(unittest.TestCase):
                                      current[0]["end_sequence"], current[0]["level"]))
         self.assertEqual(3, len([arc for arc in memory["story_arcs"]
                                 if arc["status"] == "superseded"]))
+        # Key events now live in the summary; open threads are kept as their own list.
+        self.assertTrue(all(arc["key_events"] == [] for arc in memory["story_arcs"]))
+        self.assertEqual(["答应向导师回信，尚未兑现"], current[0]["unresolved"])
+        merge_rules = story_arc_policy_rules(self.provider.messages[-1][0]["content"])
+        base_rules = story_arc_policy_rules(self.provider.messages[-2][0]["content"])
+        self.assertTrue(any("不得再返回" in rule for rule in merge_rules))
+        self.assertFalse(any("不得再返回" in rule for rule in base_rules))
+        self.assertTrue(any("unresolved" in rule for rule in base_rules))
         automatic, created = self.server.app_context.story.create_arc_job(
             self.save_id, {}, automatic=True)
         self.assertIsNone(automatic)
@@ -2568,8 +2621,8 @@ class PhaseTwoApiTest(unittest.TestCase):
         self.assertTrue(created); self.assertEqual("queued", turn["status"])
         claimed = story.claim(self.save_id, arc["id"])
         story.cancel(self.save_id, arc["id"], {"request_id": "cancel-arc", "expected_state_version": 1})
-        result = story.complete_arc(claimed, {"schema_version": "story-arc/1", "title": "弧",
-                                               "summary": "摘要", "key_events": [], "unresolved": []})
+        result = story.complete_arc(claimed, {"schema_version": "story-arc/2", "title": "弧",
+                                               "summary": "摘要", "unresolved": []})
         self.assertEqual("cancelled", result)
         self.assertEqual("cancelled", story.get_job(self.save_id, arc["id"])["status"])
 

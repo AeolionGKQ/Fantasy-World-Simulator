@@ -15,7 +15,7 @@ export function ReputationsPanel({ data }: { data: ReputationProjection }) {
           </li>
         ))}
       </ul>
-      <p className="projection-footnote">大陆综合声望显示在最前面，当前所在地区对应的势力会突出显示。</p>
+      <p className="projection-footnote">大陆综合声望是整片大陆对角色的整体评价，走到哪里都算数。势力声望只在该势力的地区内起作用，是对当地人看法的补正；角色当前所在地区对应的势力会突出显示。</p>
     </div>
   );
 }

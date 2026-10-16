@@ -35,9 +35,10 @@
   }
 
   .settings-form {
+    --form-gap: 22px;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 22px;
+    gap: var(--form-gap);
   }
 
   .settings-form .full {
@@ -61,6 +62,12 @@
     padding: 10px 0;
     border-top: 1px solid var(--line);
     border-bottom: 1px solid var(--line);
+  }
+
+  /* Two switch rows in a row share one rule instead of drawing two, with equal space on both sides. */
+  .switch-field + .switch-field {
+    margin-top: calc(var(--form-gap, 0px) * -1);
+    border-top: 0;
   }
 
   .settings-page .switch-field > div {

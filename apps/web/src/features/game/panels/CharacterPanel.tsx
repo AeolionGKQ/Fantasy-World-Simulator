@@ -1,20 +1,13 @@
 import type { CSSProperties } from "react";
-import { SegmentedField } from "../../../components/SegmentedField";
 import type { CharacterState, WorldCatalog } from "../../../types";
-import { playerAddressOptions, type PlayerAddress } from "../../settings/settingsLogic";
 import { resourceCondition, resourceExhaustion, resourceFill, resourceLevel } from "../helpers";
+import { CharacterDetails } from "./CharacterDetails";
 
 const resources = [["生命 HP", "hp"], ["魔力 MP", "mp"], ["精神 SP", "sp"], ["精力 ST", "st"]] as const;
 
 const attributes = [["体质 CON", "con"], ["智力 INT", "int"], ["魅力 CHA", "cha"]] as const;
 
-export function CharacterPanel({ character, catalog, playerAddress, addressBusy, onPlayerAddress }: {
-  character: CharacterState;
-  catalog: WorldCatalog;
-  playerAddress: PlayerAddress;
-  addressBusy: boolean;
-  onPlayerAddress: (value: PlayerAddress) => void;
-}) {
+export function CharacterPanel({ character, catalog }: { character: CharacterState; catalog: WorldCatalog }) {
   const identity = character.identity;
   const race = catalog.races.find((item) => item.id === identity.race_id);
   const raceBranch = race?.branches?.find((item) => item.id === identity.race_branch_id);
@@ -23,8 +16,8 @@ export function CharacterPanel({ character, catalog, playerAddress, addressBusy,
       <header className="projection-header">
         <div>
           <span className="ready-mark">{character.alive ? "存活" : "已死亡"}</span>
-          {/* The name is already the page title; this tab leads with identity and rank (V-11). */}
-          <h2 className="identity-line">{[identity.gender, identity.age ? `${identity.age} 岁` : null, race?.name ?? identity.race_id, raceBranch?.name ?? identity.race_branch_id].filter(Boolean).join(" · ") || identity.name || "未命名角色"}</h2>
+          {/* Race (the branch for therians) and name; gender, age and the rest are in 角色详细信息. */}
+          <h2 className="identity-line">{[raceBranch?.name ?? race?.name ?? identity.race_id, identity.name].filter(Boolean).join(" · ") || "未命名角色"}</h2>
           <p>{[character.profession, character.growth_path].filter(Boolean).join(" · ") || "尚无职业与成长路径"}</p>
         </div>
         <strong className="rank-mark">{character.rank} 阶</strong>
@@ -58,11 +51,7 @@ export function CharacterPanel({ character, catalog, playerAddress, addressBusy,
           <AbilitySection title="技能" items={character.skills} empty="尚未习得技能。" />
         </div>
         <aside>
-          <section className="plain-section">
-            <h3>存档叙事设置</h3>
-            <SegmentedField label="GM 对角色的称呼" name="存档GM称呼" full={false} value={playerAddress} options={playerAddressOptions} disabled={addressBusy} onChange={onPlayerAddress} />
-            <p className="projection-footnote">选择 GM 在这个存档中使用全名、名字或“你”来称呼角色。故事中的人物会按各自的关系和场合称呼你。</p>
-          </section>
+          <CharacterDetails character={character} catalog={catalog} />
           <section className="plain-section">
             <h3>成长</h3>
             <dl className="key-values">

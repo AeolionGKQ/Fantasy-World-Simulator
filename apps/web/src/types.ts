@@ -692,7 +692,9 @@ export interface StoryArc {
   end_sequence: number;
   title: string;
   summary: string;
+  /** Only arcs made before story-arc/2 have entries; the page no longer shows them. */
   key_events: string[];
+  /** Open events, promises, leads and loose ends; merging arcs drops the ones since resolved. */
   unresolved: string[];
   status: "current" | "superseded";
   job_id: string;

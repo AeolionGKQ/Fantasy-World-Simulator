@@ -8,7 +8,7 @@ from pathlib import Path
 
 CONTRACT_FILES = {
     "gm_turn": ("gm-turn/2", "gm_turn.schema.json", "output_contract.txt"),
-    "story_arc": ("story-arc/1", "story_arc.schema.json", "story_arc_contract.txt"),
+    "story_arc": ("story-arc/2", "story_arc.schema.json", "story_arc_contract.txt"),
 }
 
 
@@ -32,8 +32,11 @@ def contract_from_documents(kind, documents):
     if text_id not in indexed or schema_id not in indexed:
         raise ValueError(f"content revision is missing {kind} contract")
     schema = json.loads(indexed[schema_id]["text_content"])
+    # A save keeps the contract frozen in its content revision, so the version comes from that schema
+    # (older saves still carry story-arc/1) rather than from the current files.
+    version = schema.get("properties", {}).get("schema_version", {}).get("const") or CONTRACT_FILES[kind][0]
     return {"kind": kind,
-            "version": CONTRACT_FILES[kind][0],
+            "version": version,
             "schema": schema,
             "text": indexed[text_id]["text_content"]}
 

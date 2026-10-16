@@ -7,7 +7,7 @@ export function ImageModelSettingsSection({ ctl, settings }: { ctl: SettingsCont
   const imageModel = settings.image_model ?? defaultImageModel;
   return (
     <section className="settings-section" aria-labelledby="image-model-title">
-      <div className="settings-copy"><h2 id="image-model-title">场景图片</h2><p>把当前剧情变成图片。需要单独填写 OpenAI 密钥，目前支持 GPT Image 2.5 Sunburst。图片生成费用由服务商收取。</p></div>
+      <div className="settings-copy"><h2 id="image-model-title">生图模型配置</h2><p>基于当前剧情生成图片。需要单独填写 OpenAI 密钥，目前支持 GPT Image 2.5 Sunburst。图片生成费用由服务商收取。</p></div>
       <form className="settings-form" onSubmit={(event) => void ctl.saveImageModel(event)}>
         <label className="field full">
           <span>服务地址</span>

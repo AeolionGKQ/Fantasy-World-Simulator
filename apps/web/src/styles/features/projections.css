@@ -16,7 +16,7 @@
     gap: 24px;
     min-height: 74px;
     padding-bottom: 22px;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 2px solid var(--line);
   }
 
   .projection-header h2 {
@@ -40,9 +40,16 @@
     font-size: var(--text-xs);
   }
 
+  /*
+   * Two kinds of line: a solid 2px rule only between sections, and a dashed 1px hairline between rows
+   * inside a section (.key-values, .detail-list), which stops at the section's last row.
+   */
   .plain-section {
     padding: 24px 0;
-    border-bottom: 1px solid var(--line);
+  }
+
+  .plain-section + .plain-section {
+    border-top: 2px solid var(--line);
   }
 
   .plain-section h3 {
@@ -95,7 +102,11 @@
     display: grid;
     gap: 2px;
     padding: 10px 0;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px dashed var(--line);
+  }
+
+  .detail-list li:last-child {
+    border-bottom: 0;
   }
 
   .detail-list span,
@@ -228,7 +239,11 @@
     justify-content: space-between;
     gap: 16px;
     padding: 8px 0;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px dashed var(--line);
+  }
+
+  .key-values > div:last-child {
+    border-bottom: 0;
   }
 
   .key-values dt {
@@ -242,6 +257,78 @@
 
   .key-values .effective dd {
     color: var(--accent);
+  }
+
+  /* Character details: a plain full-width button that opens the dialog; the arrow nudges on hover. */
+  .character-details-button {
+    width: 100%;
+    gap: 6px;
+  }
+
+  .character-details-button span {
+    transition: transform var(--dur-state) var(--ease-out);
+  }
+
+  .character-details-button:hover span {
+    transform: translateX(3px);
+  }
+
+  /* The dialog: wider than the default modal; the heading stays put while long texts scroll. */
+  .character-details-modal {
+    width: min(92vw, 680px);
+  }
+
+  .character-details-modal .modal-heading {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+  }
+
+  .character-details {
+    display: grid;
+    gap: 22px;
+    padding: 24px;
+  }
+
+  .details-facts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px 20px;
+    padding: 16px 18px;
+    background: var(--surface-sunken);
+    border-radius: var(--radius-md);
+  }
+
+  .details-facts dt,
+  .character-details h3 {
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 650;
+  }
+
+  .details-facts dd {
+    margin: 2px 0 0;
+    color: var(--ink);
+    font-weight: 650;
+    overflow-wrap: anywhere;
+  }
+
+  .character-details p {
+    margin-top: 6px;
+    color: var(--body);
+    line-height: 1.8;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 640px) {
+    .details-facts {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .character-details {
+      padding: 20px;
+    }
   }
 
   /* ---- Inventory ---- */
@@ -299,11 +386,18 @@
   }
 
   /* ---- Quests, story arcs and long-term memories (record lists) ---- */
+  /* Rows inside a section use the dashed hairline and stop at the last row (see .plain-section). */
   .record-list > li,
   .arc-list > li,
   .memory-list > li {
     padding: 18px 0;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px dashed var(--line);
+  }
+
+  .record-list > li:last-child,
+  .arc-list > li:last-child,
+  .memory-list > li:last-child {
+    border-bottom: 0;
   }
 
   .record-heading {
@@ -325,6 +419,30 @@
   .record-list ul {
     margin-top: 8px;
     padding-left: 20px;
+  }
+
+  /* Open threads under a story arc: a small label, then one item per line. */
+  .arc-unresolved {
+    margin-top: 12px;
+    padding: 12px 14px;
+    background: var(--surface-sunken);
+    border-radius: var(--radius-md);
+  }
+
+  .arc-unresolved h4 {
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 650;
+  }
+
+  .arc-unresolved ul {
+    display: grid;
+    gap: 4px;
+    margin-top: 6px;
+    padding-left: 18px;
+    color: var(--body);
+    font-size: var(--text-sm);
+    line-height: 1.7;
   }
 
   .record-list .progress-copy {
@@ -453,7 +571,21 @@
     gap: 20px;
     min-height: 68px;
     padding: 10px 14px;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px dashed var(--line);
+  }
+
+  /* Space below the header rule, so it never touches the boxed first row. */
+  .relationship-list,
+  .reputation-list {
+    margin-top: 20px;
+  }
+
+  /* No hairline after the last row, or where a highlighted row's background already draws the edge. */
+  .relationship-list li:last-child,
+  .reputation-list li:last-child,
+  .reputation-list li.local,
+  .reputation-list li:has(+ li.local) {
+    border-bottom-color: transparent;
   }
 
   .relationship-list span,

@@ -1311,17 +1311,28 @@ def receipt_hash(payload):
                                      separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
+STORY_ARC_FIELDS = {
+    # story-arc/1 is still the frozen contract of older saves; its key_events are no longer kept.
+    "story-arc/1": {"schema_version", "title", "summary", "key_events", "unresolved"},
+    "story-arc/2": {"schema_version", "title", "summary", "unresolved"},
+}
+
+
 def validate_story_arc(value, contract=None):
+    """Validate a story arc and return it in the story-arc/2 shape (no key_events)."""
     try:
         validate_contract(value, "story_arc", contract)
     except ValueError as exc:
         raise ContractError(str(exc)) from None
-    _exact(value, {"schema_version", "title", "summary", "key_events", "unresolved"}, "故事弧")
-    if value["schema_version"] != "story-arc/1":
+    fields = STORY_ARC_FIELDS.get(value.get("schema_version") if isinstance(value, dict) else None)
+    if fields is None:
         raise ContractError("故事弧版本无效")
+    _exact(value, fields, "故事弧")
     for key in ("title", "summary"):
         _text(value[key], "story_arc." + key, 20000)
-    for key in ("key_events", "unresolved"):
+    for key in fields & {"key_events", "unresolved"}:
         if any(not isinstance(item, str) for item in _list(value[key], "story_arc." + key, 100)):
             raise ContractError("故事弧数组字段无效")
-    return copy.deepcopy(value)
+    unresolved = [item.strip() for item in value["unresolved"] if item.strip()]
+    return {"schema_version": "story-arc/2", "title": value["title"], "summary": value["summary"],
+            "unresolved": unresolved}

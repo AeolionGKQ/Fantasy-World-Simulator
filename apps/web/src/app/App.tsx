@@ -135,7 +135,7 @@ export default function App() {
             <Route path="/settings" element={<SettingsPage actions={actions} />} />
             <Route path="/saves/:saveId/create/:step" element={<CharacterWizard actions={actions} />} />
             <Route path="/saves/:saveId/review" element={<ReviewPage actions={actions} />} />
-            <Route path="/saves/:saveId/game" element={<GameWorkspace onSaveChanged={refreshSaves} />} />
+            <Route path="/saves/:saveId/game" element={<GameWorkspace />} />
             <Route path="/saves/:saveId/game/image" element={<SceneImageWorkspace />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>

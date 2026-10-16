@@ -8,11 +8,13 @@ import { Icon } from "./Icon";
  * exit animation before `onClose` runs. A parent that unmounts the modal directly (after a
  * successful submit) skips the exit animation.
  */
-export function Modal({ title, children, onClose, labelledBy }: {
+export function Modal({ title, children, onClose, labelledBy, className = "" }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   labelledBy: string;
+  /** Extra class on the dialog, e.g. for a wider variant. */
+  className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [closing, setClosing] = useState(false);
@@ -57,7 +59,7 @@ export function Modal({ title, children, onClose, labelledBy }: {
   };
 
   return (
-    <dialog ref={ref} className={`modal ${closing ? "closing" : ""}`} aria-labelledby={labelledBy} onCancel={onCancel} onClose={onDialogClose} onClick={onClick} onAnimationEnd={onAnimationEnd}>
+    <dialog ref={ref} className={`modal ${className} ${closing ? "closing" : ""}`} aria-labelledby={labelledBy} onCancel={onCancel} onClose={onDialogClose} onClick={onClick} onAnimationEnd={onAnimationEnd}>
       <div className="modal-heading">
         <h2 id={labelledBy}>{title}</h2>
         <button className="icon-button" type="button" data-modal-close aria-label="关闭对话框"><Icon name="close" /></button>

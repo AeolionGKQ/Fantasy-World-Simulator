@@ -1014,7 +1014,7 @@ class StoryRepository:
                 level = max(item["level"] for item in frozen) + 1
             connection.execute("INSERT INTO story_arcs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                                (arc_id, save_id, level, source["start"], source["end"], response["title"],
-                                response["summary"], dumps(response["key_events"]),
+                                response["summary"], dumps([]),  # key events live in the summary now
                                 dumps(response["unresolved"]), source_hash, "current", job_id, now))
             if job["job_type"] == "turns_to_arc":
                 for index, (turn_id, version_id) in enumerate(zip(source["turn_ids"], source["version_ids"]), 1):

@@ -5,7 +5,6 @@ import { scrollIntoViewIfAbove } from "../../app/scroll";
 import { runViewTransition, useAppNavigate } from "../../app/viewTransition";
 import { playerProblemMessage } from "../../playerCopy";
 import type { ApiProblem, NarrativeJob, StartPrerequisiteResolution, Turn } from "../../types";
-import type { PlayerAddress } from "../settings/settingsLogic";
 import { getAllGameData, type GameData } from "./gameData";
 import { gameTabs, type GameTab } from "./gameTabs";
 import { isNarrativeJobActive, narrativeJobMessage, refreshedViewedTurn } from "./helpers";
@@ -23,7 +22,7 @@ type JobFactory = (version: number, signal: AbortSignal) => Promise<NarrativeJob
  * Game session state for one save. Every async action captures a session token and the
  * requested save id so responses that arrive after a save switch are dropped.
  */
-export function useGameWorkspace(saveId: string, onSaveChanged: () => Promise<void>) {
+export function useGameWorkspace(saveId: string) {
   const navigate = useAppNavigate();
   const [data, setData] = useState<GameData | null>(null);
   const [tab, setTab] = useState<GameTab>("story");
@@ -33,14 +32,12 @@ export function useGameWorkspace(saveId: string, onSaveChanged: () => Promise<vo
   const [notice, setNotice] = useState<GameNotice | null>(null);
   const [submittingState, setSubmittingState] = useState(false);
   const [submittingArc, setSubmittingArc] = useState(false);
-  const [savingPreferences, setSavingPreferences] = useState(false);
   const [startingImage, setStartingImage] = useState(false);
   const session = useRef(0);
   const controller = useRef<AbortController | null>(null);
   const stateActionController = useRef<AbortController | null>(null);
   const arcActionController = useRef<AbortController | null>(null);
   const memoryController = useRef<AbortController | null>(null);
-  const preferenceController = useRef<AbortController | null>(null);
   const prerequisiteRequest = useRef<{ payloadKey: string; requestId: string } | null>(null);
 
   const showProblem = useCallback((reason: unknown) => {
@@ -88,7 +85,6 @@ export function useGameWorkspace(saveId: string, onSaveChanged: () => Promise<vo
       stateActionController.current?.abort();
       arcActionController.current?.abort();
       memoryController.current?.abort();
-      preferenceController.current?.abort();
       prerequisiteRequest.current = null;
     };
   }, [refresh, saveId]);
@@ -250,38 +246,10 @@ export function useGameWorkspace(saveId: string, onSaveChanged: () => Promise<vo
     } finally { if (token === session.current) setSubmittingState(false); }
   };
 
-  const updatePlayerAddress = async (playerAddress: PlayerAddress) => {
-    if (!data || savingPreferences || submittingState || isNarrativeJobActive(data.story.active_job)) return;
-    const token = session.current;
-    const requestedId = saveId;
-    const nextController = new AbortController();
-    preferenceController.current?.abort();
-    preferenceController.current = nextController;
-    const narration = data.save.narration ?? data.story.state.narration;
-    setSavingPreferences(true);
-    try {
-      const save = await api.updateSavePreferences(requestedId, { ...narration, player_address: playerAddress }, data.save.revision, crypto.randomUUID(), nextController.signal);
-      if (nextController.signal.aborted || token !== session.current || save.id !== requestedId) return;
-      setData((current) => current && current.bootstrap.save_id === requestedId ? {
-        ...current,
-        save,
-        bootstrap: { ...current.bootstrap, save_revision: save.revision },
-        story: { ...current.story, state: { ...current.story.state, narration: save.narration ?? { ...current.story.state.narration, player_address: playerAddress } } },
-      } : current);
-      await onSaveChanged();
-      setNotice({ id: Date.now(), tone: "info", text: "GM 对角色的称呼已更新，从下一段剧情开始生效。" });
-    } catch (reason) {
-      if (!nextController.signal.aborted && token === session.current) {
-        showProblem(reason);
-        if (asApiError(reason).status === 409) await refresh(true);
-      }
-    } finally { if (token === session.current) setSavingPreferences(false); }
-  };
-
   const startImageSession = async () => {
     if (!data?.story.latest_turn) return;
     if (!data.imageConfigured) {
-      setNotice({ id: Date.now(), tone: "error", text: "请先打开设置，在“场景图片”中填写 OpenAI 服务地址和密钥。" });
+      setNotice({ id: Date.now(), tone: "error", text: "请先打开设置，在“生图模型配置”中填写 OpenAI 服务地址和密钥。" });
       return;
     }
     setStartingImage(true);
@@ -311,8 +279,8 @@ export function useGameWorkspace(saveId: string, onSaveChanged: () => Promise<vo
 
   return {
     data, tab, setTab, selectTab, viewedTurn, setViewedTurn, showTurn, loading, problem, notice, setNotice,
-    submittingState, submittingArc, savingPreferences, startingImage,
+    submittingState, submittingArc, startingImage,
     refresh, startStateJob, startArcJob, cancelJob, readJournalTurn, resolveStartPrerequisite,
-    updatePlayerAddress, startImageSession,
+    startImageSession,
   };
 }

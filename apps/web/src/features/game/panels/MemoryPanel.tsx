@@ -57,8 +57,13 @@ function ArcRow({ arc }: { arc: StoryArc }) {
     <li>
       <div className="record-heading"><strong>{arc.title}</strong><span>第 {arc.start_sequence} 至 {arc.end_sequence} 段 · {arc.status === "current" ? "正在使用" : "已合并到后续摘要"}</span></div>
       <p>{arc.summary}</p>
-      {arc.key_events.length > 0 && <small>关键事件：{arc.key_events.join("；")}</small>}
-      {arc.unresolved.length > 0 && <small>尚未解决：{arc.unresolved.join("；")}</small>}
+      {/* Key events are part of the summary; only open threads are listed, one per line. */}
+      {arc.unresolved.length > 0 && (
+        <div className="arc-unresolved">
+          <h4>未解决</h4>
+          <ul>{arc.unresolved.map((item, index) => <li key={index}>{item}</li>)}</ul>
+        </div>
+      )}
     </li>
   );
 }

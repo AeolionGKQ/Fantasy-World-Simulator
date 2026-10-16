@@ -2,7 +2,7 @@ import type { ApiProblem } from "./types";
 
 const problemMessages: Record<string, string> = {
   network_error: "无法连接游戏服务，请确认游戏已启动后重试。",
-  MODEL_NOT_CONFIGURED: "请先打开设置，填写剧情 AI 的服务地址、模型名称和密钥。",
+  MODEL_NOT_CONFIGURED: "请先打开设置，在“剧情模型配置”中填写服务地址、模型名称和密钥。",
   MODEL_AUTH_FAILED: "服务密钥未通过验证，请在设置中检查密钥是否正确、是否仍然有效。",
   MODEL_NOT_FOUND: "当前服务中找不到这个模型，请核对服务商提供的模型名称。",
   MODEL_RATE_LIMITED: "AI 服务暂时无法接收更多请求，请稍后再试，或在设置中减少同时生成数量。",
@@ -26,7 +26,7 @@ const problemMessages: Record<string, string> = {
   START_PREREQUISITE_ALREADY_RESOLVED: "起点条件已确认，请重新载入后开始冒险。",
   ARC_SOURCES_NOT_CONTIGUOUS: "只能合并在剧情顺序上相邻、尚未被合并的故事弧。",
   ARC_SOURCE_NOT_READY: "还没有足够的早期剧情可供整理，请继续冒险。",
-  IMAGE_MODEL_NOT_CONFIGURED: "请在设置的“场景图片”中填写 OpenAI 服务地址和密钥。",
+  IMAGE_MODEL_NOT_CONFIGURED: "请在设置的“生图模型配置”中填写 OpenAI 服务地址和密钥。",
   IMAGE_SESSION_NOT_FOUND: "找不到这次图片生成记录，请返回剧情页重新开始。",
   IMAGE_JOB_ACTIVE: "画面描述或图片正在生成，请等待完成，或先取消当前生成。",
   IMAGE_NOT_FOUND: "暂时找不到这张图片，请查看生成进度或重新生成。",

@@ -10,7 +10,7 @@ export function NarrationSettingsSection({ ctl, settings }: { ctl: SettingsContr
     setSettings((current) => current ? { ...current, narration: { ...current.narration, [key]: value } } : current);
   return (
     <section className="settings-section" aria-labelledby="narration-title">
-      <div className="settings-copy"><h2 id="narration-title">叙事设置</h2><p>选择你喜欢的故事节奏和描写方式。保存后会应用到全部存档；也可在单个存档的“角色”页调整 GM 对角色的称呼。</p></div>
+      <div className="settings-copy"><h2 id="narration-title">叙事设置</h2><p>选择你喜欢的故事节奏和描写方式。保存后会应用到全部存档。</p></div>
       <form className="settings-form narration" onSubmit={(event) => void ctl.saveNarration(event)}>
         <SegmentedField label="剧情推进速度" value={settings.narration.pace} options={[{ value: "slow", label: "慢速" }, { value: "fast", label: "快速" }, { value: "dynamic", label: "动态" }]} disabled={saving} onChange={(pace) => update("pace", pace)} />
         <p className="field-help full">慢速：每轮推进较少，方便细致互动。快速：概括普通赶路、等待等过程。动态：按场景调整节奏。重要决定仍由你来做。</p>

@@ -222,9 +222,19 @@
     font-size: var(--text-sm);
   }
 
+  /* The optional image AI row: same size as the story AI row, only a quieter colour. */
   .service-row.secondary {
     color: var(--muted);
-    font-size: var(--text-xs);
+  }
+
+  .service-row .service-dot {
+    align-self: flex-start;
+    margin-top: 5px; /* centred on the first text line once the model name opens below */
+  }
+
+  .service-body {
+    display: grid;
+    min-width: 0;
   }
 
   .service-text {
@@ -232,6 +242,39 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     animation: fade-in var(--dur-state) var(--ease-out);
+  }
+
+  /*
+   * Model name: folded away by default (the row shows only the configuration state). Each row opens
+   * its own on hover or a first tap (.revealed); keyboard focus on the block opens both. Long names
+   * wrap rather than being cut off.
+   */
+  .service-model {
+    display: grid;
+    grid-template-rows: 0fr;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    opacity: 0;
+    transition: grid-template-rows var(--dur-enter) var(--ease-out), opacity var(--dur-state) var(--ease-out);
+  }
+
+  .service-model > span {
+    min-height: 0;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+
+  .service-row.revealed .service-model,
+  .service-status:focus-visible .service-model {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+
+  @media (hover: hover) {
+    .service-row:hover .service-model {
+      grid-template-rows: 1fr;
+      opacity: 1;
+    }
   }
 
   /* Filled = known outcome (connected / failed); hollow = nothing confirmed yet. */

@@ -23,7 +23,7 @@ export function AppToolbar({ context, canExport, settingsActive, settingsAttenti
         <button className="toolbar-button" type="button" onClick={onImport}><Icon name="upload" /><span>导入存档</span></button>
         <button className="toolbar-button" type="button" onClick={onExport} disabled={!canExport}><Icon name="download" /><span>导出存档</span></button>
         <Link viewTransition className={`toolbar-button settings-link ${settingsActive ? "active" : ""}`} to="/settings" aria-current={settingsActive ? "page" : undefined}
-          aria-label={settingsAttention ? `设置（剧情 AI ${settingsAttention === "failed" ? "连接失败" : "未配置"}，需要处理）` : "设置"}>
+          aria-label={settingsAttention ? `设置（剧情模型${settingsAttention === "failed" ? "连接失败" : "未配置"}，需要处理）` : "设置"}>
           <Icon name="settings" /><span>设置</span>
           {settingsAttention && <span className="attention-dot" aria-hidden="true" />}
         </Link>

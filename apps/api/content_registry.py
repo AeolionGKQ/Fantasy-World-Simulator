@@ -169,6 +169,30 @@ def revision_identity(manifest):
     return revision_id, prompt_version
 
 
+STORY_ARC_POLICY_VERSION = "story-arc-policy/1"
+
+
+def story_arc_policy(action_type):
+    """Runtime rules for story arc jobs. Not frozen in a save's content revision, so older saves
+    (whose frozen contract is story-arc/1) follow them too."""
+    rules = [
+        "summary是来源内容的一段完整梗概，关键事件、转折、人物、因果与持续后果都写进summary，不再单独列出关键事件",
+        "若契约中仍有key_events字段（旧版契约），一律返回[]",
+        "unresolved逐条列出来源中仍未解决的事件、承诺、约定、线索、悬念与待办；每条一句话，写明涉及的人物、地点或物品，不同事项不要合并成一条",
+        "来源范围内已经解决或已有明确结局的事项不得列入unresolved；没有未解决事项时返回[]",
+    ]
+    if action_type == "arcs_to_arc":
+        rules += [
+            "本次是把多个相邻故事弧合并为一个：summary把各来源故事弧的梗概按时间顺序融合为一段，不得遗漏关键事件",
+            "逐条检查各来源故事弧的unresolved：结合全部来源内容判断，已被解决、已经失效或不再有意义的条目不得再返回",
+            "仍然悬而未决的条目保留，可去重并改写得更准确；来源梗概中出现但尚未列出的未解决事项也要补上",
+        ]
+    policy = {"priority": "mandatory", "version": STORY_ARC_POLICY_VERSION, "rules": rules}
+    encoded = json.dumps(policy, ensure_ascii=True, separators=(",", ":")).replace(
+        "<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    return "\n<RUNTIME_STORY_ARC_POLICY_JSON>\n" + encoded + "\n</RUNTIME_STORY_ARC_POLICY_JSON>\n"
+
+
 def player_address_directive(state):
     """Resolve explicit name forms while preserving unsegmented names verbatim."""
     identity = state.get("character", {}).get("identity", {})
@@ -437,6 +461,8 @@ class ContentRegistry:
         system_parts = []
         for item in by_category.get("protocol", [])[:2]:
             system_parts.append(self._protocol_container(item))
+        if contract_kind == "story_arc":
+            system_parts.append(story_arc_policy((action or {}).get("action_type")))
         if contract_kind == "gm_turn":
             location_policy = {
                 "priority": "mandatory",
@@ -602,6 +628,8 @@ class ContentRegistry:
         }
         if contract_kind == "gm_turn":
             manifest["gm_writing_guidelines"] = dict(self._gm_writing_metadata)
+        else:
+            manifest["story_arc_policy_version"] = STORY_ARC_POLICY_VERSION
         return ([{"role": "system", "content": "".join(system_parts)},
                  {"role": "user", "content": json.dumps(dynamic, ensure_ascii=False,
                                                            separators=(",", ":"))}],

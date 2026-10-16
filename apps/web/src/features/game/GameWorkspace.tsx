@@ -75,9 +75,9 @@ function GameTabs({ tab, onSelect }: { tab: GameTab; onSelect: (tab: GameTab) =>
   );
 }
 
-export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => Promise<void> }) {
+export default function GameWorkspace() {
   const { saveId = "" } = useParams();
-  const game = useGameWorkspace(saveId, onSaveChanged);
+  const game = useGameWorkspace(saveId);
   const { data, tab } = game;
   const notice = usePresence(game.notice);
 
@@ -119,7 +119,7 @@ export default function GameWorkspace({ onSaveChanged }: { onSaveChanged: () => 
             onCancel={() => void game.cancelJob()}
           />
         )}
-        {tab === "character" && <CharacterPanel character={data.projections.character} catalog={data.catalog} playerAddress={data.save.narration?.player_address ?? data.story.state.narration.player_address} addressBusy={game.savingPreferences || stateBusy} onPlayerAddress={(value) => void game.updatePlayerAddress(value)} />}
+        {tab === "character" && <CharacterPanel character={data.projections.character} catalog={data.catalog} />}
         {tab === "inventory" && <InventoryPanel inventory={data.projections.inventory} />}
         {tab === "quests" && <QuestsPanel active={data.projections.quests.active} />}
         {tab === "journals" && <JournalsPanel items={data.projections.journals.items} onRead={(id) => void game.readJournalTurn(id)} />}

@@ -358,8 +358,8 @@ class ProviderTestCase(unittest.TestCase):
 
     def test_story_arc_forces_thinking_on_when_narrative_toggle_is_off(self):
         response = {"choices": [{"message": {"content": json.dumps({
-            "schema_version": "story-arc/1", "title": "弧", "summary": "摘要",
-            "key_events": [], "unresolved": []})}}]}
+            "schema_version": "story-arc/2", "title": "弧", "summary": "摘要",
+            "unresolved": []})}}]}
         requests = []
 
         def respond(request, timeout):
@@ -457,8 +457,8 @@ class ProviderTestCase(unittest.TestCase):
         def accept(request, timeout):
             requests.append(json.loads(request.data.decode("utf-8")))
             return FakeHttpResponse({"content": [{"type": "text", "text": json.dumps({
-                "schema_version": "story-arc/1", "title": "弧", "summary": "摘要",
-                "key_events": [], "unresolved": []})}]})
+                "schema_version": "story-arc/2", "title": "弧", "summary": "摘要",
+                "unresolved": []})}]})
 
         config = {**self.config(), "protocol": "anthropic", "structured_output": False}
         provider = AnthropicCompatibleProvider()
@@ -2075,11 +2075,11 @@ class ApiTestCase(unittest.TestCase):
         }
         context.content_registry.build_messages = lambda *args: ([], {})
         context.provider.generate_story_arc = lambda *args: {
-            "schema_version": "story-arc/1", "title": "弧", "summary": "摘要",
-            "key_events": [], "unresolved": [],
+            "schema_version": "story-arc/2", "title": "弧", "summary": "摘要",
+            "unresolved": [],
         }
         with mock.patch("api.server.contract_from_documents", return_value={
-                "schema": {}, "version": "story-arc/1"}), mock.patch(
+                "schema": {}, "version": "story-arc/2"}), mock.patch(
                 "api.server.validate_story_arc", side_effect=lambda proposal, contract: proposal):
             context._run_narrative("save", "arc-job")
         self.assertEqual(("https://arc.example/v1", "arc-model"), calls[0])
