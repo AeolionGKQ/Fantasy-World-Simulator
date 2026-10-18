@@ -1,4 +1,7 @@
+import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import type { ShellActions } from "../../app/shellActions";
+import { prefersReducedMotion } from "../../app/viewTransition";
 import { ErrorPanel } from "../../components/ErrorPanel";
 import { LoadingPanel } from "../../components/LoadingPanel";
 import { ImageModelSettingsSection } from "./ImageModelSettingsSection";
@@ -9,6 +12,18 @@ import { useSettingsPage } from "./useSettingsPage";
 export function SettingsPage({ actions }: { actions: ShellActions }) {
   const ctl = useSettingsPage(actions);
   const { settings } = ctl;
+  const location = useLocation();
+  const ready = !ctl.loading && Boolean(settings);
+  // /settings#story-model etc. (the sidebar's model rows): once the page has loaded, bring that
+  // section into view and briefly outline it so the eye lands on the right place.
+  useEffect(() => {
+    const target = ready && location.hash ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null;
+    if (!target) return;
+    target.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+    target.classList.remove("section-target");
+    void target.offsetWidth; // restart the outline animation when the same section is chosen again
+    target.classList.add("section-target");
+  }, [ready, location.hash, location.key]);
   if (ctl.loading) return <div className="page settings-page page-loading" key="loading"><LoadingPanel label="正在载入设置" /></div>;
   if (ctl.error || !settings) return <div className="page settings-page page-enter" key="error"><ErrorPanel playerFacing error={ctl.error} onRetry={() => void ctl.load()} title="无法载入设置" /></div>;
   return (

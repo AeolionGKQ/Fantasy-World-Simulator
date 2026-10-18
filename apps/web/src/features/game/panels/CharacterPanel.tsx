@@ -7,7 +7,13 @@ const resources = [["生命 HP", "hp"], ["魔力 MP", "mp"], ["精神 SP", "sp"]
 
 const attributes = [["体质 CON", "con"], ["智力 INT", "int"], ["魅力 CHA", "cha"]] as const;
 
-export function CharacterPanel({ character, catalog }: { character: CharacterState; catalog: WorldCatalog }) {
+export function CharacterPanel({ character, catalog, editLocked, onSaveAdditional }: {
+  character: CharacterState;
+  catalog: WorldCatalog;
+  /** True while a story job runs or a save is in flight; the setting cannot be edited then. */
+  editLocked: boolean;
+  onSaveAdditional: (additional: string) => Promise<boolean>;
+}) {
   const identity = character.identity;
   const race = catalog.races.find((item) => item.id === identity.race_id);
   const raceBranch = race?.branches?.find((item) => item.id === identity.race_branch_id);
@@ -51,7 +57,7 @@ export function CharacterPanel({ character, catalog }: { character: CharacterSta
           <AbilitySection title="技能" items={character.skills} empty="尚未习得技能。" />
         </div>
         <aside>
-          <CharacterDetails character={character} catalog={catalog} />
+          <CharacterDetails character={character} catalog={catalog} editLocked={editLocked} onSaveAdditional={onSaveAdditional} />
           <section className="plain-section">
             <h3>成长</h3>
             <dl className="key-values">

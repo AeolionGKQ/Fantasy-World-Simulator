@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { flushSync } from "react-dom";
+import { Icon } from "../../../components/Icon";
 import { scrollIntoViewIfAbove } from "../../../app/scroll";
 import { runViewTransition } from "../../../app/viewTransition";
 import { usePresence } from "../../../components/usePresence";
@@ -56,16 +57,20 @@ export function StoryPanel({ story, turns, viewedTurn, busy, catalog, resources,
   const arrivedKey = useArrivedTurn(story.latest_turn);
   const arriving = Boolean(turn && arrivedKey === `${turn.id}:${turn.current_version_id}`);
   const job = usePresence(story.active_job && isNarrativeJobActive(story.active_job) ? story.active_job : null);
+  // Death ends the save's story: only reshaping the latest segment (back to before the death) remains.
+  const dead = story.state.character?.alive === false;
+  const activeMode: CommandMode = dead ? "reshape" : mode;
+  const notes = turn ? [...(turn.warnings ?? []), ...programNotes(turn)] : [];
   useEffect(() => {
     setAction("");
     setGuidance("");
   }, [story.latest_turn?.id]);
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const value = mode === "action" ? action.trim() : guidance.trim();
+    const value = activeMode === "action" ? action.trim() : guidance.trim();
     if (!value) return;
-    if (mode === "action") onTurn(value, null);
-    else if (mode === "intervene") onIntervene(value);
+    if (activeMode === "action") onTurn(value, null);
+    else if (activeMode === "intervene") onIntervene(value);
     else onReshape(value);
   };
   if (!turn && story.start_prerequisite?.status === "required") {
@@ -74,7 +79,7 @@ export function StoryPanel({ story, turns, viewedTurn, busy, catalog, resources,
   if (!turn) {
     return (
       <section className="story-start">
-        <span className="archive-glyph" aria-hidden="true">◇</span>
+        <span className="archive-glyph" aria-hidden="true"><Icon name="quill" /></span>
         <div>
           <h2>故事尚未落笔</h2>
           <p>GM 会根据你的角色、世界设定和叙事偏好写下开场。你也可以填写想从哪里开始。等待时可查看其他页签。</p>
@@ -95,7 +100,7 @@ export function StoryPanel({ story, turns, viewedTurn, busy, catalog, resources,
           <StoryVitals resources={resources} />
         </header>
         <div className="story-body">{storyParagraphs(turn.body).map((paragraph, index) => <p key={`${turn.id}-${index}`} style={stagger(index + 1)}>{paragraph}</p>)}</div>
-        {turn.warnings && turn.warnings.length > 0 && <section className="gm-warnings" aria-label="叙事提示"><h3>GM 提示</h3>{turn.warnings.map((warning) => <p key={warning}>{warning}</p>)}</section>}
+        {notes.length > 0 && <section className="gm-warnings" aria-label="叙事提示"><h3>GM 提示</h3>{notes.map((note) => <p key={note}>{note}</p>)}</section>}
         {displayedChanges.length > 0 && (
           <details className="changes" open style={stagger(11)}>
             <summary>本段带来的变化 · {displayedChanges.length}</summary>
@@ -110,7 +115,13 @@ export function StoryPanel({ story, turns, viewedTurn, busy, catalog, resources,
       </article>
       <aside className="story-actions" aria-label="剧情操作">
         {job.current && <div className={job.leaving ? "job-leaving" : undefined}><JobPanel job={job.current} onCancel={onCancel} /></div>}
-        {!story.active_job && turn.suggested_options.length > 0 && (
+        {dead && (
+          <section className="story-ending">
+            <h3>故事在此落幕</h3>
+            <p>角色已经死亡，这份存档的冒险到此结束。你可以用“重塑命运”改写最近一段剧情，回到死亡之前，或者去玩其他存档。</p>
+          </section>
+        )}
+        {!dead && !story.active_job && turn.suggested_options.length > 0 && (
           <section>
             <h3>建议行动</h3>
             <div className="option-list">
@@ -118,7 +129,7 @@ export function StoryPanel({ story, turns, viewedTurn, busy, catalog, resources,
             </div>
           </section>
         )}
-        <StoryCommandForm mode={mode} onModeChange={(next) => { if (next !== mode) runViewTransition("mode", () => flushSync(() => setMode(next))); }} value={mode === "action" ? action : guidance} onValueChange={mode === "action" ? setAction : setGuidance} readOnly={readOnly} onSubmit={submit} />
+        <StoryCommandForm mode={activeMode} modes={dead ? ["reshape"] : undefined} onModeChange={(next) => { if (next !== mode) runViewTransition("mode", () => flushSync(() => setMode(next))); }} value={activeMode === "action" ? action : guidance} onValueChange={activeMode === "action" ? setAction : setGuidance} readOnly={readOnly} onSubmit={submit} />
       </aside>
     </div>
   );
@@ -130,8 +141,17 @@ const commandModes: Array<{ id: CommandMode; label: string; field: string; place
   { id: "reshape", label: "重塑命运", field: "改写要求", placeholder: "说明最近一段剧情需要怎样改写。", submit: "重塑命运" },
 ];
 
-function StoryCommandForm({ mode, onModeChange, value, onValueChange, readOnly, onSubmit }: {
+/** Explanations the program adds to a turn (for example equipment power that was not counted). */
+function programNotes(turn: Turn) {
+  return turn.authoritative_changes
+    .filter((change) => change.kind === "warning" && change.key === "program_note" && typeof change.new === "string")
+    .map((change) => change.new as string);
+}
+
+function StoryCommandForm({ mode, modes, onModeChange, value, onValueChange, readOnly, onSubmit }: {
   mode: CommandMode;
+  /** Modes on offer; all three unless the story has ended. */
+  modes?: CommandMode[];
   onModeChange: (mode: CommandMode) => void;
   value: string;
   onValueChange: (value: string) => void;
@@ -144,7 +164,7 @@ function StoryCommandForm({ mode, onModeChange, value, onValueChange, readOnly, 
     <form className="story-command" onSubmit={onSubmit}>
       <div className="command-modes" role="group" aria-label="叙事操作类型" ref={containerRef}>
         <span className={`slide-indicator command-mode-indicator ${indicator.className}`} style={indicator.style} aria-hidden="true" />
-        {commandModes.map((item) => <button type="button" key={item.id} className={mode === item.id ? "active" : ""} aria-pressed={mode === item.id} onClick={() => onModeChange(item.id)}>{item.label}</button>)}
+        {commandModes.filter((item) => !modes || modes.includes(item.id)).map((item) => <button type="button" key={item.id} className={mode === item.id ? "active" : ""} aria-pressed={mode === item.id} onClick={() => onModeChange(item.id)}>{item.label}</button>)}
       </div>
       <div className="command-body">
         <label className="field">

@@ -565,7 +565,12 @@ class AppContext:
                         self.story.fail(save_id, job_id, "GENERATION_CANCELLED", "生成已取消")
                         return
                     if job_type in {"turns_to_arc", "arcs_to_arc"}:
-                        self.story.complete_arc(claimed, validate_story_arc(proposal, contract))
+                        outcome = self.story.complete_arc(claimed, validate_story_arc(proposal, contract))
+                        if outcome == "succeeded":
+                            # A finished arc may leave another batch ready, or four arcs to merge.
+                            arc_job, created = self.story.create_arc_job(save_id, {}, automatic=True)
+                            if created:
+                                self.schedule_narrative(save_id, arc_job["id"])
                         return
                     outcome = self.story.complete_turn(
                         claimed, validate_gm_response(proposal, job_type, contract))
@@ -974,6 +979,8 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
                 job, created = self.app.story.create_job(save_id, "opening", self._read_json())
                 if created: self.app.schedule_narrative(save_id, job["id"])
                 return (202 if created else 200), job, {}
+            if len(parts) == 5 and parts[3:5] == ["character-state", "additional"] and method == "PUT":
+                return 200, self.app.story.update_character_additional(save_id, self._read_json()), {}
             if len(parts) == 5 and parts[3:5] == ["story", "start-prerequisite"] and method == "POST":
                 return 200, self.app.story.resolve_start_prerequisite(save_id, self._read_json()), {}
             if len(parts) == 4 and parts[3] == "turns":

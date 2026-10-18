@@ -47,7 +47,7 @@ def gm_response(response_type="opening"):
                       "breakthrough": None, "items": [],
                       "currency": {"copper_delta": 0, "reason": "", "evidence": ""},
                       "quests": [], "bonds": [], "reputations": [], "skills": [],
-                      "talents": [], "world_flags": [], "power_modifiers": []},
+                      "talents": [], "world_flags": [], "power_modifiers": [], "age": None},
         "memory_candidates": [], "warnings": [],
     }
 
@@ -139,8 +139,10 @@ class ContentTest(unittest.TestCase):
             _model_json_object(encoded + "\n" + encoded)
         with self.assertRaisesRegex(ValueError, "多个JSON"):
             _model_json_object(encoded + "\n[1,2]")
-        with self.assertRaisesRegex(ValueError, "多个JSON"):
-            _model_json_object(encoded + "\nnote 2")
+        # Numbers or quoted words in trailing prose are not a second JSON value.
+        self.assertEqual(expected, _model_json_object(encoded + "\nnote 2"))
+        self.assertEqual(expected, _model_json_object(encoded + "\n（共3项变更）"))
+        self.assertEqual(expected, _model_json_object(encoded + '\n以上为 "turn" 结果'))
         with self.assertRaisesRegex(ValueError, "第二个JSON"):
             _model_json_object(encoded + '\nnote {"broken":')
         with self.assertRaisesRegex(ValueError, "未闭合"):
@@ -686,7 +688,7 @@ class ContentTest(unittest.TestCase):
             "id": "bond.test", "npc_id": "canon.npc.lilia_noxveil",
             "npc_name": "莉莉娅·诺克维尔", "value": 0, "relation_type": "friend",
             "listed": True, "level": "普通/陌生"}
-        with self.assertRaisesRegex(ContractError, "影响等级"):
+        with self.assertRaisesRegex(ContractError, "delta绝对值最多5"):
             adjudicate(state, validate_gm_response(excessive), canonical_location_map(), set())
 
     def test_existing_world_flags_cannot_become_power_exceptions(self):
@@ -737,9 +739,9 @@ class ContentTest(unittest.TestCase):
             "reason": "正典人物的重要承诺", "evidence": "维蕾莎·莫尔维恩承诺调查这件事"}]
         adjudicate(state, validate_gm_response(memory), canonical_location_map(), set())
         fake = copy.deepcopy(memory)
-        fake["memory_candidates"][0]["people"] = ["canon.npc.fake"]
-        with self.assertRaisesRegex(ContractError, "已知"):
-            adjudicate(state, validate_gm_response(fake), canonical_location_map(), set())
+        fake["memory_candidates"][0]["people"] = ["canon.npc.fake", "维蕾莎·莫尔维恩"]
+        kept_memory = adjudicate(state, validate_gm_response(fake), canonical_location_map(), set())
+        self.assertEqual(["canon.npc.velessa_morvien"], kept_memory["memory_operations"][0]["people"])
 
         recalled = StoryRepository._recall_memories(state, [{"title": "再会", "summary": "",
             "body": "维蕾莎·莫尔维恩来到门前。"}], [{"id": "memory.person", "status": "active",
@@ -761,9 +763,9 @@ class ContentTest(unittest.TestCase):
         forced["proposals"]["quests"] = [{"operation": "create", "quest_id": "quest.forced",
             "name": "强制任务", "description": "不应激活", "status": "active", "progress": "开始",
             "objectives": [], "quest_kind": "regular", "target_rank": None,
-            "action_evidence": "我继续吃饭", "necessary_nodes": [], "terminal_cause": "none", "reason": "强制",
+            "action_evidence": "我接受这个委托", "necessary_nodes": [], "terminal_cause": "none", "reason": "强制",
             "evidence": "模型强行登记为进行中"}]
-        with self.assertRaisesRegex(ContractError, "接受原文"):
+        with self.assertRaisesRegex(ContractError, "表达接受意图"):
             adjudicate(state, validate_gm_response(forced), canonical_location_map(), set(), {},
                        {"action_type": "turn", "action": "我继续吃饭"})
 
@@ -816,7 +818,7 @@ class ContentTest(unittest.TestCase):
         healing["narrative"]["body"] = "普通包扎令伤口略有好转。"
         healing["proposals"]["resources"] = [{"key": "hp", "delta": 1,
             "reason": "普通包扎", "evidence": "伤口略有好转"}]
-        with self.assertRaisesRegex(ContractError, "自动复活"):
+        with self.assertRaisesRegex(ContractError, "不能复活"):
             adjudicate(state, validate_gm_response(healing), canonical_location_map(), set())
 
     def test_modifier_update_and_same_turn_flag_cannot_bypass(self):
@@ -1051,15 +1053,25 @@ class ContentTest(unittest.TestCase):
             "action_evidence": "尝试突破",
             "method": "引导魔力", "preparation": "状态良好", "failure_reason": None,
             "improvement": None, "task_completed_id": None, "reason": "突破成功", "evidence": "尝试突破"}
-        with self.assertRaisesRegex(ContractError, "玩家行动"):
+        with self.assertRaisesRegex(ContractError, "表达突破意图"):
             adjudicate(state, validate_gm_response(response), canonical_location_map(), set(), {},
                        {"action": "坐下来吃饭"})
-        with self.assertRaisesRegex(ContractError, "玩家行动"):
+        with self.assertRaisesRegex(ContractError, "表达突破意图"):
             adjudicate(state, validate_gm_response(response), canonical_location_map(), set(), {},
                        {"action": "我不想突破，也不要升阶"})
-        with self.assertRaisesRegex(ContractError, "玩家行动"):
+        with self.assertRaisesRegex(ContractError, "表达突破意图"):
             adjudicate(state, validate_gm_response(response), canonical_location_map(), set(), {},
                        {"action": "不要在任何情况下让角色尝试突破或升阶"})
+        # Natural wordings are accepted when the model quotes the player's own words.
+        for player_input, quote in (("我闭关冲击四阶", "闭关冲击四阶"),
+                                    ("我盘膝坐下，尝试突破到四阶", "尝试突破到四阶"),
+                                    ("我有点犹豫，但还是要突破", "还是要突破")):
+            natural = copy.deepcopy(response)
+            natural["narrative"]["body"] = f"角色{quote}，魔力顺利贯通。"
+            natural["proposals"]["breakthrough"].update({"action_evidence": quote, "evidence": quote})
+            decided = adjudicate(state, validate_gm_response(natural), canonical_location_map(), set(), {},
+                                 {"action": player_input})
+            self.assertEqual(4, decided["state"]["character"]["rank"])
 
     def test_memory_evidence_may_summarize_narrative_or_player_request(self):
         response = gm_response("turn")
@@ -1120,8 +1132,9 @@ class ContentTest(unittest.TestCase):
             "facts": ["旅人在广场记下一段完整而清晰的见闻"], "unresolved": [], "reason": "值得记录",
             "evidence": "旅人在广场记下一段完整而清晰的见闻"}]
         validated = validate_gm_response(response)
-        with self.assertRaisesRegex(ContractError, "people必须引用已知"):
-            adjudicate(state, validated, canonical_location_map(), set(), {}, {})
+        decided = adjudicate(state, validated, canonical_location_map(), set(), {}, {})
+        self.assertEqual([], decided["memory_operations"][0]["people"])
+        self.assertEqual([], decided["memory_operations"][0]["locations"])
 
     def test_new_location_region_must_inherit_parent(self):
         registry = ContentRegistry(API_DIR)
@@ -1197,7 +1210,7 @@ class ContentTest(unittest.TestCase):
             "objectives": [], "quest_kind": "regular", "target_rank": None,
             "action_evidence": "接受护送", "necessary_nodes": [], "terminal_cause": "none", "reason": "模型强制加入",
             "evidence": "发布了护送任务"}]
-        with self.assertRaisesRegex(ContractError, "接受原文"):
+        with self.assertRaisesRegex(ContractError, "表达接受意图"):
             adjudicate(state, validate_gm_response(forced), canonical_location_map(), set(), {},
                        {"action_type": "turn", "action": "我继续吃饭"})
         offered = copy.deepcopy(forced)
@@ -1929,11 +1942,19 @@ class PhaseTwoApiTest(unittest.TestCase):
                 (self.save_id,))
             connection.commit()
 
-        for index in range(3):
-            job = self.request("POST", f"/api/saves/{self.save_id}/story-arcs", {
-                "request_id": f"base-arc-{index}", "expected_state_version": 1}, 202)
-            self.assertEqual("turns_to_arc", job["type"])
-            self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        job = self.request("POST", f"/api/saves/{self.save_id}/story-arcs", {
+            "request_id": "base-arc-0", "expected_state_version": 1}, 202)
+        self.assertEqual("turns_to_arc", job["type"])
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        # Each finished arc starts the next ready batch on its own.
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            memory = self.request("GET", f"/api/saves/{self.save_id}/memory")
+            view = self.request("GET", f"/api/saves/{self.save_id}/story")
+            if len([arc for arc in memory["story_arcs"] if arc["status"] == "current"]) == 3 and \
+                    not view["active_arc_job"]:
+                break
+            time.sleep(.05)
 
         memory = self.request("GET", f"/api/saves/{self.save_id}/memory")
         current = [arc for arc in memory["story_arcs"] if arc["status"] == "current"]

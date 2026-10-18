@@ -39,6 +39,7 @@ export function useGameWorkspace(saveId: string) {
   const arcActionController = useRef<AbortController | null>(null);
   const memoryController = useRef<AbortController | null>(null);
   const prerequisiteRequest = useRef<{ payloadKey: string; requestId: string } | null>(null);
+  const additionalRequest = useRef<{ payloadKey: string; requestId: string } | null>(null);
 
   const showProblem = useCallback((reason: unknown) => {
     const error = asApiError(reason);
@@ -246,6 +247,26 @@ export function useGameWorkspace(saveId: string) {
     } finally { if (token === session.current) setSubmittingState(false); }
   };
 
+  /** Saves the player's 其他补充 character setting; resolves true once it is saved. */
+  const saveCharacterAdditional = async (additional: string) => {
+    if (!data || submittingState || isNarrativeJobActive(data.story.active_job)) return false;
+    const token = session.current;
+    const payloadKey = JSON.stringify({ expected_state_version: data.story.state.state_version, additional });
+    if (additionalRequest.current?.payloadKey !== payloadKey) additionalRequest.current = { payloadKey, requestId: crypto.randomUUID() };
+    setSubmittingState(true);
+    try {
+      await api.updateCharacterAdditional(saveId, data.story.state.state_version, additional, additionalRequest.current.requestId);
+      if (token !== session.current) return false;
+      additionalRequest.current = null;
+      setNotice({ id: Date.now(), tone: "info", text: "角色设定已保存，从下一段剧情开始生效。" });
+      await refresh(true);
+      return true;
+    } catch (reason) {
+      if (token === session.current) showProblem(reason);
+      return false;
+    } finally { if (token === session.current) setSubmittingState(false); }
+  };
+
   const startImageSession = async () => {
     if (!data?.story.latest_turn) return;
     if (!data.imageConfigured) {
@@ -277,10 +298,21 @@ export function useGameWorkspace(saveId: string) {
     }, current && turn.sequence < current.sequence ? "back" : "forward");
   };
 
+  // Repeated story-arc failures (3+) are surfaced once per new failure count.
+  const arcFailureKey = useRef<string | null>(null);
+  useEffect(() => {
+    const failures = data?.projections.memory.arc_failures;
+    if (!failures) { arcFailureKey.current = null; return; }
+    const key = `${saveId}:${failures.start_sequence}:${failures.count}`;
+    if (arcFailureKey.current === key) return;
+    arcFailureKey.current = key;
+    setNotice({ id: Date.now(), tone: "error", text: `第 ${failures.start_sequence} 至 ${failures.end_sequence} 段的故事弧已连续 ${failures.count} 次整理失败${failures.message ? `：${failures.message.replace(/[。.]$/, "")}。` : "。"}可以在“记忆管理”中重新整理。` });
+  }, [data, saveId]);
+
   return {
     data, tab, setTab, selectTab, viewedTurn, setViewedTurn, showTurn, loading, problem, notice, setNotice,
     submittingState, submittingArc, startingImage,
     refresh, startStateJob, startArcJob, cancelJob, readJournalTurn, resolveStartPrerequisite,
-    startImageSession,
+    saveCharacterAdditional, startImageSession,
   };
 }

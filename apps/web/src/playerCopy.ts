@@ -19,6 +19,7 @@ const problemMessages: Record<string, string> = {
   SAVE_NOT_READY: "请先完成角色创建并确认角色，再开始冒险。",
   STORY_NOT_STARTED: "请先生成开场剧情，再使用此功能。",
   OPENING_REQUIRED: "请先点击“开始冒险”，生成故事开场。",
+  CHARACTER_DEAD: "角色已经死亡，这份存档的冒险已经结束。可以用“重塑命运”改写最近一段剧情。",
   OPENING_ALREADY_EXISTS: "故事开场已经生成，请重新载入并继续冒险。",
   RESHAPE_LATEST_ONLY: "只能重塑最近一段剧情，请先回到最新剧情。",
   TURN_NOT_FOUND: "找不到这段剧情，请重新载入存档。",

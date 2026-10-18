@@ -66,7 +66,8 @@ export default function App() {
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [refreshServiceStatus]);
-  useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
+  // Every navigation closes the drawer, including a jump to a section of the current page (/settings#…).
+  useEffect(() => { setDrawerOpen(false); }, [location.key]);
   useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(""), 4200);

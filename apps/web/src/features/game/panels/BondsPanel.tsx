@@ -15,7 +15,7 @@ export function BondsPanel({ items }: { items: Bond[] }) {
             </li>
           ))}
         </ul>
-      ) : <GameEmpty title="尚未建立羁绊">重要人物在形成持续关系后会列入此处。</GameEmpty>}
+      ) : <GameEmpty title="尚未建立羁绊" icon="people">重要人物在形成持续关系后会列入此处。</GameEmpty>}
     </div>
   );
 }

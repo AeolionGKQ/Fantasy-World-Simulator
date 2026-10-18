@@ -304,7 +304,9 @@ def _model_json_object(value):
                     continue
                 if character == '"':
                     in_remainder_string = True
-                if character not in '[{"-0123456789tfn':
+                # Only another object or array counts as a second JSON value; numbers, quoted words
+                # and true/false in surrounding prose ("（共3项变更）", 以上为 "turn" 结果) are harmless.
+                if character not in "[{":
                     continue
                 try:
                     extra, extra_end = decoder.raw_decode(remainder, extra_start)

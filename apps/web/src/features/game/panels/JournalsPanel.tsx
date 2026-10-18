@@ -11,7 +11,7 @@ export function JournalsPanel({ items, onRead }: { items: JournalEntry[]; onRead
             <li key={item.turn_id}><button type="button" onClick={() => onRead(item.turn_id)}><span>{item.sequence}</span><strong>{item.title}</strong><p>{item.summary}</p></button></li>
           ))}
         </ol>
-      ) : <GameEmpty title="纪事尚未开始">开始冒险后，每段剧情都会自动留下一条记录。</GameEmpty>}
+      ) : <GameEmpty title="纪事尚未开始" icon="book">开始冒险后，每段剧情都会自动留下一条记录。</GameEmpty>}
     </div>
   );
 }

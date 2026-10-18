@@ -72,11 +72,15 @@
     width: 46px;
     height: 46px;
     color: var(--primary);
-    font-size: var(--text-xl);
     background: var(--surface-tint);
     border: 1px solid var(--primary-strong);
     border-radius: var(--radius-md);
     animation: rune-pulse 2.8s ease-in-out infinite;
+  }
+
+  .pulse-rune .icon {
+    width: 24px;
+    height: 24px;
   }
 
   /* ---- Candidate panel ---- */

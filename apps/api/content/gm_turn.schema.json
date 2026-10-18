@@ -112,7 +112,7 @@
     },
     "proposals": {
       "type": "object", "additionalProperties": false,
-      "required": ["resources", "attributes", "conditions", "experience", "breakthrough", "items", "currency", "quests", "bonds", "reputations", "skills", "talents", "world_flags", "power_modifiers"],
+      "required": ["resources", "attributes", "conditions", "experience", "breakthrough", "items", "currency", "quests", "bonds", "reputations", "skills", "talents", "world_flags", "power_modifiers", "age"],
       "properties": {
         "resources": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/resource"}},
         "attributes": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/attribute"}},
@@ -127,7 +127,8 @@
         "skills": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/learnable"}},
         "talents": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/learnable"}},
         "world_flags": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/world_flag"}},
-        "power_modifiers": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/power_modifier"}}
+        "power_modifiers": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/power_modifier"}},
+        "age": {"description": "角色年龄变化；没有变化时为 null。", "anyOf": [{"type": "null"}, {"$ref": "#/$defs/age"}]}
       }
     },
     "memory_candidates": {"type": "array", "maxItems": 10, "items": {"$ref": "#/$defs/memory"}},
@@ -157,7 +158,7 @@
       "required": ["key", "delta", "long_term_basis", "reason", "evidence"],
       "properties": {
         "key": {"enum": ["con", "int", "cha"]},
-        "delta": {"type": "integer", "minimum": -35, "maximum": 35},
+        "delta": {"type": "integer", "minimum": -20, "maximum": 20, "description": "只有重大事件才能接近±20；常规成长或损伤为1到3。"},
         "long_term_basis": {"type": "string", "minLength": 1, "maxLength": 4000},
         "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
         "evidence": {"type": "string", "minLength": 1, "maxLength": 4000}
@@ -261,7 +262,7 @@
         "npc_id": {"type": ["string", "null"], "maxLength": 300},
         "npc_ref": {"type": ["string", "null"], "maxLength": 300},
         "npc_name": {"type": "string", "minLength": 1, "maxLength": 300},
-        "delta": {"type": "integer", "minimum": -50, "maximum": 50},
+        "delta": {"type": "integer", "minimum": -35, "maximum": 35, "description": "绝对值上限：minor 5、moderate 15、major 25、life_defining 35。"},
         "impact": {"enum": ["minor", "moderate", "major", "life_defining"]},
         "relation_type": {"type": "string", "minLength": 1, "maxLength": 200},
         "admission": {"type": ["string", "null"], "enum": ["important_character", "persistent_interaction", "long_term_relationship", "likely_recurring", null]},
@@ -274,7 +275,7 @@
       "required": ["key", "delta", "impact", "visibility", "public_reason", "evidence"],
       "properties": {
         "key": {"enum": ["continental_overall", "court_of_veiled_night", "skycrown_conclave", "holy_see_sacred_radiance", "court_of_sacred_tree", "valkeren_empire", "southern_maritime_federation"]},
-        "delta": {"type": "integer", "minimum": -100, "maximum": 100},
+        "delta": {"type": "integer", "minimum": -50, "maximum": 50, "description": "绝对值上限：minor 5、moderate 15、major 35、world_shaping 50。"},
         "impact": {"enum": ["minor", "moderate", "major", "world_shaping"]},
         "visibility": {"enum": ["public", "discovered", "propagated"]},
         "public_reason": {"type": "string", "minLength": 1, "maxLength": 2000},
@@ -290,6 +291,15 @@
         "name": {"type": "string", "minLength": 1, "maxLength": 4000},
         "description": {"type": "string", "minLength": 1, "maxLength": 4000},
         "source": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "evidence": {"type": "string", "minLength": 1, "maxLength": 4000}
+      }
+    },
+    "age": {
+      "type": "object", "additionalProperties": false,
+      "required": ["years_delta", "reason", "evidence"],
+      "properties": {
+        "years_delta": {"type": "integer", "minimum": -200, "maximum": 200, "description": "非零整数；正常随时间流逝增长为正数，返老还童等特殊事件可为负数。"},
         "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
         "evidence": {"type": "string", "minLength": 1, "maxLength": 4000}
       }
@@ -328,7 +338,7 @@
         "kind": {"type": "string", "minLength": 1, "maxLength": 4000},
         "summary": {"type": "string", "minLength": 1, "maxLength": 300, "description": "只保留确有长期价值的关键信息、线索或事件结果，使用精炼语言；不作为权威事实来源。"},
         "importance": {"type": "integer", "minimum": 1, "maximum": 100},
-        "people": {"type": "array", "maxItems": 30, "description": "仅填写权威状态中已有或本响应 new_npcs 新建的 NPC 引用。", "items": {"type": "string", "minLength": 1, "maxLength": 4000}},
+        "people": {"type": "array", "maxItems": 30, "description": "填写 canonical_npc_catalog、权威状态中已有或本响应 new_npcs 新建的 NPC 引用；无法识别的条目会被忽略。", "items": {"type": "string", "minLength": 1, "maxLength": 4000}},
         "locations": {"type": "array", "maxItems": 30, "description": "仅填写正典、权威动态地点或本响应 new_locations 的地点引用。", "items": {"type": "string", "minLength": 1, "maxLength": 4000}},
         "keywords": {"type": "array", "maxItems": 30, "items": {"type": "string", "maxLength": 4000}},
         "facts": {"type": "array", "maxItems": 30, "description": "可为空；记录值得跨回合保留的事实，可使用精炼概括。", "items": {"type": "string", "minLength": 1, "maxLength": 4000}},
@@ -342,7 +352,7 @@
     "schema_version": "gm-turn/2", "response_type": "turn",
     "narrative": {"title": "示例节点", "body": "旅人仍站在广场。", "chronicle_summary": "旅人观察了广场。", "suggested_options": [{"id": "observe", "text": "继续观察", "intent": "调查环境"}, {"id": "leave", "text": "离开广场", "intent": "前往别处"}]},
     "scene": {"time_label": "上午", "elapsed_minutes": 0, "player_life_state": "alive", "location": {"operation": "stay", "location_id": null, "location_ref": null, "reason": "没有移动"}, "new_locations": [], "location_updates": [], "new_npcs": [], "npc_updates": []},
-    "proposals": {"resources": [], "attributes": [], "conditions": [], "experience": [], "breakthrough": null, "items": [], "currency": {"copper_delta": 0, "reason": "", "evidence": ""}, "quests": [], "bonds": [], "reputations": [], "skills": [], "talents": [], "world_flags": [], "power_modifiers": []},
+    "proposals": {"resources": [], "attributes": [], "conditions": [], "experience": [], "breakthrough": null, "items": [], "currency": {"copper_delta": 0, "reason": "", "evidence": ""}, "quests": [], "bonds": [], "reputations": [], "skills": [], "talents": [], "world_flags": [], "power_modifiers": [], "age": null},
     "memory_candidates": [], "warnings": []
   }]
 }

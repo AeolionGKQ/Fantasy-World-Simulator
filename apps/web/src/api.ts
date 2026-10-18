@@ -1,5 +1,6 @@
 import type {
   ApiProblem,
+  CharacterAdditionalResult,
   AppSettings,
   CharacterCandidate,
   CharacterDraft,
@@ -259,6 +260,10 @@ export const api = {
     request<StartPrerequisiteResult>(`/api/saves/${encodeURIComponent(saveId)}/story/start-prerequisite`, {
       method: "POST", signal,
       body: { request_id: requestId, expected_state_version: expectedStateVersion, resolution, location_id: locationId },
+    }),
+  updateCharacterAdditional: (saveId: string, expectedStateVersion: number, additional: string, requestId: string) =>
+    request<CharacterAdditionalResult>(`/api/saves/${encodeURIComponent(saveId)}/character-state/additional`, {
+      method: "PUT", body: { request_id: requestId, expected_state_version: expectedStateVersion, additional },
     }),
   startOpening: (saveId: string, expectedStateVersion: number, guidance = "", requestId: string = crypto.randomUUID(), signal?: AbortSignal) =>
     request<NarrativeJob>(`/api/saves/${encodeURIComponent(saveId)}/story/opening`, {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Icon } from "../../components/Icon";
 import { Link, useParams } from "react-router-dom";
 import { api, asApiError } from "../../api";
 import { useAppNavigate } from "../../app/viewTransition";
@@ -116,7 +117,7 @@ export default function SceneImageWorkspace() {
       {error && <p className="inline-error" role="alert">{error}</p>}
       {promptBusy && (
         <section className="image-progress" role="status">
-          <span>◇</span>
+          <span aria-hidden="true"><Icon name="sparkle" /></span>
           <div>
             <h2>正在整理画面描述</h2>
             <p>可以返回剧情页，画面描述会继续生成。</p>

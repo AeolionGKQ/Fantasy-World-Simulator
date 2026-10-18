@@ -14,6 +14,19 @@
     border: 2px solid var(--outline);
     border-radius: var(--radius-xl);
     box-shadow: 4px 4px 0 var(--card-shadow-color);
+    scroll-margin-top: 96px; /* clear the sticky toolbar when jumped to from the sidebar */
+  }
+
+  /* Section reached from the sidebar (/settings#…): a focus-coloured outline that fades out. */
+  .settings-section.section-target {
+    outline: 3px solid transparent;
+    outline-offset: 4px;
+    animation: section-target 1.6s var(--ease-out);
+  }
+
+  @keyframes section-target {
+    0%, 40% { outline-color: var(--focus); }
+    100% { outline-color: transparent; }
   }
 
   /* On desktop the section description follows the long form while it scrolls (V-12). */

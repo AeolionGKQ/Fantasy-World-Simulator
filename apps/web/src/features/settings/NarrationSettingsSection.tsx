@@ -9,7 +9,7 @@ export function NarrationSettingsSection({ ctl, settings }: { ctl: SettingsContr
   const update = <K extends keyof AppSettings["narration"]>(key: K, value: AppSettings["narration"][K]) =>
     setSettings((current) => current ? { ...current, narration: { ...current.narration, [key]: value } } : current);
   return (
-    <section className="settings-section" aria-labelledby="narration-title">
+    <section className="settings-section" id="narration" aria-labelledby="narration-title">
       <div className="settings-copy"><h2 id="narration-title">叙事设置</h2><p>选择你喜欢的故事节奏和描写方式。保存后会应用到全部存档。</p></div>
       <form className="settings-form narration" onSubmit={(event) => void ctl.saveNarration(event)}>
         <SegmentedField label="剧情推进速度" value={settings.narration.pace} options={[{ value: "slow", label: "慢速" }, { value: "fast", label: "快速" }, { value: "dynamic", label: "动态" }]} disabled={saving} onChange={(pace) => update("pace", pace)} />

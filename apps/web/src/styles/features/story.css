@@ -181,6 +181,26 @@
     white-space: pre-wrap;
   }
 
+  /* Death ends the story: shown in place of the suggested actions. */
+  .story-ending,
+  .story-actions > section.story-ending,
+  .story-actions > section.story-ending:first-child {
+    padding: 16px 18px;
+    background: var(--danger-soft);
+    border: 1px solid var(--danger-line);
+    border-radius: var(--radius-md);
+  }
+
+  .story-ending h3 {
+    color: var(--danger);
+  }
+
+  .story-ending p {
+    margin-top: 6px;
+    color: var(--body);
+    font-size: var(--text-sm);
+  }
+
   .gm-warnings {
     margin-top: 24px;
     padding: 14px 16px;

@@ -443,6 +443,12 @@ export interface StartPrerequisiteResult {
   resolved: true;
 }
 
+export interface CharacterAdditionalResult {
+  save_id: string;
+  state_version: number;
+  additional: string;
+}
+
 export interface StoryIdentity {
   race_id?: string;
   race_branch_id?: string | null;
@@ -652,6 +658,10 @@ export interface Quest {
 
 export interface QuestProjection {
   active: Quest[];
+  /** Offered to the player and waiting for an answer. */
+  offered?: Quest[];
+  /** Completed, failed, declined or abandoned. */
+  finished?: Quest[];
   state_version: number;
 }
 
@@ -706,6 +716,8 @@ export interface MemoryProjection {
   summary_buffer: Turn[];
   story_arcs: StoryArc[];
   policy: { recent_full_count: number; arc_turn_count: number; original_history_preserved: boolean };
+  /** The pending automatic arc batch once it has failed three or more times. */
+  arc_failures?: { count: number; message: string | null; start_sequence: number; end_sequence: number } | null;
 }
 
 export interface Bond {

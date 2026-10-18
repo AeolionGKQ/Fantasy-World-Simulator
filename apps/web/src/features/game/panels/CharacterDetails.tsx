@@ -1,6 +1,11 @@
 import { useState } from "react";
+import { Icon } from "../../../components/Icon";
 import { Modal } from "../../../components/Modal";
+import { useAutoFocus } from "../../../components/useAutoFocus";
 import { chineseRankNumeral, type CharacterState, type WorldCatalog } from "../../../types";
+
+/** Same limit as the 其他补充 step in character creation. */
+const ADDITIONAL_MAX_LENGTH = 4000;
 
 /** What the player chose and wrote during character creation, as kept in the confirmed character. */
 function creationEntries(identity: CharacterState["identity"], catalog: WorldCatalog) {
@@ -20,16 +25,20 @@ function creationEntries(identity: CharacterState["identity"], catalog: WorldCat
     ["性格", identity.personality],
     ["天赋", identity.talent],
     ["身世与经历", identity.backstory],
-    ["其他补充", identity.additional],
   ] as const;
   return { facts, texts };
 }
 
 /**
  * "角色详细信息" section of the Character tab: a button that opens a dialog with everything chosen
- * and written in character creation.
+ * and written in character creation. The last part, 其他补充, stays editable during play.
  */
-export function CharacterDetails({ character, catalog }: { character: CharacterState; catalog: WorldCatalog }) {
+export function CharacterDetails({ character, catalog, editLocked, onSaveAdditional }: {
+  character: CharacterState;
+  catalog: WorldCatalog;
+  editLocked: boolean;
+  onSaveAdditional: (additional: string) => Promise<boolean>;
+}) {
   const [open, setOpen] = useState(false);
   const { facts, texts } = creationEntries(character.identity, catalog);
   return (
@@ -50,8 +59,55 @@ export function CharacterDetails({ character, catalog }: { character: CharacterS
                 <p className={value?.trim() ? "" : "muted-copy"}>{value?.trim() || "未填写"}</p>
               </section>
             ))}
+            <AdditionalSetting value={character.identity.additional ?? ""} locked={editLocked} onSave={onSaveAdditional} />
           </div>
         </Modal>
+      )}
+    </section>
+  );
+}
+
+function AdditionalSetting({ value, locked, onSave }: { value: string; locked: boolean; onSave: (additional: string) => Promise<boolean> }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const focusRef = useAutoFocus<HTMLTextAreaElement>();
+  const editing = draft !== null;
+  const unchanged = draft?.trim() === value.trim();
+  const save = async () => {
+    if (draft === null || unchanged) return;
+    setSaving(true);
+    const saved = await onSave(draft);
+    setSaving(false);
+    if (saved) setDraft(null);
+  };
+  return (
+    <section className="additional-setting">
+      <div className="additional-heading">
+        <h3 id="additional-setting-label">其他补充</h3>
+        {!editing && (
+          <button type="button" className="text-button" disabled={locked} onClick={() => setDraft(value)}>
+            <Icon name="edit" />修改
+          </button>
+        )}
+      </div>
+      {editing ? (
+        <>
+          <label className="field">
+            <textarea ref={focusRef} aria-labelledby="additional-setting-label" rows={7} maxLength={ADDITIONAL_MAX_LENGTH} value={draft} disabled={saving}
+              placeholder="补充或改写角色设定，例如习惯、旧伤、人际关系、想让故事记住的细节。" onChange={(event) => setDraft(event.target.value)} />
+            <small className="char-count">{draft.length} / {ADDITIONAL_MAX_LENGTH}</small>
+          </label>
+          <div className="form-actions">
+            <span className="cost-note">保存后从下一段剧情开始生效。数值、物品和能力仍要在剧情中获得。</span>
+            <button type="button" className="secondary-button" disabled={saving} onClick={() => setDraft(null)}>取消</button>
+            <button type="button" className="primary-button" disabled={saving || locked || unchanged} onClick={() => void save()}>{saving ? "正在保存…" : "保存"}</button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className={value.trim() ? "" : "muted-copy"}>{value.trim() || "未填写"}</p>
+          {locked && <small className="additional-locked">剧情生成中，完成后可以修改。</small>}
+        </>
       )}
     </section>
   );

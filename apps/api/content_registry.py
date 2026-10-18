@@ -8,11 +8,17 @@ from pathlib import Path
 try:
     from .canonical_npcs import canonical_npc_catalog
     from .contract_registry import contract_from_documents
+    from .narrative_contract import (AGE_DELTA_LIMIT, ATTRIBUTE_DELTA_LIMIT, BOND_IMPACT_LIMITS,
+                                     MODIFIER_SEVERITY_SHARE, ORDINARY_EQUIPMENT_SHARE,
+                                     RANK_UP_RESOURCE_GROWTH, REPUTATION_IMPACT_LIMITS)
     from .location_graph import (LOCATION_GRAPH_VERSION, location_catalog,
                                  location_graph_manifest)
 except ImportError:
     from canonical_npcs import canonical_npc_catalog
     from contract_registry import contract_from_documents
+    from narrative_contract import (AGE_DELTA_LIMIT, ATTRIBUTE_DELTA_LIMIT, BOND_IMPACT_LIMITS,
+                                    MODIFIER_SEVERITY_SHARE, ORDINARY_EQUIPMENT_SHARE,
+                                    RANK_UP_RESOURCE_GROWTH, REPUTATION_IMPACT_LIMITS)
     from location_graph import (LOCATION_GRAPH_VERSION, location_catalog,
                                 location_graph_manifest)
 
@@ -180,6 +186,8 @@ def story_arc_policy(action_type):
         "若契约中仍有key_events字段（旧版契约），一律返回[]",
         "unresolved逐条列出来源中仍未解决的事件、承诺、约定、线索、悬念与待办；每条一句话，写明涉及的人物、地点或物品，不同事项不要合并成一条",
         "来源范围内已经解决或已有明确结局的事项不得列入unresolved；没有未解决事项时返回[]",
+        "只总结current_action.frozen_sources中的内容；recent_full_turns、其他story_arcs与long_term_memories仅供理解前因后果，不得写入本故事弧",
+        "summary建议约800到1500字，篇幅随来源内容的分量调整",
     ]
     if action_type == "arcs_to_arc":
         rules += [
@@ -191,6 +199,76 @@ def story_arc_policy(action_type):
     encoded = json.dumps(policy, ensure_ascii=True, separators=(",", ":")).replace(
         "<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     return "\n<RUNTIME_STORY_ARC_POLICY_JSON>\n" + encoded + "\n</RUNTIME_STORY_ARC_POLICY_JSON>\n"
+
+
+STATE_RULES_POLICY_VERSION = "state-rules/2"
+
+
+def state_rules_policy(state, contract):
+    """How each state proposal works, with the caps the adjudicator enforces and this character's
+    current numbers. Runtime, so saves frozen on an older output contract follow it too; where a
+    frozen contract says otherwise, this policy wins."""
+    character = state.get("character", {})
+    base_power = character.get("base_power") or 0
+    inventory = state.get("inventory", {}).values()
+    ordinary_cap = int(base_power * ORDINARY_EQUIPMENT_SHARE)
+    ordinary_used = sum(item.get("power", 0) for item in inventory
+                        if item.get("equipped") and item.get("power_class", "ordinary") == "ordinary")
+    proposal_schema = contract.get("schema", {}).get("properties", {}).get("proposals", {})
+    supports_age = "age" in proposal_schema.get("properties", {})
+    current_age = character.get("age", character.get("identity", {}).get("age"))
+    rules = [
+        "本策略与冻结在存档中的输出契约原文冲突时，以本策略为准",
+        "所有数值提案都是增量：delta为正表示增加或恢复，为负表示减少或消耗；结果由程序截断到允许范围",
+        "短期资源resources（hp生命/mp魔力/sp精神/st精力）：current在0到max之间；HP归零即死亡，MP、SP、ST归零分别产生魔力枯竭、精神崩溃、力竭状态。"
+        f"max不由模型修改：每升一阶，程序把四项max提高到原来的{RANK_UP_RESOURCE_GROWTH}倍，current同步补上增量",
+        f"长期属性attributes（con体质/int智力/cha魅力）：取值1到100，单回合delta绝对值最多{ATTRIBUTE_DELTA_LIMIT}，且只有重大正向或负向事件才能接近这个上限；常规成长或损伤建议为1到3，并在long_term_basis中写明长期积累的依据",
+        "天赋talents是先天或极少变化的特质，只在重大事件中获得；技能skills通过学习、训练获得或提升，可随角色成长更新。"
+        "add时id填null；update或remove必须填写authoritative_state.character中已有的id。"
+        "建卡时的初始天赋（id为talent.legacy）在剧情有充分依据（如诅咒、重伤、血脉觉醒）时允许修改或移除。"
+        "当前天赋以talents列表为准，identity.talent只是建卡时的原始记录",
+        "character.identity.additional是玩家可随时在角色面板改写或补充的角色设定，始终以当前内容为准，内容改变时以新内容取代旧印象。"
+        "描写角色的背景、习惯、人际关系、偏好与言行时必须遵守；但它不是状态提案，不能据此直接增加数值、物品、货币、天赋、技能、等阶、羁绊、声望或任务，这些变化仍须在正文中发生并通过proposals提交",
+        "EXP只增不减：experience.amount为非负整数，到达当前阶位阈值后不再累积。单次奖励参考当前阈值的3%到15%，重大挑战可更高；低挑战、无新颖、重复的行为单回合合计不超过10",
+        "突破breakthrough：角色EXP满足阈值时breakthrough_eligible由程序计算。玩家本次输入明确表达突破意图时才可attempted=true，"
+        "action_evidence逐字摘取玩家输入中表达该意图的那一小段（例如“闭关冲击六阶”），不要整段复制，也不要引用否定说法；没有意图时只描写准备或机缘。"
+        "6阶及以上升阶需要完成突破任务：EXP刚满时若尚无对应任务，程序会自动创建一个状态为eligible、quest_kind=breakthrough、target_rank=当前阶位+1的突破任务，由你在剧情中展开并推进到offered或active；"
+        "玩家拒绝或任务失败后程序不会重建，之后由玩家主动发起",
+        "存活与死亡：scene.player_life_state必须与HP结果一致；角色死亡即本存档的结局，请写出完整的结局段落，之后玩家只能重塑最近一段剧情，任何手段都不能复活",
+        f"战力：有效战力=基础战力+装备战力+战力修正，由程序计算。已装备的ordinary普通装备合计最多计入基础战力的{int(ORDINARY_EQUIPMENT_SHARE * 100)}%，超出部分不计入有效战力；"
+        "high_rank与exceptional装备必须提供power_basis",
+        "战力修正power_modifiers的value绝对值上限按severity计算（正典例外除外）："
+        + "、".join(f"{key}为基础战力的{int(share * 100)}%" for key, share in MODIFIER_SEVERITY_SHARE.items())
+        + "。伤势痊愈、离开对应环境、强化或增益结束时，必须用remove或expire移除对应的临时修正，程序不会自动过期；空数组表示既有修正保持不变",
+        "背包items：add获得，remove消耗、出售、交出或遗失，equip/unequip穿脱。可堆叠物品追加时复用已有item_id（name必须一致）；新物品item_id填null。货币currency.copper_delta以铜币计，100铜=1银，100银=1金，余额不能为负",
+        "任务quests：新建任务必须填写name与description，状态可为untriggered、eligible或offered；玩家本次输入明确表示接受时才能把任务创建为或转为active，"
+        "action_evidence逐字摘取玩家输入中表达接受意图的那一小段（如“这个委托我接了”“我答应帮她”），不要整段复制，也不要引用否定说法；终局状态不可逆",
+        "羁绊bonds的delta绝对值上限由impact决定："
+        + "、".join(f"{key}为{limit}" for key, limit in BOND_IMPACT_LIMITS.items())
+        + "（可正可负）；普通互动只能用minor或moderate",
+        "声望reputations的delta绝对值上限由impact决定："
+        + "、".join(f"{key}为{limit}" for key, limit in REPUTATION_IMPACT_LIMITS.items())
+        + "（可正可负）。continental_overall只用于跨势力、广泛传播的事件；主要发生在某一势力辖区或直接影响该势力的事件，使用对应势力的键；同一事件理由充分时可同时影响二者。visibility须为公开、被发现或已传播",
+        "delta为0的提案不需要evidence；其余状态提案的evidence必须逐字存在于本次narrative.body",
+    ]
+    if supports_age:
+        rules.append("年龄age：正常情况下只随剧情中流逝的时间增长，跨过生日或经过多年时用proposals.age提出years_delta（正数增长）；"
+                     f"返老还童等特殊事件可为负数，绝对值最多{AGE_DELTA_LIMIT}，并需引用正文作为evidence；没有变化时age为null")
+    else:
+        rules.append("年龄：本存档的输出契约没有年龄字段，不要提交年龄变化")
+    policy = {"priority": "mandatory", "version": STATE_RULES_POLICY_VERSION, "rules": rules,
+              "current_numbers": {
+                  "base_power": base_power,
+                  "ordinary_equipment_power_cap": ordinary_cap,
+                  "ordinary_equipment_power_equipped": ordinary_used,
+                  "ordinary_equipment_power_remaining": max(0, ordinary_cap - ordinary_used),
+                  "power_modifier_caps": {key: int(base_power * share)
+                                          for key, share in MODIFIER_SEVERITY_SHARE.items()},
+                  "current_age": current_age,
+              }}
+    encoded = json.dumps(policy, ensure_ascii=True, separators=(",", ":")).replace(
+        "<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    return "\n<RUNTIME_STATE_RULES_POLICY_JSON>\n" + encoded + "\n</RUNTIME_STATE_RULES_POLICY_JSON>\n"
 
 
 def player_address_directive(state):
@@ -492,7 +570,7 @@ class ContentRegistry:
                     "玩家可尝试任何行为；客观条件不足时叙述合理失败并继续故事，不要省略尝试本身",
                     "所有非零状态提案必须用evidence逐字引用正文；正文可以使用自然沉浸式措辞，不必迎合机制关键词",
                     "重塑只以reshape_guidance作为本次新授权，original_action仅是要被改写的历史上下文",
-                    "普通任务可按世界进展创建为untriggered、eligible或offered；只有玩家本次输入明确接受且action_evidence逐字引用该输入时才能active",
+                    "普通任务可按世界进展创建为untriggered、eligible或offered；只有玩家本次输入明确表示接受时才能active，action_evidence逐字摘取玩家输入中表达接受意图的那一小段，不要整段复制",
                     "NPC死亡不等于玩家死亡；scene.player_life_state只描述玩家本人且必须与HP结果一致",
                     "普通行为只能产生minor或moderate关系影响；major、life_defining或world_shaping必须由正文中的重大长期事件支撑",
                     "既有正典人物必须使用canonical_npc_catalog稳定ID，不得伪造canon.npc前缀",
@@ -505,14 +583,16 @@ class ContentRegistry:
             system_parts.append(
                 "\n<RUNTIME_ADJUDICATION_POLICY_JSON>\n" + encoded_adjudication_policy +
                 "\n</RUNTIME_ADJUDICATION_POLICY_JSON>\n")
+            system_parts.append(state_rules_policy(state, contract))
             memory_policy = {
                 "priority": "mandatory",
                 "rules": [
                     "长期记忆只保存确有跨回合价值的关键信息、线索、承诺、人物关系变化或事件结果，语言必须精炼",
                     "不要记录普通动作、场景装饰、重复信息、短期状态或可直接从权威状态读取的内容",
                     "普通询问若没有得到具体且后续仍有用的新线索，memory_candidates必须返回空数组；不要为了填字段强行创建记忆",
-                    "memory evidence用于简要说明本回合记忆来源，可引用正文、概括正文信息，或引用玩家本次明确要求记住的内容；不要求逐字复制",
-                    "当一条已召回记忆已经使用完、事项已解决、信息过期、失效、被证伪或被新结论替代，使用resolve或supersede删除",
+                    "memory evidence用于简要说明本回合记忆来源，可引用正文、概括正文信息，或引用玩家本次明确要求记住的内容；不要求逐字复制。facts与unresolved用精炼语言概括，不要求与evidence相同；输出契约原文中关于至少8个字符、完整分句或逐字相等的旧要求一律不再适用",
+                    "people与locations填写canonical_npc_catalog、authoritative_state或本响应新建的NPC与地点ID；无法识别的条目会被程序忽略",
+                    "当一条已召回记忆已经使用完、事项已解决、信息过期、失效、被证伪或被新结论替代，使用resolve或supersede删除；supersede只删除旧记忆，要保留新结论，必须同时create一条新记忆",
                     "resolve或supersede时在memory_id填写本次long_term_memories中目标memory_number的十进制字符串，不得使用内部UUID",
                     "只能删除本次long_term_memories实际出现的编号，不得猜测未召回记忆；删除后编号由程序自动连续重排",
                 ],
@@ -628,6 +708,7 @@ class ContentRegistry:
         }
         if contract_kind == "gm_turn":
             manifest["gm_writing_guidelines"] = dict(self._gm_writing_metadata)
+            manifest["state_rules_policy_version"] = STATE_RULES_POLICY_VERSION
         else:
             manifest["story_arc_policy_version"] = STORY_ARC_POLICY_VERSION
         return ([{"role": "system", "content": "".join(system_parts)},

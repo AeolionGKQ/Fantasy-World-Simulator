@@ -1,4 +1,5 @@
 import { useEffect, type KeyboardEvent } from "react";
+import { Icon } from "../../components/Icon";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../api";
 import { prefersReducedMotion } from "../../app/viewTransition";
@@ -42,7 +43,7 @@ function ProblemPanel({ problem, onRetry }: { problem: ApiProblem; onRetry: () =
 function GameNoticeBar({ notice, leaving, onDismiss }: { notice: GameNotice; leaving: boolean; onDismiss: () => void }) {
   return (
     <div className={`game-notice ${notice.tone} ${leaving ? "leaving" : ""}`} role={notice.tone === "error" ? "alert" : "status"}>
-      <span aria-hidden="true">{notice.tone === "error" ? "!" : "◇"}</span>
+      <span className="notice-icon" aria-hidden="true"><Icon name={notice.tone === "error" ? "alert" : "info"} /></span>
       <p>{notice.text}{notice.traceId && <small>问题编号：{notice.traceId}</small>}</p>
       <button type="button" onClick={onDismiss} aria-label="关闭游戏提示">×</button>
     </div>
@@ -119,11 +120,11 @@ export default function GameWorkspace() {
             onCancel={() => void game.cancelJob()}
           />
         )}
-        {tab === "character" && <CharacterPanel character={data.projections.character} catalog={data.catalog} />}
+        {tab === "character" && <CharacterPanel character={data.projections.character} catalog={data.catalog} editLocked={stateBusy} onSaveAdditional={game.saveCharacterAdditional} />}
         {tab === "inventory" && <InventoryPanel inventory={data.projections.inventory} />}
-        {tab === "quests" && <QuestsPanel active={data.projections.quests.active} />}
+        {tab === "quests" && <QuestsPanel quests={data.projections.quests} />}
         {tab === "journals" && <JournalsPanel items={data.projections.journals.items} onRead={(id) => void game.readJournalTurn(id)} />}
-        {tab === "memory" && <MemoryPanel memory={data.projections.memory} memories={data.projections.memories.items} arcBusy={arcBusy} arcJob={data.story.active_arc_job} onMerge={(ids) => void game.startArcJob((version, signal) => api.mergeStoryArcs(saveId, version, ids, crypto.randomUUID(), signal))} />}
+        {tab === "memory" && <MemoryPanel memory={data.projections.memory} memories={data.projections.memories.items} arcBusy={arcBusy} arcJob={data.story.active_arc_job} onMerge={(ids) => void game.startArcJob((version, signal) => api.mergeStoryArcs(saveId, version, ids, crypto.randomUUID(), signal))} onRebuild={() => void game.startArcJob((version, signal) => api.createStoryArc(saveId, version, crypto.randomUUID(), signal))} />}
         {tab === "bonds" && <BondsPanel items={data.projections.bonds.items} />}
         {tab === "reputations" && <ReputationsPanel data={data.projections.reputations} />}
       </section>

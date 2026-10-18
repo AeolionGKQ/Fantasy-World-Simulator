@@ -60,19 +60,19 @@
     border-color: var(--danger-line);
   }
 
-  .game-notice > span {
+  .notice-icon {
     display: grid;
     place-items: center;
-    width: 24px;
-    height: 24px;
     color: var(--primary);
-    font-weight: 750;
-    border: 1px solid currentColor;
   }
 
-  .game-notice.error > span {
+  .notice-icon .icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .game-notice.error .notice-icon {
     color: var(--danger);
-    border-radius: var(--radius-full);
   }
 
   .game-notice p {

@@ -18,74 +18,82 @@ const failureReason: Record<string, string> = {
   MODEL_SERVICE_ERROR: "服务暂时出错",
 };
 
+type ServiceKey = "story" | "image";
+
+/** Each row opens its own section of the settings page (ids set on the sections there). */
+const services: Record<ServiceKey, { name: string; section: string; sectionName: string }> = {
+  story: { name: "剧情模型", section: "story-model", sectionName: "剧情模型配置" },
+  image: { name: "生图模型", section: "image-model", sectionName: "生图模型配置" },
+};
+
 /** Model name to reveal on hover or tap; none while the service is not configured. */
 function modelName(status: ServiceStatus) {
   return status.state === "not_configured" ? "" : status.model;
 }
 
-function describe(name: string, status: ServiceStatus) {
-  const model = modelName(status);
-  return `${name}${stateText[status.state]}${model ? `，模型 ${model}` : ""}`;
-}
-
-type ServiceKey = "story" | "image";
-
-function ServiceRow({ id, name, status, revealed, secondary = false }: { id: ServiceKey; name: string; status: ServiceStatus; revealed: boolean; secondary?: boolean }) {
+function ServiceRow({ id, status, reason, revealed, onReveal }: {
+  id: ServiceKey;
+  status: ServiceStatus;
+  reason?: string;
+  revealed: boolean;
+  onReveal: (id: ServiceKey) => void;
+}) {
+  const { name, section, sectionName } = services[id];
+  const secondary = id === "image";
   // The image service is optional: "not configured" is neutral there, not a warning.
-  const state = secondary && status.state === "not_configured" ? "neutral" : status.state;
+  const dotState = secondary && status.state === "not_configured" ? "neutral" : status.state;
   const model = modelName(status);
+  const label = `${name}${stateText[status.state]}${model ? `，模型 ${model}` : ""}${reason ? `，${reason}` : ""}。打开${sectionName}`;
+  // On touch screens the first tap reveals the model name (and highlights the row); a tap on a revealed row opens settings.
+  const onClick = (event: MouseEvent) => {
+    if (revealed || !model || !window.matchMedia("(hover: none)").matches) return;
+    event.preventDefault();
+    onReveal(id);
+  };
   return (
-    <span className={`service-row ${secondary ? "secondary" : ""} ${revealed ? "revealed" : ""}`} data-service={id}>
-      <span className="service-dot" data-state={state} aria-hidden="true">{status.state === "failed" ? "!" : ""}</span>
+    <Link viewTransition to={`/settings#${section}`} className={`service-row ${secondary ? "secondary" : ""} ${revealed ? "revealed" : ""}`} aria-label={label} onClick={onClick}>
+      <span className="service-dot" data-state={dotState} aria-hidden="true">{status.state === "failed" ? "!" : ""}</span>
       <span className="service-body">
         <span className="service-text" key={status.state}>{name}{stateText[status.state]}</span>
-        {/* Hidden until this row is hovered or tapped (or the block has keyboard focus); wraps instead of being cut off. */}
+        {/* Hidden until this row is hovered, focused or tapped; wraps instead of being cut off. */}
         {model && <span className="service-model"><span>{model}</span></span>}
+        {reason && <small className="service-reason">{reason}</small>}
       </span>
-    </span>
+    </Link>
   );
 }
 
 /**
- * Bottom of the save sidebar (D-06): whether the story AI (and the optional image AI) is configured
- * and reachable. The whole block links to the settings page. Each row shows its model name on hover;
- * on touch screens the first tap on a row reveals that row's model, and a tap on a revealed row opens settings.
+ * Bottom of the save sidebar (D-06): whether the story model (and the optional image model) is
+ * configured and reachable. Each row is its own link to its section of the settings page.
  */
-export function ServiceStatusPanel({ services, offline }: { services: ServiceStatuses | null; offline: boolean }) {
-  const [revealed, setRevealed] = useState<ReadonlySet<ServiceKey>>(() => new Set());
-  const blockRef = useRef<HTMLAnchorElement>(null);
-  // A tap anywhere outside the block hides the model names again.
+export function ServiceStatusPanel({ services: statuses, offline }: { services: ServiceStatuses | null; offline: boolean }) {
+  const [revealed, setRevealed] = useState<ServiceKey | null>(null);
+  const blockRef = useRef<HTMLDivElement>(null);
+  // A tap anywhere outside the block hides the model name again.
   useEffect(() => {
-    if (!revealed.size) return;
-    const hide = (event: PointerEvent) => { if (!blockRef.current?.contains(event.target as Node)) setRevealed(new Set()); };
+    if (!revealed) return;
+    const hide = (event: PointerEvent) => { if (!blockRef.current?.contains(event.target as Node)) setRevealed(null); };
     document.addEventListener("pointerdown", hide);
     return () => document.removeEventListener("pointerdown", hide);
   }, [revealed]);
   if (offline) {
     return (
-      <Link viewTransition to="/settings" className="service-status" aria-label="游戏服务未连接，打开设置">
-        <span className="service-row"><span className="service-dot" data-state="failed" aria-hidden="true">!</span><span className="service-text">游戏服务未连接</span></span>
-      </Link>
+      <div className="service-status">
+        <Link viewTransition to="/settings" className="service-row" aria-label="游戏服务未连接，打开设置">
+          <span className="service-dot" data-state="failed" aria-hidden="true">!</span>
+          <span className="service-body"><span className="service-text">游戏服务未连接</span></span>
+        </Link>
+      </div>
     );
   }
-  if (!services) return <div className="service-status" aria-hidden="true" />;
-  const story = services.story_model;
-  const image = services.image_model;
+  if (!statuses) return <div className="service-status" aria-hidden="true" />;
+  const story = statuses.story_model;
   const reason = story.state === "failed" ? failureReason[story.error_code ?? ""] ?? "请在设置中重新测试连接" : "";
-  const label = `${describe("剧情模型", story)}${reason ? `，${reason}` : ""}；${describe("生图模型", image)}。打开设置`;
-  const modelOf: Record<ServiceKey, string> = { story: modelName(story), image: modelName(image) };
-  const revealOnTap = (event: MouseEvent) => {
-    if (!window.matchMedia("(hover: none)").matches) return;
-    const key = (event.target as Element).closest<HTMLElement>("[data-service]")?.dataset.service as ServiceKey | undefined;
-    if (!key || revealed.has(key) || !modelOf[key]) return;
-    event.preventDefault();
-    setRevealed((current) => new Set(current).add(key));
-  };
   return (
-    <Link viewTransition to="/settings" ref={blockRef} className="service-status" aria-label={label} onClick={revealOnTap}>
-      <ServiceRow id="story" name="剧情模型" status={story} revealed={revealed.has("story")} />
-      <ServiceRow id="image" name="生图模型" status={image} revealed={revealed.has("image")} secondary />
-      {reason && <small className="service-reason">{reason}</small>}
-    </Link>
+    <div className="service-status" ref={blockRef}>
+      <ServiceRow id="story" status={story} reason={reason} revealed={revealed === "story"} onReveal={setRevealed} />
+      <ServiceRow id="image" status={statuses.image_model} revealed={revealed === "image"} onReveal={setRevealed} />
+    </div>
   );
 }

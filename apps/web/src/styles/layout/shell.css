@@ -198,20 +198,14 @@
     border-top: 1px solid var(--line);
   }
 
-  /* Model service status (D-06): text, a symbol and colour together; the block links to settings. */
+  /*
+   * Model service status (D-06): text, a symbol and colour together. Each row is its own link to its
+   * section of the settings page and highlights on its own, in a warm neutral that suits the paper sidebar.
+   */
   .service-status {
     display: grid;
-    gap: 6px;
+    gap: 2px;
     min-height: 44px;
-    padding: 10px;
-    color: var(--ink);
-    text-decoration: none;
-    border-radius: var(--radius-md);
-    transition: background var(--dur-state) var(--ease-out);
-  }
-
-  a.service-status:hover {
-    background: var(--surface-raised);
   }
 
   .service-row {
@@ -219,7 +213,16 @@
     align-items: center;
     gap: 8px;
     min-width: 0;
+    padding: 7px 10px;
+    color: var(--ink);
     font-size: var(--text-sm);
+    text-decoration: none;
+    border-radius: var(--radius-md);
+    transition: background var(--dur-state) var(--ease-out);
+  }
+
+  .service-row.revealed {
+    background: var(--row-hover);
   }
 
   /* The optional image AI row: same size as the story AI row, only a quieter colour. */
@@ -265,12 +268,16 @@
   }
 
   .service-row.revealed .service-model,
-  .service-status:focus-visible .service-model {
+  .service-row:focus-visible .service-model {
     grid-template-rows: 1fr;
     opacity: 1;
   }
 
   @media (hover: hover) {
+    .service-row:hover {
+      background: var(--row-hover);
+    }
+
     .service-row:hover .service-model {
       grid-template-rows: 1fr;
       opacity: 1;
@@ -308,7 +315,6 @@
   }
 
   .service-reason {
-    padding-left: 20px;
     color: var(--danger);
     font-size: var(--text-xs);
   }

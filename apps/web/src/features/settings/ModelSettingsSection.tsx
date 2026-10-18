@@ -19,7 +19,7 @@ export function ModelSettingsSection({ ctl, settings }: { ctl: SettingsControlle
   const canSubmitSettingRequest = canStartSettingRequest(modelState, narrationState, testState);
   const feedback = ctl.structuredProbeFeedback;
   return (
-    <section className="settings-section" aria-labelledby="model-settings-title">
+    <section className="settings-section" id="story-model" aria-labelledby="model-settings-title">
       <div className="settings-copy"><h2 id="model-settings-title">剧情模型配置</h2><p>模型会扮演 GM，根据你的角色和行动讲述故事。按服务商提供的信息填写下方设置；服务地址请使用你信任的来源。</p></div>
       <form className="settings-form" onSubmit={(event) => void ctl.saveModel(event)}>
         <SegmentedField label="服务类型" value={settings.model.protocol ?? "openai"} options={[{ value: "openai", label: "OpenAI 兼容" }, { value: "anthropic", label: "Anthropic 兼容" }]} disabled={!canMutateModel} onChange={(protocol) => invalidateModelTest((model) => ({ ...model, protocol }))} />

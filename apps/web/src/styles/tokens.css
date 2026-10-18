@@ -13,6 +13,7 @@
     --surface: #fffdf7;
     --surface-raised: #e1ebff;
     --surface-hover: #dce7fc;
+    --row-hover: #f2ecdd;      /* warm neutral highlight for rows on the paper sidebar */
     --field-bg: #ffffff;
     --toolbar-bg: #fffdf7f5;
     --selected: #e8efff;

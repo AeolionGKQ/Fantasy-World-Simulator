@@ -213,17 +213,31 @@
     color: var(--muted);
   }
 
-  .empty-symbol {
+  /* Icon badges: an SVG icon centred in a rounded square (empty states, story start, empty game tabs). */
+  .empty-symbol,
+  .glyph-badge {
     display: grid;
     place-items: center;
     width: 48px;
     height: 48px;
     margin: 0 auto 18px;
     color: var(--ink);
-    font-size: var(--text-xl);
     background: var(--warning-soft);
     border: 1px solid var(--outline);
     border-radius: var(--radius-lg);
+  }
+
+  .glyph-badge {
+    margin-bottom: 6px;
+    color: var(--primary);
+    background: var(--surface-sunken);
+    border-color: var(--line);
+  }
+
+  .empty-symbol .icon,
+  .glyph-badge .icon {
+    width: 24px;
+    height: 24px;
   }
 
   /* ---- Small labels and decorations ---- */
@@ -254,11 +268,15 @@
     width: 56px;
     height: 56px;
     color: var(--ink);
-    font-size: var(--text-display);
     background: var(--surface-tint);
     border: 2px solid var(--outline);
     border-radius: var(--radius-lg);
     box-shadow: 3px 3px 0 var(--card-shadow-color);
+  }
+
+  .archive-glyph .icon {
+    width: 28px;
+    height: 28px;
   }
 
   @media (max-width: 1023px) {

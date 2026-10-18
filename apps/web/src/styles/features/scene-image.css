@@ -34,13 +34,21 @@
   }
 
   .image-progress > span {
+    flex: none;
     display: grid;
     place-items: center;
-    width: 44px;
-    height: 44px;
+    width: 46px;
+    height: 46px;
     color: var(--primary);
-    border: 1px solid currentColor;
+    background: var(--surface-tint);
+    border: 1px solid var(--primary-strong);
+    border-radius: var(--radius-md);
     animation: soft-pulse 1.8s ease-in-out infinite;
+  }
+
+  .image-progress > span .icon {
+    width: 24px;
+    height: 24px;
   }
 
   .image-progress p,

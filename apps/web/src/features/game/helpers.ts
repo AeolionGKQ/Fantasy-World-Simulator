@@ -64,10 +64,13 @@ export function currentArcMerge(arcs: StoryArc[]): {
 }
 
 export function questProjectionFromResponse(payload: unknown): QuestProjection {
-  if (!payload || typeof payload !== "object") return { active: [], state_version: 0 };
-  const value = payload as { active?: unknown; state_version?: unknown };
+  if (!payload || typeof payload !== "object") return { active: [], offered: [], finished: [], state_version: 0 };
+  const value = payload as { active?: unknown; offered?: unknown; finished?: unknown; state_version?: unknown };
+  const list = (items: unknown) => Array.isArray(items) ? items as Quest[] : [];
   return {
-    active: Array.isArray(value.active) ? value.active as Quest[] : [],
+    active: list(value.active),
+    offered: list(value.offered),
+    finished: list(value.finished),
     state_version: typeof value.state_version === "number" ? value.state_version : 0,
   };
 }
@@ -100,11 +103,11 @@ export function orderReputations(items: Reputation[], localKey: ReputationKey | 
 
 const keyNames: Record<string, string> = {
   hp: "生命", mp: "魔力", sp: "精神", st: "精力", con: "体质", int: "智力", cha: "魅力",
-  exp: "经验", rank: "阶位", copper: "铜币", effective_power: "战力",
+  exp: "经验", rank: "阶位", copper: "铜币", effective_power: "战力", age: "年龄",
 };
 const visibleChangeKinds = new Set([
   "resource", "attribute", "experience", "rank", "item", "currency", "quest",
-  "bond", "reputation", "skill", "talent", "power", "condition",
+  "bond", "reputation", "skill", "talent", "power", "condition", "age", "resource_max",
 ]);
 const valueNames: Record<string, string> = {
   untriggered: "未触发", eligible: "可触发", offered: "已提供", active: "进行中",
@@ -161,6 +164,7 @@ export function formatChange(change: AuthoritativeChange): { label: string; valu
     if (change.kind === "skill") return "技能";
     if (change.kind === "talent") return "天赋";
     if (change.kind === "condition") return "持续状态";
+    if (change.kind === "resource_max") return `${keyNames[change.key] ?? "资源"}上限`;
     return keyNames[change.key] ?? "数值";
   })();
   const oldLevel = cleanDisplayText(change.old_level, "");

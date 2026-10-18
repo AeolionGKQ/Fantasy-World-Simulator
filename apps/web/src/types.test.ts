@@ -596,13 +596,16 @@ describe("game workspace helpers", () => {
     expect(isStoryReadOnly({ id: "latest" } as typeof turn, "latest", job)).toBe(true);
   });
 
-  it("按真实任务响应只保留进行中任务", () => {
+  it("任务响应分为进行中、待接取和已结束三组", () => {
     const response = questProjectionFromResponse({ active: [{ id: "quest.active", name: "巡查",
       description: "检查城门", status: "active", progress: "东门", objectives: ["检查西门"], regional: false }],
+      offered: [{ id: "quest.offered", name: "护送", description: "护送商队", status: "offered", progress: "",
+        objectives: [], regional: false }],
       state_version: 3 });
-    expect(response).toEqual({ active: [expect.objectContaining({ id: "quest.active" })], state_version: 3 });
+    expect(response).toEqual({ active: [expect.objectContaining({ id: "quest.active" })],
+      offered: [expect.objectContaining({ id: "quest.offered" })], finished: [], state_version: 3 });
     expect("terminal" in response).toBe(false);
-    expect(questProjectionFromResponse({ state_version: 4 })).toEqual({ active: [], state_version: 4 });
+    expect(questProjectionFromResponse({ state_version: 4 })).toEqual({ active: [], offered: [], finished: [], state_version: 4 });
   });
 
   it("同一逻辑请求复用 ID，payload 变化后换 ID", () => {

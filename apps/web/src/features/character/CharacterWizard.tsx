@@ -106,8 +106,8 @@ function WizardStepBody({ step, catalog, wizard }: { step: number; catalog: Worl
     case 7: return <RankStep catalog={catalog} draft={draft} update={updateDraft} />;
     case 8: return <PresetTextStep label="天赋描述" presets={catalog.presets.talent} raceId={draft.race_id} value={draft.talent} update={(value) => updateDraft("talent", value)} placeholder="描述与生俱来或后天形成的突出能力" note="预设词只是描述，本身不会直接提高属性。角色的最终属性由 AI 根据完整设定生成，并按世界规则检查。" />;
     case 9: return <TextStep label="身世与经历" value={draft.background} onChange={(value) => updateDraft("background", value)} maxLength={4000} optional multiline placeholder="可以留空。写下角色的成长环境、重要经历或未解心结。" />;
-    case 10: return <LocationStep catalog={catalog} draft={draft} update={updateDraft} />;
-    case 11: return <FactionStep factions={catalog.factions} activeId={wizard.browsedFactionId} setActiveId={wizard.setBrowsedFactionId} />;
+    case 10: return <FactionStep factions={catalog.factions} activeId={wizard.browsedFactionId} setActiveId={wizard.setBrowsedFactionId} />;
+    case 11: return <LocationStep catalog={catalog} draft={draft} update={updateDraft} />;
     case 12: return <TextStep label="其他补充" value={draft.additional} onChange={(value) => updateDraft("additional", value)} maxLength={4000} optional multiline placeholder="可以留空。补充前面没有提到、但希望 AI 了解的角色信息。" />;
     case 13: return <GenerationStep catalog={catalog} draft={draft} job={wizard.job} candidate={wizard.candidate} error={wizard.generationError} onGenerate={wizard.startGeneration} onCancel={wizard.cancelGeneration} />;
     default: return null;

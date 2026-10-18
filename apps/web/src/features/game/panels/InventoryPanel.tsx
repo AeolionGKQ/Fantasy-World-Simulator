@@ -26,7 +26,7 @@ export function InventoryPanel({ inventory }: { inventory: InventoryProjection }
             </li>
           ))}
         </ul>
-      ) : <GameEmpty title="背包尚空">冒险中获得的物品会列在这里。你持有的金币、银币和铜币显示在上方。</GameEmpty>}
+      ) : <GameEmpty title="背包尚空" icon="bag">冒险中获得的物品会列在这里。你持有的金币、银币和铜币显示在上方。</GameEmpty>}
     </div>
   );
 }

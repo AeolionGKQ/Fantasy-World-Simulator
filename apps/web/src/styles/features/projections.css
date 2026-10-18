@@ -74,10 +74,6 @@
     box-shadow: 4px 4px 0 var(--card-shadow-color);
   }
 
-  .game-empty > span {
-    color: var(--primary);
-    font-size: var(--text-xl);
-  }
 
   .game-empty h3 {
     margin: 8px 0 4px;
@@ -321,6 +317,45 @@
     overflow-wrap: anywhere;
   }
 
+  /* 其他补充: the one part of the dialog the player can still edit during play. */
+  .additional-setting {
+    display: grid;
+    gap: 10px;
+  }
+
+  .additional-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 36px;
+  }
+
+  .additional-heading .text-button {
+    gap: 5px;
+    font-size: var(--text-sm);
+  }
+
+  .additional-heading .text-button svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .additional-heading .text-button:disabled {
+    color: var(--muted);
+    text-decoration: none;
+    cursor: not-allowed;
+  }
+
+  .character-details .additional-setting p {
+    margin-top: 0;
+  }
+
+  .additional-locked {
+    color: var(--muted);
+    font-size: var(--text-xs);
+  }
+
   @media (max-width: 640px) {
     .details-facts {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -463,6 +498,29 @@
     font-size: var(--text-xs);
   }
 
+  .arc-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .arc-failure {
+    margin-top: 16px;
+  }
+
+  /* Finished quests stay folded under one summary line. */
+  .finished-quests summary {
+    color: var(--ink);
+    font-size: var(--text-md);
+    font-weight: 750;
+    cursor: pointer;
+  }
+
+  .finished-quests[open] summary {
+    margin-bottom: 6px;
+  }
+
   .memory-policy {
     display: flex;
     flex-wrap: wrap;
@@ -574,10 +632,24 @@
     border-bottom: 1px dashed var(--line);
   }
 
-  /* Space below the header rule, so it never touches the boxed first row. */
-  .relationship-list,
-  .reputation-list {
+  /* Space below the header rule, so it never touches the first row. */
+  .relationship-list {
     margin-top: 20px;
+  }
+
+  /* Reputation tab: 整体声望 and 势力声望 as two labelled groups. */
+  .reputation-group {
+    margin-top: 24px;
+  }
+
+  .reputation-group h3 {
+    color: var(--muted);
+    font-size: var(--text-sm);
+    font-weight: 650;
+  }
+
+  .reputation-list {
+    margin-top: 10px;
   }
 
   /* No hairline after the last row, or where a highlighted row's background already draws the edge. */
@@ -606,11 +678,20 @@
     text-align: right;
   }
 
+  /*
+   * Overall reputation: no fill colour (blue is reserved for the current region's faction below);
+   * its own group heading and a larger name and value set it apart.
+   */
   .reputation-list li.primary {
-    margin-bottom: 12px;
-    background: var(--surface);
-    border: 1px solid var(--line-strong);
-    border-radius: var(--radius-md);
+    min-height: 76px;
+  }
+
+  .reputation-list li.primary strong {
+    font-size: var(--text-md);
+  }
+
+  .reputation-list li.primary b {
+    font-size: var(--text-lg);
   }
 
   .reputation-list li.local {

@@ -1,4 +1,5 @@
 import { useParams } from "react-router-dom";
+import { Icon } from "../../../components/Icon";
 import { useAppNavigate } from "../../../app/viewTransition";
 import { ErrorPanel } from "../../../components/ErrorPanel";
 import { isActiveJobStatus, jobLabel, type CharacterCandidate, type CharacterDraft, type GenerationJob, type WorldCatalog } from "../../../types";
@@ -41,7 +42,7 @@ export function GenerationStep({ catalog, draft, job, candidate, error, onGenera
       {Boolean(error) && <ErrorPanel error={error} title="生成请求出现问题" />}
       {active && (
         <section className="generation-progress" aria-live="polite">
-          <div className="pulse-rune" aria-hidden="true">◇</div>
+          <div className="pulse-rune" aria-hidden="true"><Icon name="sparkle" /></div>
           <div>
             <span className="world-label">角色生成</span>
             <h3>{jobLabel[job.status]}</h3>

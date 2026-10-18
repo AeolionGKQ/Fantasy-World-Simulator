@@ -97,6 +97,14 @@ def number_active_memories(memories):
     return active
 
 
+# Automatic story arcs: merge the earliest three once four are current; warn after three failures.
+# Same limit as the 其他补充 step in character creation.
+CHARACTER_ADDITIONAL_LIMIT = 8000
+AUTO_MERGE_THRESHOLD = 4
+AUTO_MERGE_COUNT = 3
+ARC_FAILURE_WARNING_COUNT = 3
+
+
 class StoryRepository:
     def __init__(self, database, content_registry):
         self.database = database
@@ -234,6 +242,8 @@ class StoryRepository:
                                   fields={"prerequisite": state["location"]["prerequisite"]})
             if job_type in {"turn", "intervene"} and not state["current_turn_id"]:
                 raise DomainError("OPENING_REQUIRED", "必须先生成开场", 409)
+            if job_type in {"turn", "intervene"} and state["character"].get("alive") is False:
+                raise DomainError("CHARACTER_DEAD", "角色已死亡，只能重塑最近一段剧情", 409)
             if job_type == "reshape":
                 if not state["current_turn_id"] or target_turn_id != state["current_turn_id"]:
                     raise DomainError("RESHAPE_LATEST_ONLY", "只能重塑最新剧情节点", 409)
@@ -313,6 +323,52 @@ class StoryRepository:
             connection.commit()
         return result
 
+    def update_character_additional(self, save_id, body):
+        """Player edit of the 其他补充 character setting; the next model call reads it from state."""
+        self._validate_write(body, {"request_id", "expected_state_version", "additional"})
+        additional = body.get("additional")
+        if not isinstance(additional, str) or len(additional) > CHARACTER_ADDITIONAL_LIMIT:
+            raise DomainError("INVALID_INPUT", "其他补充格式无效", 400,
+                              fields={"additional": f"必须是长度不超过{CHARACTER_ADDITIONAL_LIMIT}的文本"})
+        additional = additional.strip()
+        fingerprint = dumps({"additional": additional,
+                             "expected_state_version": body["expected_state_version"]})
+        scope = "character-additional:" + save_id
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            previous = connection.execute(
+                "SELECT response_json FROM mutation_requests WHERE scope=? AND request_id=?",
+                (scope, body["request_id"])).fetchone()
+            if previous:
+                stored = loads(previous["response_json"])
+                if stored["fingerprint"] != fingerprint:
+                    raise DomainError("IDEMPOTENCY_CONFLICT", "request_id已用于不同角色设定修改", 409)
+                connection.commit(); return stored["result"]
+            state = self.initialize(save_id, connection)
+            if state["state_version"] != body["expected_state_version"]:
+                raise DomainError("STATE_VERSION_CONFLICT", "权威状态版本冲突", 409,
+                                  fields={"state_version": state["state_version"]})
+            # A running turn was built from the old state and would turn stale on completion.
+            active = connection.execute(
+                "SELECT id FROM narrative_jobs WHERE save_id=? AND status IN ('queued','running','cancel_requested') "
+                "AND job_type IN ('opening','turn','intervene','reshape')", (save_id,)).fetchone()
+            if active:
+                raise DomainError("NARRATIVE_JOB_ACTIVE", "该存档已有活动叙事任务", 409,
+                                  fields={"job_id": active["id"]}, retryable=True)
+            state["character"]["identity"]["additional"] = additional
+            state["state_version"] += 1
+            now = utc_now()
+            connection.execute(
+                "UPDATE story_states SET state_version=?,state_json=?,updated_at=? WHERE save_id=?",
+                (state["state_version"], dumps(state), now, save_id))
+            result = {"save_id": save_id, "state_version": state["state_version"],
+                      "additional": additional}
+            connection.execute("INSERT INTO mutation_requests VALUES(?,?,?,?)",
+                               (scope, body["request_id"], dumps({"fingerprint": fingerprint,
+                                                                  "result": result}), now))
+            connection.commit()
+        return result
+
     def get_job(self, save_id, job_id):
         with self.database.connect() as connection:
             self.database.get_save(save_id, connection)
@@ -348,6 +404,9 @@ class StoryRepository:
                 base_state.setdefault("npcs", {})
                 # Narration preferences are user settings, not rollbackable story effects.
                 base_state["narration"] = copy.deepcopy(state["narration"])
+                # So is the player's own 其他补充 character setting.
+                base_state["character"]["identity"]["additional"] = (
+                    state["character"]["identity"].get("additional", ""))
                 snapshot_memories = frozen["memories"]
             else:
                 turn = None; base_state = state; snapshot_memories = None
@@ -602,6 +661,9 @@ class StoryRepository:
             for warning in response["warnings"]:
                 changes.append({"kind": "warning", "key": "gm_warning", "old": None,
                                 "new": warning, "reason": "模型识别的规则警告"})
+            for note in decision.get("notes", []):
+                changes.append({"kind": "warning", "key": "program_note", "old": None,
+                                "new": note, "reason": "程序说明"})
             changes_json = dumps(changes)
             proposals = response["proposals"]
             narrative = response["narrative"]
@@ -808,6 +870,8 @@ class StoryRepository:
         if kind == "quests":
             all_quests = list(state["quests"].values()) + list(state["regional_quests"].values())
             return {"active": [item for item in all_quests if item["status"] == "active"],
+                    "offered": [item for item in all_quests if item["status"] == "offered"],
+                    "finished": [item for item in all_quests if item["status"] in TERMINAL_QUEST_STATES],
                     "state_version": state["state_version"]}
         if kind == "bonds":
             return {"items": list(state["bonds"].values()), "state_version": state["state_version"]}
@@ -847,7 +911,8 @@ class StoryRepository:
                 return {"recent_full_turns": recent, "summary_buffer": summaries,
                         "story_arcs": arcs, "policy": {"recent_full_count": 10,
                                                        "arc_turn_count": 25,
-                                                       "original_history_preserved": True}}
+                                                       "original_history_preserved": True},
+                        "arc_failures": self._arc_failures(connection, save_id)}
         raise DomainError("NOT_FOUND", "投影不存在", 404)
 
     @staticmethod
@@ -882,6 +947,29 @@ class StoryRepository:
                     return key
             current = node.get("parent_id")
         return None
+
+    def _arc_failures(self, connection, save_id):
+        """Latest automatic arc batch that failed repeatedly, with its most recent error."""
+        rows = connection.execute(
+            "SELECT request_fingerprint,status,error_message,updated_at FROM narrative_jobs "
+            "WHERE save_id=? AND job_type IN ('turns_to_arc','arcs_to_arc') AND request_id LIKE 'auto-arc:%' "
+            "ORDER BY updated_at", (save_id,)).fetchall()
+        batches = {}
+        for row in rows:
+            batch = batches.setdefault(row["request_fingerprint"], {"count": 0, "message": None, "done": False})
+            if row["status"] == "succeeded":
+                batch["done"] = True
+            elif row["status"] in {"failed", "stale", "interrupted"}:
+                batch["count"] += 1
+                batch["message"] = row["error_message"]
+        failing = [(fingerprint, batch) for fingerprint, batch in batches.items()
+                   if not batch["done"] and batch["count"] >= ARC_FAILURE_WARNING_COUNT]
+        if not failing:
+            return None
+        fingerprint, batch = failing[-1]
+        source = loads(fingerprint, {})
+        return {"count": batch["count"], "message": batch["message"],
+                "start_sequence": source.get("start"), "end_sequence": source.get("end")}
 
     def story_view(self, save_id):
         state = self.get_state(save_id)
@@ -947,24 +1035,36 @@ class StoryRepository:
                     if len(batch) == 25 and all(batch[i]["sequence"] + 1 == batch[i + 1]["sequence"]
                                                 for i in range(24)):
                         selected = batch; break
-                if not selected:
+                current_arcs = connection.execute(
+                    "SELECT * FROM story_arcs WHERE save_id=? AND status='current' ORDER BY start_sequence",
+                    (save_id,)).fetchall()
+                if not selected and automatic and len(current_arcs) >= AUTO_MERGE_THRESHOLD:
+                    # Keep the context short: merge the earliest three arcs, leave the newest alone.
+                    rows = current_arcs[:AUTO_MERGE_COUNT]
+                    job_type = "arcs_to_arc"
+                    source = {"arc_ids": [r["id"] for r in rows], "start": rows[0]["start_sequence"],
+                              "end": rows[-1]["end_sequence"]}
+                elif not selected:
                     if automatic:
                         connection.rollback(); return None, False
                     raise DomainError("ARC_SOURCE_NOT_READY", "没有连续25个未覆盖节点", 409)
-                job_type = "turns_to_arc"
-                source = {"turn_ids": [r["id"] for r in selected], "start": selected[0]["sequence"],
-                          "end": selected[-1]["sequence"],
-                          "version_ids": [r["current_version_id"] for r in selected]}
+                else:
+                    job_type = "turns_to_arc"
+                    source = {"turn_ids": [r["id"] for r in selected], "start": selected[0]["sequence"],
+                              "end": selected[-1]["sequence"],
+                              "version_ids": [r["current_version_id"] for r in selected]}
             fingerprint = dumps(source)
             if automatic:
+                # A batch that already produced an arc is done; one that failed is tried again on
+                # every later turn. Each attempt gets its own request id.
                 source_digest = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:24]
-                body["request_id"] = "auto-arc:" + source_digest
-                previous_source = connection.execute(
-                    "SELECT * FROM narrative_jobs WHERE save_id=? AND job_type=? AND request_fingerprint=? "
-                    "ORDER BY created_at DESC LIMIT 1", (save_id, job_type, fingerprint)).fetchone()
-                if previous_source:
-                    connection.commit()
-                    return self._job_row(previous_source), False
+                attempts = connection.execute(
+                    "SELECT status FROM narrative_jobs WHERE save_id=? AND job_type=? AND request_fingerprint=?",
+                    (save_id, job_type, fingerprint)).fetchall()
+                if any(row["status"] in {"succeeded", "queued", "running", "cancel_requested"}
+                       for row in attempts):
+                    connection.rollback(); return None, False
+                body["request_id"] = f"auto-arc:{source_digest}:{len(attempts) + 1}"
             previous = connection.execute(
                 "SELECT * FROM narrative_jobs WHERE save_id=? AND request_id=?",
                 (save_id, body["request_id"])).fetchone()

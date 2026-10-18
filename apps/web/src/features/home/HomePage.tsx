@@ -45,7 +45,7 @@ export function HomePage({ saves, loading, onNew }: { saves: SaveSummary[]; load
         </section>
       ) : (
         <section className="empty-state">
-          <div className="empty-symbol" aria-hidden="true">＋</div>
+          <div className="empty-symbol" aria-hidden="true"><Icon name="book" /></div>
           <h2>建立第一份档案</h2>
           <p>每个存档记录一个角色和一段独立的冒险。先为存档取名，再创建你的角色。</p>
           <button className="primary-button" type="button" onClick={onNew}><Icon name="plus" />创建存档</button>

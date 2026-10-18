@@ -2,13 +2,16 @@ import type { MemoryEntry, MemoryProjection, NarrativeJob, StoryArc } from "../.
 import { currentArcMerge, isNarrativeJobActive } from "../helpers";
 import { JobPanel } from "./JobPanel";
 
-export function MemoryPanel({ memory, memories, arcBusy, arcJob, onMerge }: {
+export function MemoryPanel({ memory, memories, arcBusy, arcJob, onMerge, onRebuild }: {
   memory: MemoryProjection;
   memories: MemoryEntry[];
   arcBusy: boolean;
   arcJob: NarrativeJob | null;
   onMerge: (ids: string[]) => void;
+  /** Start organising the next batch of earlier segments into a story arc now. */
+  onRebuild: () => void;
 }) {
+  const failures = memory.arc_failures;
   const currentArcs = memory.story_arcs.filter((arc) => arc.status === "current").sort((a, b) => a.start_sequence - b.start_sequence);
   const merge = currentArcMerge(currentArcs);
   return (
@@ -16,11 +19,19 @@ export function MemoryPanel({ memory, memories, arcBusy, arcJob, onMerge }: {
       <header className="projection-header">
         <div><h2>记忆管理</h2><p>将较早的经历整理成摘要，帮助 GM 记住你的旅程。完整剧情仍可回看。</p></div>
         <div className="arc-merge-action">
-          <button className="secondary-button" type="button" disabled={arcBusy || !merge.valid} onClick={() => onMerge(merge.arcIds)}>{arcBusy ? "正在合并故事弧…" : merge.label}</button>
+          <div className="arc-actions">
+            <button className="secondary-button" type="button" disabled={arcBusy || memory.summary_buffer.length < memory.policy.arc_turn_count} onClick={onRebuild}>重新整理故事弧</button>
+            <button className="secondary-button" type="button" disabled={arcBusy || !merge.valid} onClick={() => onMerge(merge.arcIds)}>{arcBusy ? "正在整理故事弧…" : merge.label}</button>
+          </div>
           <small>{merge.message}</small>
         </div>
       </header>
       {arcJob && isNarrativeJobActive(arcJob) && <JobPanel job={arcJob} onCancel={() => undefined} cancellable={false} />}
+      {failures && (
+        <p className="warning-text arc-failure" role="status">
+          第 {failures.start_sequence} 至 {failures.end_sequence} 段的故事弧已连续 {failures.count} 次整理失败{failures.message ? `：${failures.message.replace(/[。.]$/, "")}。` : "。"}之后每次保存新剧情都会自动再试，也可以点“重新整理故事弧”立即重试。
+        </p>
+      )}
       <div className="memory-policy">
         <span>近期剧情 {memory.recent_full_turns.length} / {memory.policy.recent_full_count}</span>
         <span>待整理记录 {memory.summary_buffer.length}</span>
