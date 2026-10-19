@@ -16,7 +16,8 @@ if str(APPS_DIR) not in sys.path:
     sys.path.insert(0, str(APPS_DIR))
 
 from api.content_registry import (CANON_DOCUMENTS, PLAYER_ADDRESS_PROTOCOL_VERSION,
-                                  RULE_DOCUMENTS, STORY_ARC_POLICY_VERSION, ContentRegistry,
+                                  RULE_DOCUMENTS, SOURCE_DIRECTORY, STORY_ARC_POLICY_VERSION,
+                                  ContentRegistry,
                                   player_address_directive, revision_identity)
 from api.contract_registry import contract_from_documents, load_contract, validate_json_schema
 from api.database import Database, DomainError
@@ -164,7 +165,7 @@ class ContentTest(unittest.TestCase):
                          [x["source_path"] for x in registry.documents if x["category"] == "canon"])
         for document in registry.documents:
             source = (API_DIR / document["source_path"] if document["source_path"].startswith("content/")
-                      else API_DIR.parents[1] / document["source_path"])
+                      else API_DIR.parents[1] / SOURCE_DIRECTORY / document["source_path"])
             self.assertEqual(source.read_bytes(), document["raw_bytes"])
         state = {"state_version": 0, "location": {"id": "selavia_port"},
                  "regional_quests": {}, "narration": {}}

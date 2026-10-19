@@ -25,6 +25,10 @@ except ImportError:
                                 location_graph_manifest)
 
 
+# The rule, canon and regional-quest documents and the GM writing guide live together in this
+# folder at the project root. Their source_path stays the bare file name: it is recorded in every
+# frozen content revision, and a stored revision must match what the program reads.
+SOURCE_DIRECTORY = "canon"
 RULE_DOCUMENTS = (
     ("rule.gm_core", "GM模型核心行为规则.md"),
     ("rule.attributes", "短期与长期属性设计.md"),
@@ -340,7 +344,7 @@ class ContentRegistry:
     def __init__(self, api_directory=None):
         self.api_directory = Path(api_directory or Path(__file__).resolve().parent)
         self.workspace = self.api_directory.parents[1]
-        writing_raw = (self.workspace / "GM写作规范.md").read_bytes()
+        writing_raw = (self.workspace / SOURCE_DIRECTORY / "GM写作规范.md").read_bytes()
         self._gm_writing_guidelines, _ = _decode(writing_raw)
         self._gm_writing_metadata = {
             "source_path": "GM写作规范.md", "raw_sha256": _sha(writing_raw),
@@ -367,7 +371,7 @@ class ContentRegistry:
         for category, entries in groups:
             for ordinal, (document_id, relative) in enumerate(entries, 1):
                 path = (self.api_directory / relative if relative.startswith("content/")
-                        else self.workspace / relative)
+                        else self.workspace / SOURCE_DIRECTORY / relative)
                 before = path.stat()
                 raw = path.read_bytes()
                 after = path.stat()
@@ -613,6 +617,7 @@ class ContentRegistry:
                     "普通询问若没有得到具体且后续仍有用的新线索，memory_candidates必须返回空数组；不要为了填字段强行创建记忆",
                     "memory evidence用于简要说明本回合记忆来源，可引用正文、概括正文信息，或引用玩家本次明确要求记住的内容；不要求逐字复制。facts与unresolved用精炼语言概括，不要求与evidence相同；输出契约原文中关于至少8个字符、完整分句或逐字相等的旧要求一律不再适用",
                     "people与locations填写canonical_npc_catalog、authoritative_state或本响应新建的NPC与地点ID；无法识别的条目会被程序忽略",
+                    "keywords是程序召回记忆用的检索词，程序会拿它们与之后的剧情和玩家输入逐字比对。create时除核心名词外，同时写入涉及人物的全名、简称、称号与常用称呼，地点的全称与简称，关键物品、组织、事件的名称及其他常见说法，方便以后换一种说法提到时也能匹配；每项是至少2个字的简短词语，不写句子，一般5到15项",
                     "当一条已召回记忆已经使用完、事项已解决、信息过期、失效、被证伪或被新结论替代，使用resolve或supersede删除；supersede只删除旧记忆，要保留新结论，必须同时create一条新记忆",
                     "resolve或supersede时在memory_id填写本次long_term_memories中目标memory_number的十进制字符串，不得使用内部UUID",
                     "只能删除本次long_term_memories实际出现的编号，不得猜测未召回记忆；删除后编号由程序自动连续重排",
@@ -690,14 +695,16 @@ class ContentRegistry:
         for location_id, status in state.get("location_statuses", {}).items():
             if location_id in catalog_nodes:
                 catalog_nodes[location_id] = {**catalog_nodes[location_id], **status}
+        # Only what the model reads or answers with; people, locations, keywords, kind and the
+        # recall reason serve the program's recall scoring. The cleanup job also weighs importance.
+        memory_fields = ("memory_number", "summary", "facts", "unresolved") + (
+            ("importance",) if contract_kind == "memory_curation" else ())
         dynamic = {
             "active_narration": state.get("narration", {}), "regional_quests": quest_context,
             "player_address_directive": address_directive,
             "story_arcs": arcs, "early_summaries": early_summaries,
-            "long_term_memories": [{key: memory.get(key) for key in (
-                "memory_number", "kind", "summary", "importance", "people", "locations",
-                "keywords", "facts", "unresolved", "recall_reason")}
-                                     for memory in memories],
+            "long_term_memories": [{key: memory.get(key) for key in memory_fields}
+                                   for memory in memories],
             "recent_full_turns": recent_full_turns,
             "canonical_npc_catalog": frozen_manifest.get("canonical_npcs", []),
             "location_catalog": location_catalog(catalog_nodes),

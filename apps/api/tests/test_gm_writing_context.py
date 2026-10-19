@@ -7,7 +7,7 @@ from pathlib import Path
 
 API_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(API_DIR.parent))
-from api.content_registry import ContentRegistry
+from api.content_registry import SOURCE_DIRECTORY, ContentRegistry
 
 
 class GMWritingContextTest(unittest.TestCase):
@@ -23,11 +23,11 @@ class GMWritingContextTest(unittest.TestCase):
         self.manifest = original.manifest
         for doc in self.documents:
             target = (self.api / doc['source_path'] if doc['source_path'].startswith('content/')
-                      else self.workspace / doc['source_path'])
+                      else self.workspace / SOURCE_DIRECTORY / doc['source_path'])
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(doc['raw_bytes'])
         self.guide = '# Writing guidance fixture\nA new style for existing saves.\n'
-        (self.workspace / 'GM写作规范.md').write_text(self.guide, encoding='utf-8')
+        (self.workspace / SOURCE_DIRECTORY / 'GM写作规范.md').write_bytes(self.guide.encode('utf-8'))  # write_text would add CR on Windows
         self.registry = ContentRegistry(self.api)
         self.state = {'state_version': 0, 'location': {'id': 'selavia_port'},
                       'regional_quests': {}, 'narration': {}}

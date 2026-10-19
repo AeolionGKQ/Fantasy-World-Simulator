@@ -305,8 +305,10 @@ class ReleaseApiTest(unittest.TestCase):
             "expected_state_version": 1, "action": "我去黑塔看看", "option_id": None}, 202)
         self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
         context = json.loads(self.provider.messages[-1][1]["content"])
-        self.assertEqual(["本轮输入关键词相关：黑塔"],
-                         [item["recall_reason"] for item in context["long_term_memories"]])
+        # Recalled by the keyword in the player's input; the model sees only what it reads.
+        self.assertEqual([{"memory_number": 1, "summary": "城外古塔藏有旧王的遗物", "facts": ["古塔里有遗物"],
+                           "unresolved": []}], context["long_term_memories"])
+        self.assertIn(json.dumps("检索词")[1:-1], self.provider.messages[-1][0]["content"])  # alias guidance
 
     def memory_candidate(self, summary, evidence, importance=60):
         return {"operation": "create", "memory_id": None, "kind": "clue", "summary": summary,
@@ -384,6 +386,8 @@ class ReleaseApiTest(unittest.TestCase):
         self.assertIn("RUNTIME_MEMORY_CURATION_POLICY_JSON", system)
         self.assertIn("memory-curation/1", system)
         self.assertEqual(3, len(dynamic["long_term_memories"]))  # every memory, not only recalled ones
+        self.assertEqual({"memory_number", "summary", "facts", "unresolved", "importance"},
+                         set(dynamic["long_term_memories"][0]))
         self.assertEqual({"钟楼下埋着钥匙", "导师在等回信"}, {item["summary"] for item in self.memories()})
         self.assert_round_trip()
 
