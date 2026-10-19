@@ -1,36 +1,72 @@
 # Fantasy Simulator
 
-基于 LLM GM 的单人文字 RPG。当前已落地第一阶段：多存档、模型设置、13 步角色创建、角色候选生成与确认、JSON 导入导出及游戏起点页面。
+一款由大语言模型担任 GM 的单人奇幻文字冒险游戏。你创建角色，用自己的话决定行动，GM 根据完整的世界设定写出接下来的故事；角色状态、背包、任务、关系和声望由程序按规则结算并保存。
+
+## 功能
+
+- **多存档**：每个存档独立保存角色、剧情与记录，可导出为 JSON 并在其他电脑导入。
+- **13 步角色创建**：选择种族、势力、地区等设定，模型据此生成角色，你确认后开始冒险。
+- **剧情推进**：自由行动、干涉命运（引导下一段剧情）、重塑命运（改写最近一段剧情）。
+- **角色成长**：生命、魔力、精神、精力四项短期属性，长期属性，天赋与技能，经验与突破，战力。
+- **世界关系**：背包与货币、任务、纪事、羁绊、大陆与势力声望，以及六条非强制的地区主线。
+- **长期记忆**：较早的剧情自动整理成故事弧；关键线索与承诺保存为长期记忆，可手动删除，也可让 GM 统一整理。
+- **场景图片**：可选，用 OpenAI 图片模型为当前剧情生成插图。
 
 ## 启动
 
-Windows 11 下双击根目录的 `启动游戏.bat`。脚本会使用项目自带的 Python 运行时启动服务，等待健康检查通过，然后打开 `http://127.0.0.1:8000`。
+需要 Windows（已在 Windows 11 上测试）。双击根目录的 `启动游戏.bat`，脚本会用项目自带的 Python 运行时启动服务，等待服务就绪后打开 `http://127.0.0.1:8000`。
 
-首次从源码启动时，如果 `apps/web/dist` 不存在，脚本会调用本机 Node.js/npm 安装已锁定的前端依赖并完成构建。当前仓库已包含构建产物，日常启动不依赖 Node.js。
+仓库已包含构建好的前端，日常启动不需要安装 Node.js。只有 `apps/web/dist` 不存在时，脚本才会调用本机的 Node.js/npm 安装依赖并构建。
 
-关闭名为 `Fantasy Simulator Server` 的终端窗口即可停止后端。游戏数据保存在 `apps/api/.data`，存档也可在界面中导出为 JSON。API Key 在 Windows 上使用当前用户的 DPAPI 加密后写入 `secrets.dat`，不会以明文写入数据文件；非 Windows 或 DPAPI 失败时只保存在当前进程内存，重启后需要重新输入。
+关闭名为 `Fantasy Simulator Server` 的终端窗口即可停止服务。
 
-设置页的“测试连接”会在基础连接成功后，以最小聊天请求探测模型服务能否控制思考，因此可能产生少量费用。探测覆盖七种兼容参数：`enable_thinking`、`thinking.type`、`reasoning_effort`、`chat_template_kwargs.enable_thinking`、`reasoning.enabled`、`reasoning.effort` 和 `thinking_config.thinking_budget`。能力按 Base URL、模型和探测配置版本缓存；未测试或不支持关闭时，开关保持开启并禁用，表示模型使用服务默认行为或不受应用控制。只有探测到可控策略后才能保存开启/关闭偏好。
+## 连接模型
 
-存档侧栏底部显示剧情模型与生图模型的连接状态：未配置、已配置但未测试、已连接（附模型名）或连接失败（附简短原因），点击某一行可直接进入设置页中对应的配置区域。这一状态只读取最近一次“测试连接”或真实生成的结果，不会另外请求模型服务，因此不产生费用。修改服务地址、模型或密钥后，状态回到“已配置，未测试”。
+首次进入后打开“设置”：
+
+- **剧情模型**：支持 OpenAI 兼容和 Anthropic 兼容两种接口，填写服务地址、模型名和密钥即可。建议选择能读取较长上下文的模型，每轮生成都会附带完整的世界设定。
+- **生图模型**：可选，目前只支持 OpenAI 官方服务。
+
+“测试连接”会发送很小的请求检查连通性和思考开关是否可控，可能产生少量费用。侧栏底部显示两个模型的连接状态，只读取最近一次测试或生成的结果，不会另外请求模型服务。
+
+## 数据与密钥
+
+- 游戏数据保存在 `apps/api/.data`，不会提交到仓库。
+- API Key 在 Windows 上用当前用户的 DPAPI 加密后保存；加密不可用时只保存在内存中，重启后需要重新填写。
+- 导出的存档不包含任何密钥。
+
+## 世界设定
+
+`canon/` 文件夹存放游戏读取的全部规则与世界正典：GM 行为规则、属性/经验/战力/声望规则、世界基础、地理、种族、势力、人物、奇观、货币、地区主线以及 GM 写作规范。服务启动时读取这些文档，GM 每轮生成时都会看到它们的完整内容。
+
+修改这些文档后重启服务即可生效，但只影响之后新建的存档：每个存档在创建时会冻结当时的设定，之后一直沿用。角色创建界面上的种族、地区、势力介绍另存在 `apps/api/catalog.py` 中，需要单独修改。
+
+## 项目结构
+
+```text
+启动游戏.bat        Windows 启动器
+canon/              规则与世界正典文档
+apps/api/           后端：只依赖 Python 标准库
+apps/web/           前端：React + Vite，dist/ 为构建产物
+runtime/python/     随项目分发的 Python 运行时
+```
 
 ## 开发与测试
 
+在项目根目录执行：
+
 ```powershell
-cd "D:\Fantasy Simulator\apps\web"
-npm run dev
+cd apps/web
+npm install
+npm run dev      # 开发服务器，/api 转发到 127.0.0.1:8000
 npm run test
-npm run build
+npm run build    # 修改前端后需要重新构建，游戏服务使用 dist/
+cd ../..
 
-& "D:\Fantasy Simulator\runtime\python\python.exe" -m unittest discover -s "D:\Fantasy Simulator\apps\api\tests" -v
+.\runtime\python\python.exe apps\api\server.py                        # 单独启动后端
+.\runtime\python\python.exe -m unittest discover -s apps\api\tests    # 后端测试
 ```
 
-前端开发服务器默认将 `/api` 转发至 `127.0.0.1:8000`。直接运行后端：
+## 许可
 
-```powershell
-& "D:\Fantasy Simulator\runtime\python\python.exe" "D:\Fantasy Simulator\apps\api\server.py"
-```
-
-## 当前边界
-
-角色确认后进入第一阶段游戏壳。玩家行动、正式 GM 回合、战斗、成长和长期记忆将在后续阶段实现。
+本项目以 [Apache License 2.0](LICENSE) 发布。随项目分发的第三方组件及其许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
