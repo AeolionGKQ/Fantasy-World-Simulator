@@ -3,6 +3,8 @@
 import copy
 import hashlib
 import json
+import math
+import struct
 
 try:
     from .catalog import EXP_THRESHOLDS, NARRATION, POWER_BY_RANK
@@ -100,6 +102,51 @@ def number_active_memories(memories):
 # Memory recall: score = importance + a bonus per matching reason; open threads count for less.
 RECALL_REASON_BONUS = 40
 RECALL_UNRESOLVED_BONUS = 20
+
+# Vector recall (docs: 长期记忆向量召回方案). When the embedding service is ready, "semantic
+# match" replaces the keyword rule: the 10 most similar memories that reach 80% of this turn's best
+# similarity (and at least 0.2) gain 20 to 60 points, scaled by similarity within that range.
+SEMANTIC_TOP_K = 10
+SEMANTIC_RELATIVE_FLOOR = 0.8
+SEMANTIC_ABSOLUTE_FLOOR = 0.2
+SEMANTIC_MIN_BONUS = 20
+SEMANTIC_MAX_BONUS = 60
+EMBEDDING_TEXT_LIMIT = 2000
+EMBEDDING_FAILURE_WARNING_COUNT = 3
+
+
+def semantic_bonuses(similarities):
+    """{memory_id: bonus} for the memories that count as a semantic match this turn."""
+    if not similarities:
+        return {}
+    ranked = sorted(similarities.items(), key=lambda item: item[1], reverse=True)
+    best = ranked[0][1]
+    threshold = max(SEMANTIC_ABSOLUTE_FLOOR, SEMANTIC_RELATIVE_FLOOR * best)
+    # A small tolerance, so a memory exactly at the threshold is not lost to float rounding.
+    chosen = [(memory_id, value) for memory_id, value in ranked[:SEMANTIC_TOP_K] if value >= threshold - 1e-9]
+    span = best - threshold
+    spread = SEMANTIC_MAX_BONUS - SEMANTIC_MIN_BONUS
+    return {memory_id: (SEMANTIC_MAX_BONUS if span <= 1e-9 else
+                        max(SEMANTIC_MIN_BONUS, round(SEMANTIC_MIN_BONUS + spread * (value - threshold) / span)))
+            for memory_id, value in chosen}
+
+
+def memory_embedding_text(memory):
+    """What a memory's vector stands for: its summary, facts and index words (aliases included)."""
+    parts = [memory.get("summary", ""), "；".join(memory.get("facts", [])),
+             "、".join(memory.get("keywords", []))]
+    return "\n".join(part for part in parts if part)[:EMBEDDING_TEXT_LIMIT]
+
+
+def embedding_model_key(config):
+    """Vectors from different endpoints or models are never compared."""
+    raw = f"{str(config.get('base_url') or '').strip()}|{str(config.get('model') or '').strip()}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+
+def _unit(vector):
+    norm = math.sqrt(sum(value * value for value in vector))
+    return [value / norm for value in vector] if norm else list(vector)
 
 
 # Automatic story arcs: merge the earliest three once four are current; warn after three failures.
@@ -475,6 +522,7 @@ class StoryRepository:
             player_inputs = [loads(job["input_json"], {})] + ([loads(turn["action_json"], {})] if turn else [])
             player_input = " ".join(str(item.get(key) or "") for item in player_inputs
                                     for key in ("action", "guidance"))
+            memory_pool = memories  # every active memory, numbered; vector recall reranks it
             if job["job_type"] != MEMORY_CURATION_JOB:  # curation reviews every memory
                 memories = self._recall_memories(context_state, history, memories, player_input)
             claimed_memory_numbers = {
@@ -505,12 +553,14 @@ class StoryRepository:
                 "documents": documents, "revision_manifest": revision_manifest,
                 "snapshot_memories": snapshot_memories,
                 "claimed_memory_numbers": claimed_memory_numbers,
+                "memory_pool": memory_pool, "recall_history": history, "player_input": player_input,
                 "old_turn": dict(turn) if turn else None}
 
     @staticmethod
-    def _recall_memories(state, history, memories, player_input="", limit=20):
+    def _recall_memories(state, history, memories, player_input="", limit=20, semantic=None):
         """Memories worth showing the GM this turn. Each matching reason adds RECALL_REASON_BONUS
-        (an open thread only RECALL_UNRESOLVED_BONUS); with no reason, only importance >= 70 qualifies."""
+        (an open thread only RECALL_UNRESOLVED_BONUS); with no reason, only importance >= 70 qualifies.
+        With semantic ({memory_id: bonus}, from vector recall) a semantic match replaces the keyword rule."""
         try:
             from .canonical_npcs import CANONICAL_NPCS
         except ImportError:
@@ -522,9 +572,11 @@ class StoryRepository:
         recalled = []
         for memory in memories:
             reasons = []
+            score = memory.get("importance", 0)
             if location_id and (location_id in memory.get("locations", []) or
                                 any(location_id.startswith(value + ".") for value in memory.get("locations", []))):
                 reasons.append("当前位置相关")
+                score += RECALL_REASON_BONUS
             people = []
             for person in memory.get("people", []):
                 dynamic = state.get("npcs", {}).get(person, {})
@@ -534,12 +586,17 @@ class StoryRepository:
                     people.append(name or person)
             if people:
                 reasons.append("近期人物相关：" + "、".join(people[:3]))
-            words = [word for word in memory.get("keywords", []) if word]
-            typed = [word for word in words if word in player_input]
-            keywords = typed or [word for word in words if word in recent_text]
-            if keywords:
-                reasons.append(("本轮输入关键词相关：" if typed else "近期关键词相关：") + "、".join(keywords[:3]))
-            score = memory.get("importance", 0) + RECALL_REASON_BONUS * len(reasons)
+                score += RECALL_REASON_BONUS
+            if semantic is None:
+                words = [word for word in memory.get("keywords", []) if word]
+                typed = [word for word in words if word in player_input]
+                keywords = typed or [word for word in words if word in recent_text]
+                if keywords:
+                    reasons.append(("本轮输入关键词相关：" if typed else "近期关键词相关：") + "、".join(keywords[:3]))
+                    score += RECALL_REASON_BONUS
+            elif memory.get("id") in semantic:
+                reasons.append(f"语义相关（+{semantic[memory['id']]}）")
+                score += semantic[memory["id"]]
             if memory.get("unresolved"):
                 reasons.append("包含未解决事项")
                 score += RECALL_UNRESOLVED_BONUS
@@ -946,7 +1003,8 @@ class StoryRepository:
                         "story_arcs": arcs, "policy": {"recent_full_count": 10,
                                                        "arc_turn_count": 25,
                                                        "original_history_preserved": True},
-                        "arc_failures": self._arc_failures(connection, save_id)}
+                        "arc_failures": self._arc_failures(connection, save_id),
+                        "embedding_failures": self._embedding_failures(connection, save_id)}
         raise DomainError("NOT_FOUND", "投影不存在", 404)
 
     @staticmethod
@@ -981,6 +1039,71 @@ class StoryRepository:
                     return key
             current = node.get("parent_id")
         return None
+
+    def recall_query_text(self, claimed):
+        """This turn's player input, the last two story summaries and the current place."""
+        summaries = [item.get("summary") or "" for item in claimed["recall_history"][-2:]]
+        location = claimed["context_state"].get("location", {}).get("name") or ""
+        parts = [claimed.get("player_input") or "", *summaries, location]
+        return "\n".join(part for part in parts if part.strip())[:EMBEDDING_TEXT_LIMIT * 2] or location
+
+    def memory_similarities(self, save_id, memories, query_text, model_key, embed):
+        """Cosine similarity of the query to each memory. Vectors missing or made from older text
+        are embedded in the same call as the query and stored; no database transaction is held
+        while the embedding service is called."""
+        texts = {memory["id"]: memory_embedding_text(memory) for memory in memories}
+        hashes = {key: hashlib.sha256(value.encode("utf-8")).hexdigest() for key, value in texts.items()}
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                "SELECT memory_id,dimensions,text_sha256,vector FROM memory_embeddings "
+                "WHERE save_id=? AND model_key=?", (save_id, model_key)).fetchall()
+        stored = {row["memory_id"]: list(struct.unpack(f"<{row['dimensions']}f", row["vector"]))
+                  for row in rows if hashes.get(row["memory_id"]) == row["text_sha256"]}
+        missing = [memory_id for memory_id in texts if memory_id not in stored]
+        vectors = embed([query_text] + [texts[memory_id] for memory_id in missing])
+        query = _unit(vectors[0])
+        fresh = {memory_id: _unit(vector) for memory_id, vector in zip(missing, vectors[1:])}
+        stale = [memory_id for memory_id, vector in stored.items() if len(vector) != len(query)]
+        if stale:
+            fresh.update({memory_id: _unit(vector) for memory_id, vector in
+                          zip(stale, embed([texts[memory_id] for memory_id in stale]))})
+        if fresh:
+            now = utc_now()
+            with self.database.connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                # Vectors of memories the player or a cleanup removed are no longer needed.
+                connection.execute(
+                    "DELETE FROM memory_embeddings WHERE save_id=? AND memory_id IN "
+                    "(SELECT memory_id FROM memory_removals WHERE save_id=?)", (save_id, save_id))
+                for memory_id, vector in fresh.items():
+                    connection.execute(
+                        "INSERT OR REPLACE INTO memory_embeddings VALUES(?,?,?,?,?,?,?)",
+                        (save_id, memory_id, model_key, len(vector), hashes[memory_id],
+                         struct.pack(f"<{len(vector)}f", *vector), now))
+                connection.commit()
+        vectors = {**stored, **fresh}
+        return {memory_id: sum(a * b for a, b in zip(query, vectors[memory_id])) for memory_id in texts}
+
+    @staticmethod
+    def _embedding_failures(connection, save_id):
+        """Story turns in a row whose vector recall fell back because the embedding service failed.
+        Turns without memories do not count either way; any other outcome ends the streak."""
+        rows = connection.execute(
+            "SELECT context_manifest_json FROM narrative_jobs WHERE save_id=? AND status='succeeded' "
+            "AND job_type IN ('opening','turn','intervene','reshape') ORDER BY updated_at DESC LIMIT 100",
+            (save_id,)).fetchall()
+        count, message = 0, None
+        for row in rows:
+            recall = loads(row["context_manifest_json"], {}).get("memory_recall") or {}
+            if recall.get("reason") == "no_memories":
+                continue
+            if recall.get("reason") != "failed":
+                break
+            count += 1
+            message = message or recall.get("message")
+        if count < EMBEDDING_FAILURE_WARNING_COUNT:
+            return None
+        return {"count": count, "message": message}
 
     def _arc_failures(self, connection, save_id):
         """Latest automatic arc batch that failed repeatedly, with its most recent error."""

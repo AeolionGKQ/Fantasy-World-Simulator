@@ -120,6 +120,32 @@
     color: var(--muted);
   }
 
+  /* The service's own words on a failed test: kept verbatim, so they may be long or technical. */
+  .test-result .test-raw {
+    margin-top: 8px;
+    padding: 8px 10px;
+    color: var(--body);
+    font-size: var(--text-xs);
+    line-height: 1.7;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+  }
+
+  .test-result .test-raw span {
+    color: var(--muted);
+    font-weight: 650;
+  }
+
+  .test-result .test-trace {
+    display: block;
+    margin-top: 6px;
+    color: var(--muted);
+    font-family: ui-monospace, monospace;
+    font-size: var(--text-xs);
+  }
+
   .capabilities {
     display: flex;
     flex-wrap: wrap;

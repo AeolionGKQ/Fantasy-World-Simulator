@@ -5,6 +5,7 @@ const problemMessages: Record<string, string> = {
   MODEL_NOT_CONFIGURED: "请先打开设置，在“剧情模型配置”中填写服务地址、模型名称和密钥。",
   MODEL_AUTH_FAILED: "服务密钥未通过验证，请在设置中检查密钥是否正确、是否仍然有效。",
   MODEL_NOT_FOUND: "当前服务中找不到这个模型，请核对服务商提供的模型名称。",
+  MODEL_NETWORK_ERROR: "无法连接到这个服务。请检查网络，以及服务地址是否填写正确。",
   MODEL_RATE_LIMITED: "AI 服务暂时无法接收更多请求，请稍后再试，或在设置中减少同时生成数量。",
   MODEL_SERVICE_ERROR: "AI 服务暂时不可用，请稍后重试。",
   MODEL_TIMEOUT: "等待 AI 回复的时间已用完。请稍后重试；如果经常出现，可在设置中调高最长等待时间。",

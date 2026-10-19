@@ -13,6 +13,8 @@ import type {
   NarrativeJob,
   ModelSettings,
   ImageModelSettings,
+  EmbeddingModelSettings,
+  EmbeddingModelTestResult,
   ImageModelTestResult,
   ImageQuality,
   ImageSize,
@@ -126,6 +128,12 @@ export const api = {
       body: { ...settings, expected_revision: expectedRevision, request_id: requestId } }).then(normalizeAppSettings),
   testImageModel: (settings: Pick<ImageModelSettings, "base_url" | "model" | "timeout_seconds"> & { api_key?: string }) =>
     request<ImageModelTestResult>("/api/settings/image-model/test", { method: "POST", body: settings }),
+
+  updateEmbeddingModel: (settings: Pick<EmbeddingModelSettings, "base_url" | "model" | "enabled"> & { api_key?: string }, expectedRevision: number, requestId: string) =>
+    request<AppSettings>("/api/settings/embedding-model", { method: "PUT",
+      body: { ...settings, expected_revision: expectedRevision, request_id: requestId } }).then(normalizeAppSettings),
+  testEmbeddingModel: (settings: Pick<EmbeddingModelSettings, "base_url" | "model"> & { api_key?: string }) =>
+    request<EmbeddingModelTestResult>("/api/settings/embedding-model/test", { method: "POST", body: settings }),
 
   getServiceStatus: () => request<import("./types").ServiceStatuses>("/api/status/services"),
   listSaves: async () => unwrapList(await request<SaveSummary[] | { items: SaveSummary[] }>("/api/saves")),

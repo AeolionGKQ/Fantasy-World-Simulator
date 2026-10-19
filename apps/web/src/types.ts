@@ -39,7 +39,7 @@ export interface SaveSummary {
 }
 
 /** Stored connection outcome for the current model configuration (GET /api/status/services). */
-export type ServiceState = "not_configured" | "unverified" | "connected" | "failed";
+export type ServiceState = "not_configured" | "unverified" | "connected" | "failed" | "disabled";
 
 export interface ServiceStatus {
   state: ServiceState;
@@ -52,6 +52,7 @@ export interface ServiceStatus {
 export interface ServiceStatuses {
   story_model: ServiceStatus;
   image_model: ServiceStatus;
+  embedding_model?: ServiceStatus;
 }
 
 export interface LatestTurnSummary {
@@ -234,8 +235,30 @@ export type ThinkingConfidence = "verified" | "accepted_bundle" | "unsupported" 
 export interface AppSettings {
   model: ModelSettings;
   image_model?: ImageModelSettings;
+  embedding_model?: EmbeddingModelSettings;
   narration: NarrationSettings;
   revision: number;
+}
+
+/** Optional embedding service for vector recall of long-term memories. base_url is the full
+ * …/v1/embeddings URL. */
+export interface EmbeddingModelSettings {
+  base_url: string;
+  model: string;
+  /** The player's switch: off keeps the configuration but uses keyword recall. */
+  enabled: boolean;
+  timeout_seconds: number;
+  configured: boolean;
+  api_key_configured: boolean;
+  api_key_mask?: string | null;
+  api_key_persistence?: "windows_dpapi" | "memory_only";
+}
+
+export interface EmbeddingModelTestResult {
+  ok: boolean;
+  model?: string;
+  dimensions?: number;
+  latency_ms?: number;
 }
 
 export interface ImageModelSettings {
@@ -286,7 +309,7 @@ export interface ModelTestResult {
   may_have_cost?: boolean;
 }
 
-type AppSettingsResponse = Omit<AppSettings, "model" | "narration" | "image_model"> & {
+type AppSettingsResponse = Omit<AppSettings, "model" | "narration" | "image_model" | "embedding_model"> & {
   model: Omit<ModelSettings, "protocol" | "structured_output_capability" | "max_concurrency"> & {
     protocol?: ModelProtocol;
     structured_output_capability?: ModelSettings["structured_output_capability"];
@@ -296,6 +319,7 @@ type AppSettingsResponse = Omit<AppSettings, "model" | "narration" | "image_mode
     player_address?: NarrationSettings["player_address"];
   };
   image_model?: ImageModelSettings;
+  embedding_model?: EmbeddingModelSettings;
 };
 
 export function normalizeAppSettings(settings: AppSettingsResponse): AppSettings {
@@ -316,6 +340,9 @@ export function normalizeAppSettings(settings: AppSettingsResponse): AppSettings
     image_model: settings.image_model ?? {
       base_url: "https://api.openai.com/v1", model: "gpt-image-2.5-sunburst",
       timeout_seconds: 300, configured: false, api_key_configured: false,
+    },
+    embedding_model: settings.embedding_model ?? {
+      base_url: "", model: "", enabled: true, timeout_seconds: 10, configured: false, api_key_configured: false,
     },
   };
 }
@@ -720,6 +747,8 @@ export interface MemoryProjection {
   policy: { recent_full_count: number; arc_turn_count: number; original_history_preserved: boolean };
   /** The pending automatic arc batch once it has failed three or more times. */
   arc_failures?: { count: number; message: string | null; start_sequence: number; end_sequence: number } | null;
+  /** Story turns in a row whose vector recall fell back because the embedding service failed (3+). */
+  embedding_failures?: { count: number; message: string | null } | null;
 }
 
 export interface Bond {

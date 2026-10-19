@@ -17,6 +17,7 @@ import { RenameSaveModal } from "../features/saves/RenameSaveModal";
 import SceneImageWorkspace from "../features/scene-image/SceneImageWorkspace";
 import { SettingsPage } from "../features/settings/SettingsPage";
 import { AppToolbar } from "./AppToolbar";
+import { INFO_NOTICE_MS, NoticeBar, NoticeProvider, type Notice, type Notify } from "./notice";
 import { SaveSidebar } from "./SaveSidebar";
 import type { ShellActions } from "./shellActions";
 import { useAppNavigate } from "./viewTransition";
@@ -28,7 +29,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<unknown>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [modal, setModal] = useState<ShellModal | null>(null);
   const [targetSave, setTargetSave] = useState<SaveSummary | null>(null);
   const [services, setServices] = useState<ServiceStatuses | null>(null);
@@ -68,16 +69,18 @@ export default function App() {
   }, [refreshServiceStatus]);
   // Every navigation closes the drawer, including a jump to a section of the current page (/settings#…).
   useEffect(() => { setDrawerOpen(false); }, [location.key]);
+  /** The one place every page shows its one-off messages and errors (the bar under the toolbar). */
+  const notify = useCallback<Notify>((next) => setNotice(next ? { ...next, id: Date.now() } : null), []);
   useEffect(() => {
-    if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(""), 4200);
+    if (notice?.tone !== "info") return;
+    const timer = window.setTimeout(() => setNotice((current) => current?.id === notice.id ? null : current), INFO_NOTICE_MS);
     return () => window.clearTimeout(timer);
   }, [notice]);
 
   const currentId = /^\/saves\/([^/]+)/.exec(location.pathname)?.[1];
   const currentSave = saves.find((save) => save.id === currentId) ?? null;
-  const toast = usePresence(notice);
-  const actions = useMemo<ShellActions>(() => ({ refreshSaves, refreshServiceStatus, setNotice }), [refreshSaves, refreshServiceStatus]);
+  const shownNotice = usePresence(notice);
+  const actions = useMemo<ShellActions>(() => ({ refreshSaves, refreshServiceStatus }), [refreshSaves, refreshServiceStatus]);
   const offline = Boolean(loadError) || servicesError;
   const storyState = services?.story_model.state;
   const settingsAttention = !offline && (storyState === "not_configured" || storyState === "failed") ? storyState : null;
@@ -92,13 +95,15 @@ export default function App() {
     try {
       const { blob, filename } = await api.exportSave(currentSave.id);
       downloadBlob(blob, filename);
-      setNotice("存档已导出，文件中不含 AI 服务密钥。");
+      notify({ tone: "info", text: "存档已导出，文件中不含 AI 服务密钥。" });
     } catch (error) {
-      setNotice(playerProblemMessage(asApiError(error).problem));
+      const problem = asApiError(error).problem;
+      notify({ tone: "error", text: playerProblemMessage(problem), traceId: problem.trace_id });
     }
   };
 
   return (
+    <NoticeProvider value={notify}>
     <div className="app-shell">
       <ScrollRestoration />
       <a className="skip-link" href="#main-content">跳到主要内容</a>
@@ -130,6 +135,12 @@ export default function App() {
           onImport={() => setModal("import")}
           onExport={() => void exportCurrent()}
         />
+        {/* Sticky under the toolbar, so a notice stays in view wherever the page is scrolled. */}
+        {shownNotice.current && (
+          <div className="app-notice-slot">
+            <NoticeBar key={shownNotice.current.id} notice={shownNotice.current} leaving={shownNotice.leaving} onDismiss={() => notify(null)} />
+          </div>
+        )}
         <main id="main-content" tabIndex={-1}>
           <Routes>
             <Route path="/" element={<HomePage saves={saves} loading={loading} onNew={() => setModal("new")} />} />
@@ -143,7 +154,6 @@ export default function App() {
         </main>
       </div>
 
-      {toast.current && <div className={`toast ${toast.leaving ? "leaving" : ""}`} role="status" key={toast.current}>{toast.current}</div>}
       {modal === "new" && (
         <NewSaveModal
           onClose={() => setModal(null)}
@@ -154,7 +164,7 @@ export default function App() {
         <RenameSaveModal
           save={targetSave}
           onClose={() => setModal(null)}
-          onRenamed={async () => { setModal(null); await refreshSaves(); setNotice("存档已重命名。"); }}
+          onRenamed={async () => { setModal(null); await refreshSaves(); notify({ tone: "info", text: "存档已重命名。" }); }}
         />
       )}
       {modal === "delete" && targetSave && (
@@ -166,16 +176,17 @@ export default function App() {
             setModal(null);
             await refreshSaves();
             if (wasCurrent) navigate("/");
-            setNotice("存档已删除，无法恢复。");
+            notify({ tone: "info", text: "存档已删除，无法恢复。" });
           }}
         />
       )}
       {modal === "import" && (
         <ImportSaveModal
           onClose={() => setModal(null)}
-          onImported={async (save) => { setModal(null); await refreshSaves(); navigate(saveRoute(save)); setNotice("存档已导入，原有存档不会被覆盖。"); }}
+          onImported={async (save) => { setModal(null); await refreshSaves(); navigate(saveRoute(save)); notify({ tone: "info", text: "存档已导入，原有存档不会被覆盖。" }); }}
         />
       )}
     </div>
+    </NoticeProvider>
   );
 }

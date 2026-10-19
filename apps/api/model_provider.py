@@ -1142,6 +1142,58 @@ class ModelProvider:
         return result["prompt"]
 
 
+class EmbeddingProvider:
+    """OpenAI-compatible embeddings. The player enters the full endpoint URL (…/v1/embeddings);
+    requests go to it as given, without retries, so a slow service never holds up a turn."""
+    BATCH_SIZE = 32
+    MAX_RESPONSE_BYTES = 50_000_000
+
+    @staticmethod
+    def _endpoint(url):
+        parsed = urllib.parse.urlparse(url or "")
+        if (parsed.scheme not in {"http", "https"} or not parsed.netloc or
+                parsed.username is not None or parsed.password is not None or parsed.fragment):
+            raise ProviderError("INVALID_INPUT", "嵌入接口网址必须是以http://或https://开头的完整网址")
+        return url
+
+    def embed(self, config, api_key, texts):
+        """One vector per text, in order."""
+        url = self._endpoint(config.get("base_url"))
+        if not config.get("model"):
+            raise ProviderError("INVALID_INPUT", "嵌入模型名称不能为空")
+        vectors = []
+        for start in range(0, len(texts), self.BATCH_SIZE):
+            batch = texts[start:start + self.BATCH_SIZE]
+            response = _request(url, api_key, config.get("timeout_seconds", 10), "POST",
+                                {"model": config["model"], "input": batch}, max_retries=0,
+                                max_response_bytes=self.MAX_RESPONSE_BYTES)
+            vectors.extend(self._vectors(response, len(batch)))
+        if len({len(vector) for vector in vectors}) > 1:
+            raise ProviderError("MODEL_OUTPUT_FORMAT", "嵌入服务返回的向量维度不一致")
+        return vectors
+
+    @staticmethod
+    def _vectors(response, expected):
+        data = response.get("data") if isinstance(response, dict) else None
+        if not isinstance(data, list) or len(data) != expected:
+            raise ProviderError("MODEL_OUTPUT_FORMAT", "嵌入服务返回的数据条数不正确")
+        ordered = sorted(data, key=lambda item: item.get("index", 0) if isinstance(item, dict) else 0)
+        vectors = []
+        for item in ordered:
+            vector = item.get("embedding") if isinstance(item, dict) else None
+            if (not isinstance(vector, list) or not vector or
+                    any(type(value) not in (int, float) for value in vector)):
+                raise ProviderError("MODEL_OUTPUT_FORMAT", "嵌入服务返回的向量格式无效")
+            vectors.append([float(value) for value in vector])
+        return vectors
+
+    def test_connection(self, config, api_key):
+        started = time.monotonic()
+        vector = self.embed(config, api_key, ["连接测试：嵌入模型能否把这句话转换为向量。"])[0]
+        return {"ok": True, "model": config.get("model"), "dimensions": len(vector),
+                "latency_ms": int((time.monotonic() - started) * 1000)}
+
+
 class OpenAIImageProvider:
     MODEL = "gpt-image-2.5-sunburst"
 

@@ -34,15 +34,22 @@
     view-transition-name: toolbar;
   }
 
-  ::view-transition-group(toolbar) {
+  .app-notice-slot {
+    view-transition-name: app-notice;
+  }
+
+  ::view-transition-group(toolbar),
+  ::view-transition-group(app-notice) {
     animation: none;
   }
 
-  ::view-transition-old(toolbar) {
+  ::view-transition-old(toolbar),
+  ::view-transition-old(app-notice) {
     display: none;
   }
 
-  ::view-transition-new(toolbar) {
+  ::view-transition-new(toolbar),
+  ::view-transition-new(app-notice) {
     animation: none;
   }
 

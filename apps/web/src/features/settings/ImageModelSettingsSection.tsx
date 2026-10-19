@@ -1,5 +1,6 @@
 import type { AppSettings, ImageModelTestResult } from "../../types";
 import { defaultImageModel, IMAGE_MODEL_NAME } from "./settingsLogic";
+import { TestFailurePanel } from "./TestFailurePanel";
 import type { SettingsController } from "./useSettingsPage";
 
 export function ImageModelSettingsSection({ ctl, settings }: { ctl: SettingsController; settings: AppSettings }) {
@@ -25,6 +26,7 @@ export function ImageModelSettingsSection({ ctl, settings }: { ctl: SettingsCont
           <small>图片生成可能较慢，可设置 1–600 秒的等待时间。</small>
         </label>
         {ctl.imageModelTestResult && <ImageModelTestResultPanel result={ctl.imageModelTestResult} />}
+        {ctl.imageTestError && <TestFailurePanel problem={ctl.imageTestError} hint="请检查服务地址和密钥后再试。" />}
         <div className="form-actions full">
           <button className="secondary-button" type="button" disabled={imageModelState !== "idle"} onClick={() => void ctl.testImageModel()}>{imageModelState === "testing" ? "正在测试…" : "测试连接"}</button>
           <span className="cost-note">测试会检查是否能连接并使用此模型，不会生成图片。</span>

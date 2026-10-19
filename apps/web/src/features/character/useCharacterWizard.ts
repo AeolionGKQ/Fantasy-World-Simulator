@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, asApiError } from "../../api";
+import { useNotify } from "../../app/notice";
 import type { ShellActions } from "../../app/shellActions";
 import { useAppNavigate } from "../../app/viewTransition";
 import {
@@ -21,6 +22,7 @@ export type SaveStatus = "saved" | "dirty" | "saving" | "error" | "conflict";
  * navigation guards, step changes and the asynchronous generation job.
  */
 export function useCharacterWizard(saveId: string, step: number, actions: ShellActions) {
+  const notify = useNotify();
   const navigate = useAppNavigate();
   const [catalog, setCatalog] = useState<WorldCatalog | null>(null);
   const [save, setSave] = useState<SaveSummary | null>(null);
@@ -169,14 +171,14 @@ export function useCharacterWizard(saveId: string, step: number, actions: ShellA
       if (saveStatus === "dirty") {
         void persistDraft().then((saved) => { if (saved) navigate(href); });
       } else if (saveStatus === "saving") {
-        actions.setNotice("草稿正在保存，请在保存完成后切换页面。");
+        notify({ tone: "error", text: "草稿正在保存，请在保存完成后切换页面。" });
       } else {
-        actions.setNotice("草稿还没有保存，请先重试保存，或载入最新版本。");
+        notify({ tone: "error", text: "草稿还没有保存，请先重试保存，或载入最新版本。" });
       }
     };
     document.addEventListener("click", protectInternalNavigation, true);
     return () => document.removeEventListener("click", protectInternalNavigation, true);
-  }, [actions, navigate, persistDraft, saveStatus]);
+  }, [notify, navigate, persistDraft, saveStatus]);
 
   // Poll the generation job until it leaves the active states.
   useEffect(() => {

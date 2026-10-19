@@ -30,6 +30,9 @@ except ImportError:  # Direct execution: python server.py
 
 # Provider errors that mean the model service could not be reached or refused the credentials.
 # Others (rate limits, malformed output, context length, rejected content) leave the status alone.
+# Embedding requests are small; a slow service must not hold up a story turn.
+EMBEDDING_TIMEOUT_SECONDS = 10
+
 SERVICE_CONNECTION_FAILURES = frozenset({
     "MODEL_AUTH_FAILED", "MODEL_NETWORK_ERROR", "MODEL_TIMEOUT", "MODEL_NOT_FOUND",
     "MODEL_SERVICE_ERROR"})
@@ -313,7 +316,7 @@ CREATE TABLE IF NOT EXISTS model_capabilities (
     PRIMARY KEY(endpoint, model, config_version)
 );
 CREATE TABLE IF NOT EXISTS service_status (
-    service TEXT PRIMARY KEY CHECK (service IN ('story_model','image_model')),
+    service TEXT PRIMARY KEY CHECK (service IN ('story_model','image_model','embedding_model')),
     fingerprint TEXT NOT NULL,
     state TEXT NOT NULL CHECK (state IN ('ok','failed')),
     error_code TEXT,
@@ -488,7 +491,8 @@ class Database:
         }
 
     def get_settings(self, secret_configured=False, secret_persistence="memory_only",
-                     image_secret_configured=False, image_secret_persistence="memory_only"):
+                     image_secret_configured=False, image_secret_persistence="memory_only",
+                     embedding_secret_configured=False, embedding_secret_persistence="memory_only"):
         with self.connect() as connection:
             row = connection.execute("SELECT * FROM settings WHERE id=1").fetchone()
         model = loads(row["model_json"], {})
@@ -524,7 +528,13 @@ class Database:
                             "api_key_mask": "••••••••" if image_secret_configured else None,
                             "api_key_persistence": image_secret_persistence,
                             "configured": bool(image_secret_configured and image_model.get("base_url"))})
-        return {"model": model, "image_model": image_model,
+        embedding_model = self._embedding_model_view(row)
+        embedding_model.update({"api_key_configured": bool(embedding_secret_configured),
+                                "api_key_mask": "••••••••" if embedding_secret_configured else None,
+                                "api_key_persistence": embedding_secret_persistence,
+                                "configured": bool(embedding_secret_configured and embedding_model["base_url"]
+                                                   and embedding_model["model"])})
+        return {"model": model, "image_model": image_model, "embedding_model": embedding_model,
                 "narration": {"pace": narration.get("pace"),
                               "tendency": narration.get("tone"),
                               "detail": narration.get("detail"),
@@ -586,6 +596,77 @@ class Database:
                 (dumps(config), revision, utc_now()))
             connection.commit()
         return revision
+
+    @staticmethod
+    def _embedding_model_view(row):
+        config = loads(row["embedding_model_json"], {})
+        # enabled: the player's own switch; off means code recall even when the service works.
+        return {"base_url": config.get("base_url", ""), "model": config.get("model", ""),
+                "enabled": config.get("enabled", True) is not False,
+                "timeout_seconds": EMBEDDING_TIMEOUT_SECONDS}
+
+    def get_embedding_model_config(self):
+        """The optional embedding service: base_url is the full /v1/embeddings URL."""
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT embedding_model_json,revision FROM settings WHERE id=1").fetchone()
+        config = self._embedding_model_view(row)
+        config["_settings_revision"] = row["revision"]
+        return config
+
+    def update_embedding_model_settings(self, data):
+        self._validate_request_id(data)
+        allowed = {"base_url", "model", "enabled"}
+        transient = {"api_key", "expected_revision", "request_id"}
+        unknown = set(data) - allowed - transient
+        if unknown:
+            raise DomainError("INVALID_INPUT", "存在未知嵌入模型设置字段", fields={key: "未知字段" for key in unknown})
+        if "expected_revision" not in data:
+            raise DomainError("INVALID_INPUT", "嵌入模型设置缺少expected_revision")
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT * FROM settings WHERE id=1").fetchone()
+            if data["expected_revision"] != row["revision"]:
+                connection.rollback()
+                raise DomainError("REVISION_CONFLICT", "设置已被其他请求修改", 409)
+            config = loads(row["embedding_model_json"], {})
+            config.update({key: data[key].strip() if isinstance(data[key], str) else data[key]
+                           for key in allowed if key in data})
+            fields = {}
+            base_url = config.get("base_url", "")
+            if not isinstance(base_url, str) or len(base_url) > 2000:
+                fields["base_url"] = "必须是完整的嵌入接口网址"
+            elif base_url:
+                from urllib.parse import urlparse
+                parsed = urlparse(base_url)
+                if (parsed.scheme not in {"http", "https"} or not parsed.netloc or
+                        parsed.username is not None or parsed.password is not None or parsed.fragment):
+                    fields["base_url"] = "必须是以http://或https://开头的完整接口网址"
+            if not isinstance(config.get("model", ""), str) or len(config.get("model", "")) > 300:
+                fields["model"] = "必须是长度不超过300的模型名"
+            if type(config.get("enabled", True)) is not bool:
+                fields["enabled"] = "必须是布尔值"
+            if "api_key" in data and (not isinstance(data["api_key"], str) or len(data["api_key"]) > 10000):
+                fields["api_key"] = "必须是长度不超过10000的文本"
+            if fields:
+                connection.rollback()
+                raise DomainError("INVALID_INPUT", "嵌入模型设置无效", fields=fields)
+            revision = row["revision"] + 1
+            connection.execute(
+                "UPDATE settings SET embedding_model_json=?,revision=?,updated_at=? WHERE id=1",
+                (dumps(config), revision, utc_now()))
+            connection.commit()
+        return revision
+
+    def embedding_recall_ready(self, config, api_key):
+        """Vector recall runs only after the current configuration passed a connection test. A
+        later failed call keeps it on (each turn tries again); a failed test turns it off."""
+        if not (config.get("base_url") and config.get("model") and api_key):
+            return False
+        with self.connect() as connection:
+            row = connection.execute("SELECT * FROM service_status WHERE service='embedding_model'").fetchone()
+        return bool(row and row["fingerprint"] == service_fingerprint(config, api_key) and
+                    not (row["state"] == "failed" and row["source"] == "test"))
 
     def get_model_config(self):
         with self.connect() as connection:
@@ -657,8 +738,9 @@ class Database:
 
     def record_service_check(self, service, config, api_key, ok, error_code=None, message="",
                              source="call"):
-        """Remembers the latest connection outcome for the configuration actually used."""
-        if not ok and error_code not in SERVICE_CONNECTION_FAILURES:
+        """Remembers the latest connection outcome for the configuration actually used. Every
+        embedding failure counts: it has no other output a content error could explain."""
+        if not ok and error_code not in SERVICE_CONNECTION_FAILURES and service != "embedding_model":
             return
         with self.connect() as connection:
             connection.execute(

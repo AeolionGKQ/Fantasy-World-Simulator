@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { api, asApiError } from "../../api";
+import { useNotify } from "../../app/notice";
 import type { ShellActions } from "../../app/shellActions";
 import { playerProblemMessage } from "../../playerCopy";
-import type { AppSettings, ImageModelTestResult, ModelTestResult } from "../../types";
+import type { ApiProblem, AppSettings, EmbeddingModelTestResult, ImageModelTestResult, ModelTestResult } from "../../types";
 import {
   canStartSettingRequest,
+  defaultEmbeddingModel,
   defaultImageModel,
   IMAGE_MODEL_NAME,
   invalidateModelCapabilities,
@@ -35,10 +37,22 @@ export function useSettingsPage(actions: ShellActions) {
   const [narrationState, setNarrationState] = useState<NarrationState>("idle");
   const [imageModelState, setImageModelState] = useState<ImageModelState>("idle");
   const [imageModelTestResult, setImageModelTestResult] = useState<ImageModelTestResult | null>(null);
+  const [embeddingApiKey, setEmbeddingApiKey] = useState("");
+  const [embeddingModelState, setEmbeddingModelState] = useState<ImageModelState>("idle");
+  const [embeddingModelTestResult, setEmbeddingModelTestResult] = useState<EmbeddingModelTestResult | null>(null);
   const [testState, setTestState] = useState<ModelTestState>("idle");
   const [testResult, setTestResult] = useState<{ key: string; result: ModelTestResult } | null>(null);
+  // Failed connection tests are shown next to each section's test button, like a passing result.
+  const [testError, setTestError] = useState<{ key: string; problem: ApiProblem } | null>(null);
+  const [imageTestError, setImageTestError] = useState<ApiProblem | null>(null);
+  const [embeddingTestError, setEmbeddingTestError] = useState<ApiProblem | null>(null);
   const [structuredProbeFeedback, setStructuredProbeFeedback] = useState<StructuredProbeFeedback | null>(null);
-  const [actionError, setActionError] = useState("");
+  const notify = useNotify();
+  /** A failed save goes to the notice bar, named by its section since the bar is shared. */
+  const saveFailed = (section: string, reason: unknown) => {
+    const problem = asApiError(reason).problem;
+    notify({ tone: "error", text: `${section}未能保存：${playerProblemMessage(problem)}`, traceId: problem.trace_id });
+  };
   const testRequestToken = useRef(0);
   const settingRequestInFlight = useRef(false);
 
@@ -75,7 +89,7 @@ export function useSettingsPage(actions: ShellActions) {
     event.preventDefault();
     if (!settings || !canStartSettingRequest(modelState, narrationState, testState) || !beginSettingRequest()) return;
     const requestedKey = modelCapabilityKey(settings.model.protocol, settings.model.base_url, settings.model.model);
-    setModelState("saving"); setActionError(""); setTestResult(null); setStructuredProbeFeedback(null);
+    setModelState("saving"); setTestResult(null); setStructuredProbeFeedback(null);
     try {
       const updated = await api.updateModel({ ...modelPayload(),
         ...(settings.model.structured_output_probe_token ? {
@@ -89,7 +103,7 @@ export function useSettingsPage(actions: ShellActions) {
       window.setTimeout(() => setModelState("idle"), 2200);
     } catch (reason) {
       const apiError = asApiError(reason);
-      setActionError(playerProblemMessage(apiError.problem));
+      saveFailed("剧情模型配置", reason);
       if (isStructuredOutputError(apiError)) {
         setSettings((current) => resetStructuredOutputCapability(current, apiError.message));
       }
@@ -104,7 +118,7 @@ export function useSettingsPage(actions: ShellActions) {
     if (!settings || !canStartSettingRequest(modelState, narrationState, testState) || !beginSettingRequest()) return;
     const requestedKey = modelCapabilityKey(settings.model.protocol, settings.model.base_url, settings.model.model);
     const requestToken = ++testRequestToken.current;
-    setTestState(forceThinkingProbe ? "thinking" : "testing"); setActionError(""); setTestResult(null); setStructuredProbeFeedback(null);
+    setTestState(forceThinkingProbe ? "thinking" : "testing"); setTestResult(null); setTestError(null); setStructuredProbeFeedback(null);
     try {
       const result = await api.testModel({ ...modelPayload(), force_thinking_probe: forceThinkingProbe });
       if (!isCurrentModelTestResponse(settings, requestedKey, requestToken, testRequestToken.current)) return;
@@ -114,7 +128,7 @@ export function useSettingsPage(actions: ShellActions) {
         return mergeModelTestCapability(current, requestedKey, result);
       });
     } catch (reason) {
-      if (requestToken === testRequestToken.current) setActionError(playerProblemMessage(asApiError(reason).problem));
+      if (requestToken === testRequestToken.current) setTestError({ key: requestedKey, problem: asApiError(reason).problem });
     }
     finally {
       settingRequestInFlight.current = false;
@@ -127,7 +141,7 @@ export function useSettingsPage(actions: ShellActions) {
     if (!settings || !canStartSettingRequest(modelState, narrationState, testState) || !beginSettingRequest()) return;
     const requestedKey = modelCapabilityKey(settings.model.protocol, settings.model.base_url, settings.model.model);
     const requestToken = ++testRequestToken.current;
-    setTestState("probing"); setActionError(""); setTestResult(null); setStructuredProbeFeedback(null);
+    setTestState("probing"); setTestResult(null); setTestError(null); setStructuredProbeFeedback(null);
     setSettings((current) => resetStructuredOutputCapability(current, "正在测试是否支持规范回复格式…"));
     try {
       const result = await api.testModel(structuredOutputProbePayload(modelPayload()));
@@ -146,7 +160,7 @@ export function useSettingsPage(actions: ShellActions) {
       if (requestToken !== testRequestToken.current) return;
       const apiError = asApiError(reason);
       setSettings((current) => resetStructuredOutputCapability(current, apiError.message));
-      setActionError(playerProblemMessage(apiError.problem));
+      setStructuredProbeFeedback({ kind: "error", message: `${playerProblemMessage(apiError.problem)} 此选项保持关闭，你仍可使用普通回复继续游戏。` });
     } finally {
       settingRequestInFlight.current = false;
       if (requestToken === testRequestToken.current) setTestState("idle");
@@ -170,7 +184,7 @@ export function useSettingsPage(actions: ShellActions) {
   const saveNarration = async (event: FormEvent) => {
     event.preventDefault();
     if (!settings || !canStartSettingRequest(modelState, narrationState, testState) || !beginSettingRequest()) return;
-    setNarrationState("saving"); setActionError("");
+    setNarrationState("saving"); 
     try {
       const updated = await api.updateNarration(settings.narration, settings.revision, crypto.randomUUID());
       setSettings((current) => current ? mergeSavedNarrationSettings(current, updated) : current);
@@ -178,7 +192,7 @@ export function useSettingsPage(actions: ShellActions) {
       setNarrationState("saved");
       window.setTimeout(() => setNarrationState("idle"), 2200);
     } catch (reason) {
-      setActionError(playerProblemMessage(asApiError(reason).problem)); setNarrationState("idle");
+      saveFailed("叙事设置", reason); setNarrationState("idle");
     } finally {
       settingRequestInFlight.current = false;
     }
@@ -187,7 +201,7 @@ export function useSettingsPage(actions: ShellActions) {
   const saveImageModel = async (event: FormEvent) => {
     event.preventDefault();
     if (!settings || imageModelState !== "idle") return;
-    setImageModelState("saving"); setActionError(""); setImageModelTestResult(null);
+    setImageModelState("saving"); setImageModelTestResult(null);
     try {
       const imageModel = settings.image_model ?? defaultImageModel;
       const updated = await api.updateImageModel({ base_url: imageModel.base_url,
@@ -195,30 +209,62 @@ export function useSettingsPage(actions: ShellActions) {
         ...(imageApiKey ? { api_key: imageApiKey } : {}) }, settings.revision, crypto.randomUUID());
       setSettings(updated); setImageApiKey(""); setImageModelState("saved");
       window.setTimeout(() => setImageModelState("idle"), 1800);
-    } catch (reason) { setActionError(playerProblemMessage(asApiError(reason).problem)); setImageModelState("idle"); }
+    } catch (reason) { saveFailed("生图模型配置", reason); setImageModelState("idle"); }
     void actions.refreshServiceStatus();
   };
 
   const testImageModel = async () => {
     if (!settings || imageModelState !== "idle") return;
-    setImageModelState("testing"); setActionError(""); setImageModelTestResult(null);
+    setImageModelState("testing"); setImageModelTestResult(null); setImageTestError(null);
     try {
       const imageModel = settings.image_model ?? defaultImageModel;
       const result = await api.testImageModel({ base_url: imageModel.base_url,
         model: IMAGE_MODEL_NAME, timeout_seconds: imageModel.timeout_seconds,
         ...(imageApiKey ? { api_key: imageApiKey } : {}) });
       setImageModelTestResult(result);
-    } catch (reason) { setActionError(playerProblemMessage(asApiError(reason).problem)); }
+    } catch (reason) { setImageTestError(asApiError(reason).problem); }
     finally { setImageModelState("idle"); void actions.refreshServiceStatus(); }
   };
 
+  const embeddingPayload = () => {
+    const embeddingModel = settings?.embedding_model ?? defaultEmbeddingModel;
+    return { base_url: embeddingModel.base_url.trim(), model: embeddingModel.model.trim(),
+      ...(embeddingApiKey ? { api_key: embeddingApiKey } : {}) };
+  };
+
+  const saveEmbeddingModel = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!settings || embeddingModelState !== "idle") return;
+    setEmbeddingModelState("saving"); 
+    try {
+      const enabled = (settings.embedding_model ?? defaultEmbeddingModel).enabled;
+      const updated = await api.updateEmbeddingModel({ ...embeddingPayload(), enabled }, settings.revision, crypto.randomUUID());
+      setSettings(updated); setEmbeddingApiKey(""); setEmbeddingModelState("saved");
+      window.setTimeout(() => setEmbeddingModelState("idle"), 1800);
+    } catch (reason) { saveFailed("嵌入模型配置", reason); setEmbeddingModelState("idle"); }
+    void actions.refreshServiceStatus();
+  };
+
+  const testEmbeddingModel = async () => {
+    if (!settings || embeddingModelState !== "idle") return;
+    setEmbeddingModelState("testing"); setEmbeddingModelTestResult(null); setEmbeddingTestError(null);
+    try {
+      setEmbeddingModelTestResult(await api.testEmbeddingModel(embeddingPayload()));
+    } catch (reason) {
+      setEmbeddingTestError(asApiError(reason).problem);
+    } finally { setEmbeddingModelState("idle"); void actions.refreshServiceStatus(); }
+  };
+
   return {
-    settings, setSettings, loading, error, load, actionError,
+    settings, setSettings, loading, error, load,
     apiKey, setApiKey, imageApiKey, setImageApiKey,
     modelState, narrationState, imageModelState, testState,
     testResult, imageModelTestResult, structuredProbeFeedback,
+    testError, imageTestError, embeddingTestError, setEmbeddingTestError,
     saveModel, testModel, probeStructuredOutput, disableStructuredOutput, invalidateModelTest,
     saveNarration, saveImageModel, testImageModel,
+    embeddingApiKey, setEmbeddingApiKey, embeddingModelState, embeddingModelTestResult,
+    setEmbeddingModelTestResult, saveEmbeddingModel, testEmbeddingModel,
   };
 }
 

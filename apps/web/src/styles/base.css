@@ -146,16 +146,8 @@
     to { opacity: 0; transform: scale(.96); }
   }
 
-  @keyframes toast-in {
-    from { opacity: 0; transform: translateY(12px); }
-  }
-
-  @keyframes toast-out {
-    to { opacity: 0; transform: translateY(4px); }
-  }
-
-  @keyframes notice-in {
-    from { opacity: 0; transform: translateY(6px); }
+  @keyframes notice-drop {
+    from { opacity: 0; transform: translateY(-8px); }
   }
 
   @keyframes bar-grow {

@@ -1,4 +1,4 @@
-/* App shell: save sidebar (off-canvas drawer on mobile), sticky toolbar and toast. */
+/* App shell: save sidebar (off-canvas drawer on mobile), sticky toolbar and notice bar. */
 @layer layout {
   .app-shell {
     min-height: 100dvh;
@@ -417,23 +417,82 @@
     min-height: calc(100dvh - var(--toolbar-height));
   }
 
-  .toast {
-    position: fixed;
-    z-index: var(--z-toast);
-    right: 22px;
-    bottom: 22px;
-    max-width: min(420px, calc(100vw - 44px));
-    padding: 12px 16px;
-    color: var(--ink);
-    background: var(--surface);
-    border: 1px solid var(--outline);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-float);
-    animation: toast-in var(--dur-enter) var(--ease-out) both;
+  /* ---- Notice bar: every page's one-off messages and errors ----
+   * Sticky right under the toolbar and floating over the page (the slot has no height), so it
+   * stays in view wherever the page is scrolled and nothing shifts when it appears or goes.
+   * Rendered only while there is a notice. */
+  .app-notice-slot {
+    position: sticky;
+    z-index: 15;
+    top: var(--toolbar-height);
+    height: 0;
   }
 
-  .toast.leaving {
-    animation: toast-out var(--dur-exit) var(--ease-in) both;
+  .app-notice {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) 44px;
+    align-items: center;
+    gap: 12px;
+    width: min(calc(100% - 48px), 1100px);
+    min-height: 56px;
+    margin: 12px auto 0;
+    padding: 6px 8px 6px 16px;
+    background: var(--info-soft);
+    border: 1px solid var(--info-line);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-float);
+    animation: notice-drop var(--dur-enter) var(--ease-out) both;
+  }
+
+  .app-notice.leaving {
+    animation: fade-out var(--dur-exit) var(--ease-in) both;
+  }
+
+  .app-notice.error {
+    background: var(--danger-soft);
+    border-color: var(--danger-line);
+  }
+
+  .notice-icon {
+    display: grid;
+    place-items: center;
+    color: var(--primary);
+  }
+
+  .notice-icon .icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .app-notice.error .notice-icon {
+    color: var(--danger);
+  }
+
+  .app-notice p {
+    font-size: var(--text-sm);
+  }
+
+  .app-notice small {
+    display: block;
+    color: var(--muted);
+    font-family: ui-monospace, monospace;
+    font-size: var(--text-xs);
+  }
+
+  .app-notice button {
+    width: 44px;
+    height: 44px;
+    color: var(--muted);
+    font-size: var(--text-lg);
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+
+  .app-notice button:hover {
+    color: var(--ink);
+    background: var(--surface-raised);
   }
 
   @media (max-width: 1023px) {
@@ -495,6 +554,11 @@
 
     .toolbar-actions {
       gap: 4px;
+    }
+
+    .app-notice {
+      width: calc(100% - 24px);
+      margin-top: 8px;
     }
 
     /* Icon-only toolbar buttons. */

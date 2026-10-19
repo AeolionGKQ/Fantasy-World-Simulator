@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { api, asApiError } from "../../api";
+import { useNotify } from "../../app/notice";
 import { scrollIntoViewIfAbove } from "../../app/scroll";
 import { runViewTransition, useAppNavigate } from "../../app/viewTransition";
 import { playerProblemMessage } from "../../playerCopy";
@@ -8,13 +9,6 @@ import type { ApiProblem, NarrativeJob, StartPrerequisiteResolution, Turn } from
 import { getAllGameData, type GameData } from "./gameData";
 import { gameTabs, type GameTab } from "./gameTabs";
 import { isNarrativeJobActive, narrativeJobMessage, refreshedViewedTurn } from "./helpers";
-
-export interface GameNotice {
-  id: number;
-  tone: "info" | "error";
-  text: string;
-  traceId?: string;
-}
 
 type JobFactory = (version: number, signal: AbortSignal) => Promise<NarrativeJob>;
 
@@ -29,7 +23,8 @@ export function useGameWorkspace(saveId: string) {
   const [viewedTurn, setViewedTurn] = useState<Turn | null>(null);
   const [loading, setLoading] = useState(true);
   const [problem, setProblem] = useState<ApiProblem | null>(null);
-  const [notice, setNotice] = useState<GameNotice | null>(null);
+  // One-off messages go to the app's notice bar under the toolbar.
+  const notify = useNotify();
   const [submittingState, setSubmittingState] = useState(false);
   const [submittingArc, setSubmittingArc] = useState(false);
   const [submittingMemory, setSubmittingMemory] = useState(false);
@@ -45,8 +40,8 @@ export function useGameWorkspace(saveId: string) {
   const showProblem = useCallback((reason: unknown) => {
     const error = asApiError(reason);
     const contextExceeded = error.problem.code === "MODEL_CONTEXT_LENGTH_EXCEEDED";
-    setNotice({ id: Date.now(), tone: "error", text: contextExceeded ? "当前 AI 无法一次读取这么多故事内容。请在设置中换用能读取更长故事的模型后重试。游戏不会删减你的故事。" : playerProblemMessage(error.problem), traceId: error.problem.trace_id });
-  }, []);
+    notify({ tone: "error", text: contextExceeded ? "当前 AI 无法一次读取这么多故事内容。请在设置中换用能读取更长故事的模型后重试。游戏不会删减你的故事。" : playerProblemMessage(error.problem), traceId: error.problem.trace_id });
+  }, [notify]);
 
   const refresh = useCallback(async (
     background = false,
@@ -79,7 +74,7 @@ export function useGameWorkspace(saveId: string) {
 
   useEffect(() => {
     const token = ++session.current;
-    setData(null); setProblem(null); setNotice(null); setViewedTurn(null); setTab("story");
+    setData(null); setProblem(null); setViewedTurn(null); setTab("story");
     void refresh(false, token);
     return () => {
       session.current += 1;
@@ -106,10 +101,10 @@ export function useGameWorkspace(saveId: string) {
         setData((current) => current ? { ...current, story: { ...current.story, active_job: job } } : current);
         if (isNarrativeJobActive(job)) return;
         if (job.status === "succeeded") {
-          setNotice({ id: Date.now(), tone: "info", text: job.type === "turns_to_arc" || job.type === "arcs_to_arc" ? "故事弧已更新。" : "新剧情已保存，角色状态已更新。" });
+          notify({ tone: "info", text: job.type === "turns_to_arc" || job.type === "arcs_to_arc" ? "故事弧已更新。" : "新剧情已保存，角色状态已更新。" });
           await refresh(true, token, job.result?.turn_id);
         } else {
-          setNotice({ id: Date.now(), tone: "error", text: narrativeJobMessage(job) });
+          notify({ tone: "error", text: narrativeJobMessage(job) });
           await refresh(true);
         }
       } catch (reason) { if (!disposed && !pollController.signal.aborted && token === session.current) showProblem(reason); }
@@ -138,7 +133,7 @@ export function useGameWorkspace(saveId: string) {
           return;
         }
         if (job.status === "succeeded") {
-          setNotice({ id: Date.now(), tone: "info", text: "故事弧已更新。" });
+          notify({ tone: "info", text: "故事弧已更新。" });
           const nextController = new AbortController();
           memoryController.current?.abort();
           memoryController.current = nextController;
@@ -152,7 +147,7 @@ export function useGameWorkspace(saveId: string) {
           setData((current) => current && current.bootstrap.save_id === requestedId
             ? { ...current, story: { ...current.story, active_arc_job: null } }
             : current);
-          setNotice({ id: Date.now(), tone: "error", text: narrativeJobMessage(job) });
+          notify({ tone: "error", text: narrativeJobMessage(job) });
         }
       } catch (reason) {
         if (!disposed && !pollController.signal.aborted && token === session.current) showProblem(reason);
@@ -182,9 +177,9 @@ export function useGameWorkspace(saveId: string) {
           return;
         }
         const removed = job.result?.removed_count ?? 0;
-        setNotice(job.status === "succeeded"
-          ? { id: Date.now(), tone: "info", text: removed ? `长期记忆已整理，移除了 ${removed} 条。` : "长期记忆已整理，没有需要移除的内容。" }
-          : { id: Date.now(), tone: "error", text: narrativeJobMessage(job) });
+        notify(job.status === "succeeded"
+          ? { tone: "info", text: removed ? `长期记忆已整理，移除了 ${removed} 条。` : "长期记忆已整理，没有需要移除的内容。" }
+          : { tone: "error", text: narrativeJobMessage(job) });
         await refresh(true, token);
       } catch (reason) {
         if (!disposed && !pollController.signal.aborted && token === session.current) showProblem(reason);
@@ -207,7 +202,7 @@ export function useGameWorkspace(saveId: string) {
       const job = await factory(data.story.state.state_version, nextController.signal);
       if (nextController.signal.aborted || token !== session.current || job.save_id !== requestedId) return;
       setData((current) => current ? { ...current, story: { ...current.story, active_job: job, can_act: false, can_open: false, can_reshape: false } } : current);
-      setNotice({ id: Date.now(), tone: "info", text: "正在生成剧情，等待时可以查看角色、背包等页签。" });
+      notify({ tone: "info", text: "正在生成剧情，等待时可以查看角色、背包等页签。" });
     } catch (reason) {
       if (nextController.signal.aborted || token !== session.current) return;
       showProblem(reason);
@@ -230,7 +225,7 @@ export function useGameWorkspace(saveId: string) {
       setData((current) => current && current.bootstrap.save_id === requestedId
         ? { ...current, story: { ...current.story, active_arc_job: job } }
         : current);
-      setNotice({ id: Date.now(), tone: "info", text: "正在整理故事摘要，你可以继续冒险。" });
+      notify({ tone: "info", text: "正在整理故事摘要，你可以继续冒险。" });
     } catch (reason) {
       if (nextController.signal.aborted || token !== session.current) return;
       showProblem(reason);
@@ -248,7 +243,7 @@ export function useGameWorkspace(saveId: string) {
       setData((current) => current && current.bootstrap.save_id === requestedId
         ? { ...current, story: { ...current.story, active_memory_job: job, can_act: false, can_open: false, can_reshape: false } }
         : current);
-      setNotice({ id: Date.now(), tone: "info", text: "正在整理长期记忆，完成前暂时不能推进剧情。" });
+      notify({ tone: "info", text: "正在整理长期记忆，完成前暂时不能推进剧情。" });
     } catch (reason) {
       if (token !== session.current) return;
       showProblem(reason);
@@ -266,7 +261,7 @@ export function useGameWorkspace(saveId: string) {
       setData((current) => current && current.bootstrap.save_id === requestedId
         ? { ...current, projections: { ...current.projections, memory, memories } }
         : current);
-      setNotice({ id: Date.now(), tone: "info", text: "已删除这条长期记忆。" });
+      notify({ tone: "info", text: "已删除这条长期记忆。" });
     } catch (reason) { if (token === session.current) showProblem(reason); }
   };
 
@@ -306,7 +301,7 @@ export function useGameWorkspace(saveId: string) {
       await api.resolveStartPrerequisite(requestedId, data.story.state.state_version, resolution, locationId, requestId, nextController.signal);
       if (nextController.signal.aborted || token !== session.current) return;
       prerequisiteRequest.current = null;
-      setNotice({ id: Date.now(), tone: "info", text: resolution === "relocate" ? "角色起点已更换，可以开始冒险。" : "已确认所需的防护与许可，角色将从当前起点出发。" });
+      notify({ tone: "info", text: resolution === "relocate" ? "角色起点已更换，可以开始冒险。" : "已确认所需的防护与许可，角色将从当前起点出发。" });
       await refresh(true);
     } catch (reason) {
       if (!nextController.signal.aborted && token === session.current) showProblem(reason);
@@ -324,7 +319,7 @@ export function useGameWorkspace(saveId: string) {
       await api.updateCharacterAdditional(saveId, data.story.state.state_version, additional, additionalRequest.current.requestId);
       if (token !== session.current) return false;
       additionalRequest.current = null;
-      setNotice({ id: Date.now(), tone: "info", text: "角色设定已保存，从下一段剧情开始生效。" });
+      notify({ tone: "info", text: "角色设定已保存，从下一段剧情开始生效。" });
       await refresh(true);
       return true;
     } catch (reason) {
@@ -336,7 +331,7 @@ export function useGameWorkspace(saveId: string) {
   const startImageSession = async () => {
     if (!data?.story.latest_turn) return;
     if (!data.imageConfigured) {
-      setNotice({ id: Date.now(), tone: "error", text: "请先打开设置，在“生图模型配置”中填写 OpenAI 服务地址和密钥。" });
+      notify({ tone: "error", text: "请先打开设置，在“生图模型配置”中填写 OpenAI 服务地址和密钥。" });
       return;
     }
     setStartingImage(true);
@@ -372,11 +367,22 @@ export function useGameWorkspace(saveId: string) {
     const key = `${saveId}:${failures.start_sequence}:${failures.count}`;
     if (arcFailureKey.current === key) return;
     arcFailureKey.current = key;
-    setNotice({ id: Date.now(), tone: "error", text: `第 ${failures.start_sequence} 至 ${failures.end_sequence} 段的故事弧已连续 ${failures.count} 次整理失败${failures.message ? `：${failures.message.replace(/[。.]$/, "")}。` : "。"}可以在“记忆管理”中重新整理。` });
+    notify({ tone: "error", text: `第 ${failures.start_sequence} 至 ${failures.end_sequence} 段的故事弧已连续 ${failures.count} 次整理失败${failures.message ? `：${failures.message.replace(/[。.]$/, "")}。` : "。"}可以在“记忆管理”中重新整理。` });
+  }, [data, saveId]);
+
+  // Vector recall that fell back three turns in a row (and every three after that) is reported.
+  const embeddingFailureKey = useRef<string | null>(null);
+  useEffect(() => {
+    const failures = data?.projections.memory.embedding_failures;
+    if (!failures) { embeddingFailureKey.current = null; return; }
+    const key = `${saveId}:${Math.floor(failures.count / 3)}`;
+    if (embeddingFailureKey.current === key) return;
+    embeddingFailureKey.current = key;
+    notify({ tone: "error", text: `嵌入模型服务已连续 ${failures.count} 轮无法使用${failures.message ? `（${failures.message.replace(/[。.]$/, "")}）` : ""}，长期记忆暂时改用基础方式召回，剧情不受影响。请到设置中检查嵌入模型配置或重新测试连接。` });
   }, [data, saveId]);
 
   return {
-    data, tab, setTab, selectTab, viewedTurn, setViewedTurn, showTurn, loading, problem, notice, setNotice,
+    data, tab, setTab, selectTab, viewedTurn, setViewedTurn, showTurn, loading, problem,
     submittingState, submittingArc, submittingMemory, startingImage,
     refresh, startStateJob, startArcJob, cancelJob, readJournalTurn, resolveStartPrerequisite,
     saveCharacterAdditional, startMemoryCuration, reloadMemories, startImageSession,

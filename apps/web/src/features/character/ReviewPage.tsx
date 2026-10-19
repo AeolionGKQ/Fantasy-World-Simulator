@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { api, ApiError } from "../../api";
+import { api, ApiError, asApiError } from "../../api";
+import { useNotify } from "../../app/notice";
 import type { ShellActions } from "../../app/shellActions";
 import { useAppNavigate } from "../../app/viewTransition";
 import { ErrorPanel } from "../../components/ErrorPanel";
 import { LoadingPanel } from "../../components/LoadingPanel";
 import { StatusDot } from "../../components/StatusDot";
+import { playerProblemMessage } from "../../playerCopy";
 import type { CharacterCandidate, SaveSummary } from "../../types";
 import { CandidatePanel } from "./candidate/CandidatePanel";
 import { RegeneratePanel } from "./candidate/RegeneratePanel";
@@ -19,6 +21,12 @@ export function ReviewPage({ actions }: { actions: ShellActions }) {
   const [error, setError] = useState<unknown>(null);
   const [confirming, setConfirming] = useState(false);
   const [regenBusy, setRegenBusy] = useState(false);
+  const notify = useNotify();
+  // A failed accept or regenerate goes to the notice bar; `error` is only for a page that cannot load.
+  const showError = (reason: unknown) => {
+    const problem = asApiError(reason).problem;
+    notify({ tone: "error", text: playerProblemMessage(problem), traceId: problem.trace_id });
+  };
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true); setError(null);
     try {
@@ -32,24 +40,24 @@ export function ReviewPage({ actions }: { actions: ShellActions }) {
   useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [load]);
   const confirm = async () => {
     if (!save || !candidate || candidate.valid === false) return;
-    setConfirming(true); setError(null);
+    setConfirming(true);
     try {
       await api.confirmCharacter(saveId, candidate.id, save.revision, candidate.draft_revision, crypto.randomUUID());
       await actions.refreshSaves();
       navigate(`/saves/${saveId}/game`);
     }
-    catch (reason) { setError(reason); setConfirming(false); }
+    catch (reason) { showError(reason); setConfirming(false); }
   };
   const regenerate = async (feedback = "") => {
     if (!candidate) return;
-    setRegenBusy(true); setError(null);
+    setRegenBusy(true);
     if (!save) return;
     try {
       const next = await api.startGeneration(saveId, candidate.draft_revision, save.revision, feedback);
       await actions.refreshSaves();
       navigate(`/saves/${saveId}/create/13`, { state: { jobId: next.id } });
     }
-    catch (reason) { setError(reason); setRegenBusy(false); }
+    catch (reason) { showError(reason); setRegenBusy(false); }
   };
   if (loading) return <div className="page page-loading" key="loading"><LoadingPanel label="正在载入候选角色" /></div>;
   if (error && !candidate) return <div className="page page-enter" key="error"><ErrorPanel error={error} onRetry={() => void load()} title="无法载入角色候选" /></div>;
@@ -57,7 +65,6 @@ export function ReviewPage({ actions }: { actions: ShellActions }) {
   return (
     <div className="page review-page page-enter" key="ready">
       <header className="page-header"><div><span className="step-count">接受前检查</span><h1>确认角色候选</h1><p>这是 AI 生成的角色候选，接受后才会正式成为你的角色。</p></div></header>
-      {Boolean(error) && <ErrorPanel error={error} onRetry={() => void load()} />}
       {regenBusy && <div className="inline-status"><StatusDot state="busy" />正在按你的意见重新生成…</div>}
       <CandidatePanel
         candidate={candidate}

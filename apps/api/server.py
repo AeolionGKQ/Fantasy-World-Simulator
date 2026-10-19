@@ -23,11 +23,11 @@ try:
     from .contract_registry import contract_from_documents
     from .database import Database, DomainError, NamedSecretStore, SecretStore
     from .image_repository import ImageRepository
-    from .model_provider import (ModelProvider, OpenAIImageProvider, ProviderError,
+    from .model_provider import (EmbeddingProvider, ModelProvider, OpenAIImageProvider, ProviderError,
                                  is_explicit_concurrency_rejection, validate_candidate)
     from .narrative_contract import (MEMORY_CURATION_CONTRACT, ContractError, validate_gm_response,
                                      validate_memory_curation, validate_story_arc)
-    from .story_repository import StoryRepository
+    from .story_repository import StoryRepository, embedding_model_key, semantic_bonuses
 except ImportError:  # Direct execution with the isolated embedded runtime.
     api_directory = str(Path(__file__).resolve().parent)
     if api_directory not in sys.path:
@@ -37,11 +37,11 @@ except ImportError:  # Direct execution with the isolated embedded runtime.
     from contract_registry import contract_from_documents
     from database import Database, DomainError, NamedSecretStore, SecretStore
     from image_repository import ImageRepository
-    from model_provider import (ModelProvider, OpenAIImageProvider, ProviderError,
+    from model_provider import (EmbeddingProvider, ModelProvider, OpenAIImageProvider, ProviderError,
                                 is_explicit_concurrency_rejection, validate_candidate)
     from narrative_contract import (MEMORY_CURATION_CONTRACT, ContractError, validate_gm_response,
                                     validate_memory_curation, validate_story_arc)
-    from story_repository import StoryRepository
+    from story_repository import StoryRepository, embedding_model_key, semantic_bonuses
 
 MAX_REQUEST_BYTES = 2_000_000
 MAX_IMPORT_BYTES = 64 * 1024 * 1024
@@ -187,6 +187,8 @@ class AppContext:
         self.story = StoryRepository(self.database, self.content_registry)
         self.secrets = SecretStore(os.path.join(data_dir, "secrets.dat"))
         self.image_secrets = NamedSecretStore(os.path.join(data_dir, "image-secrets.dat"))
+        self.embedding_secrets = NamedSecretStore(os.path.join(data_dir, "embedding-secrets.dat"))
+        self.embedding_provider = EmbeddingProvider()
         self.images = ImageRepository(self.database, self.content_registry)
         self.image_provider = OpenAIImageProvider()
         self.image_root = os.path.abspath(os.path.join(data_dir, "images"))
@@ -432,6 +434,60 @@ class AppContext:
         self._record_service("story_model", config, api_key, True, source=source)
         return result
 
+    def embedding_status(self):
+        """Like the other services, plus "disabled" when the player switched vector recall off."""
+        config = self.database.get_embedding_model_config()
+        status = self.database.get_service_status("embedding_model", config, self.embedding_secrets.get_api_key())
+        if not config["enabled"] and status["state"] != "not_configured":
+            status["state"] = "disabled"
+        return status
+
+    def settings_view(self):
+        return self.database.get_settings(
+            bool(self.secrets.get_api_key()), self.secrets.persistence,
+            bool(self.image_secrets.get_api_key()), self.image_secrets.persistence,
+            bool(self.embedding_secrets.get_api_key()), self.embedding_secrets.persistence)
+
+    def _recall_with_embeddings(self, claimed):
+        """Hybrid recall when the embedding service is ready (tested for this configuration).
+        On any failure the code recall claim() already chose stays; the outcome is recorded in the
+        context manifest, where repeated failures are counted for the player notice."""
+        pool = claimed["memory_pool"]
+        if not pool:
+            return {"mode": "code", "reason": "no_memories"}
+        config = self.database.get_embedding_model_config()
+        api_key = self.embedding_secrets.get_api_key()
+        if not config["enabled"]:
+            return {"mode": "code", "reason": "disabled"}
+        if not self.database.embedding_recall_ready(config, api_key):
+            return {"mode": "code", "reason": "not_ready"}
+        started = time.monotonic()
+        try:
+            similarities = self.story.memory_similarities(
+                claimed["job"]["save_id"], pool, self.story.recall_query_text(claimed),
+                embedding_model_key(config),
+                lambda texts: self.embedding_provider.embed(config, api_key, texts))
+        except ProviderError as exc:
+            self._record_service("embedding_model", config, api_key, False, exc.code, exc.message)
+            return {"mode": "code", "reason": "failed", "error_code": exc.code, "message": exc.message,
+                    "duration_ms": int((time.monotonic() - started) * 1000)}
+        except Exception:
+            return {"mode": "code", "reason": "failed", "error_code": "INTERNAL_ERROR",
+                    "message": "向量检索发生内部错误"}
+        self._record_service("embedding_model", config, api_key, True)
+        bonuses = semantic_bonuses(similarities)
+        memories = self.story._recall_memories(
+            claimed["context_state"], claimed["recall_history"], pool, claimed["player_input"],
+            semantic=bonuses)
+        claimed["memories"] = memories
+        claimed["claimed_memory_numbers"] = {memory["memory_number"]: memory["id"] for memory in memories}
+        numbers = {memory["id"]: memory["memory_number"] for memory in pool}
+        return {"mode": "vector", "model": config.get("model"),
+                "duration_ms": int((time.monotonic() - started) * 1000),
+                "semantic": {str(numbers[memory_id]): {"similarity": round(similarities[memory_id], 4),
+                                                       "bonus": bonus}
+                             for memory_id, bonus in bonuses.items()}}
+
     def _record_service(self, service, config, api_key, ok, error_code=None, message="", source="call"):
         """Best effort: a failure to record never affects the call itself."""
         if api_key is None:
@@ -534,6 +590,7 @@ class AppContext:
             else:
                 action = dict(claimed["input"])
                 contract_kind = "gm_turn"
+                claimed["memory_recall"] = self._recall_with_embeddings(claimed)
             messages, manifest = self.content_registry.build_messages(
                 claimed["context_state"], action, claimed["early_summaries"],
                 claimed["recent_full_turns"], claimed["memories"], claimed["arcs"],
@@ -545,6 +602,8 @@ class AppContext:
             request_config["_output_schema"] = contract["schema"]
             request_config["_output_schema_name"] = contract["version"].replace("-", "_").replace("/", "_")
             claimed["provider_model"] = config["model"]
+            if claimed.get("memory_recall"):
+                manifest["memory_recall"] = claimed["memory_recall"]
             self.story.set_context_manifest(job_id, manifest)
             api_key = self.secrets.get_api_key()
             def generate(request_messages):
@@ -664,6 +723,7 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
 
     def _dispatch(self, method):
         trace_id = str(uuid.uuid4())
+        started = time.monotonic()
         try:
             split = urllib.parse.urlsplit(self.path)
             self._api_query = {}
@@ -716,7 +776,13 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
                 status = 504
             elif exc.code == "MODEL_RATE_LIMITED":
                 status = 429
-            self._send_error_json(status, exc.code, exc.message, {}, exc.retryable, trace_id)
+            # What the model service itself said, for the settings page's failed-test panel. The
+            # provider text is already stripped of keys (model_provider._sanitize_provider_text).
+            details = {key: value for key, value in (
+                ("http_status", exc.http_status), ("provider_code", exc.provider_code),
+                ("provider_message", exc.provider_message), ("provider_param", exc.provider_param),
+                ("elapsed_ms", int((time.monotonic() - started) * 1000))) if value is not None}
+            self._send_error_json(status, exc.code, exc.message, {}, exc.retryable, trace_id, details)
         except (BrokenPipeError, ConnectionResetError):
             return
         except Exception:
@@ -737,22 +803,17 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
                                                      self.app.secrets.get_api_key()),
                 "image_model": db.get_service_status("image_model", db.get_image_model_config(),
                                                      self.app.image_secrets.get_api_key()),
+                "embedding_model": self.app.embedding_status(),
             }, {}
         if method == "GET" and path == "/api/settings":
-            return 200, db.get_settings(bool(self.app.secrets.get_api_key()),
-                                        self.app.secrets.persistence,
-                                        bool(self.app.image_secrets.get_api_key()),
-                                        self.app.image_secrets.persistence), {}
+            return 200, self.app.settings_view(), {}
         if method == "PUT" and path == "/api/settings/model":
             body = self._read_json()
             self.app.validate_response_format_update(body)
             body.pop("structured_output_probe_token", None)
             revision = db.write_model_settings_with_secret(body, self.app.secrets)
             self.app.sync_provider_limit(db.get_model_config())
-            return 200, db.get_settings(bool(self.app.secrets.get_api_key()),
-                                        self.app.secrets.persistence,
-                                        bool(self.app.image_secrets.get_api_key()),
-                                        self.app.image_secrets.persistence), {"X-Revision": str(revision)}
+            return 200, self.app.settings_view(), {"X-Revision": str(revision)}
         if method == "POST" and path == "/api/settings/model/test":
             body = self._read_json(optional=True)
             allowed = {"protocol", "base_url", "model", "timeout_seconds", "structured_output",
@@ -837,19 +898,14 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
             return 200, model_test_to_view(result), {}
         if method == "PUT" and path == "/api/settings/narration":
             revision = db.update_narration_settings(self._read_json())
-            return 200, db.get_settings(bool(self.app.secrets.get_api_key()),
-                                        self.app.secrets.persistence,
-                                        bool(self.app.image_secrets.get_api_key()),
-                                        self.app.image_secrets.persistence), {"X-Revision": str(revision)}
+            return 200, self.app.settings_view(), {"X-Revision": str(revision)}
         if method == "PUT" and path == "/api/settings/image-model":
             body = self._read_json()
             prepared = (self.app.image_secrets.prepare_api_key(body["api_key"])
                         if "api_key" in body else None)
             revision = db.update_image_model_settings(body)
             if prepared is not None: self.app.image_secrets.commit_api_key(prepared)
-            return 200, db.get_settings(bool(self.app.secrets.get_api_key()),
-                self.app.secrets.persistence, bool(self.app.image_secrets.get_api_key()),
-                self.app.image_secrets.persistence), {"X-Revision": str(revision)}
+            return 200, self.app.settings_view(), {"X-Revision": str(revision)}
         if method == "POST" and path == "/api/settings/image-model/test":
             body = self._read_json(optional=True)
             config = db.get_image_model_config()
@@ -861,6 +917,26 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
                 self.app._record_service("image_model", config, api_key, False, exc.code, exc.message, "test")
                 raise
             self.app._record_service("image_model", config, api_key, True, source="test")
+            return 200, result, {}
+        if method == "PUT" and path == "/api/settings/embedding-model":
+            body = self._read_json()
+            prepared = (self.app.embedding_secrets.prepare_api_key(body["api_key"])
+                        if "api_key" in body else None)
+            revision = db.update_embedding_model_settings(body)
+            if prepared is not None: self.app.embedding_secrets.commit_api_key(prepared)
+            return 200, self.app.settings_view(), {"X-Revision": str(revision)}
+        if method == "POST" and path == "/api/settings/embedding-model/test":
+            body = self._read_json(optional=True)
+            config = db.get_embedding_model_config()
+            config.update({key: body[key].strip() for key in ("base_url", "model")
+                           if isinstance(body.get(key), str)})
+            api_key = body.get("api_key") or self.app.embedding_secrets.get_api_key()
+            try:
+                result = self.app.embedding_provider.test_connection(config, api_key)
+            except ProviderError as exc:
+                self.app._record_service("embedding_model", config, api_key, False, exc.code, exc.message, "test")
+                raise
+            self.app._record_service("embedding_model", config, api_key, True, source="test")
             return 200, result, {}
         if path == "/api/saves":
             if method == "GET":
@@ -1085,11 +1161,12 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_error_json(self, status, code, message, fields, retryable, trace_id):
-        self._send_json(status, {"error": {"code": code, "message": message,
-                                           "fields": fields, "field_errors": fields,
-                                           "retryable": bool(retryable),
-                                           "trace_id": trace_id}}, {"X-Trace-Id": trace_id})
+    def _send_error_json(self, status, code, message, fields, retryable, trace_id, details=None):
+        error = {"code": code, "message": message, "fields": fields, "field_errors": fields,
+                 "retryable": bool(retryable), "trace_id": trace_id}
+        if details:
+            error["details"] = details
+        self._send_json(status, {"error": error}, {"X-Trace-Id": trace_id})
 
     def _send_image(self, record, download=False, extra_headers=None):
         root = Path(self.app.image_root).resolve()

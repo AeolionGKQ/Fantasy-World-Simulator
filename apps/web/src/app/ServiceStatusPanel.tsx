@@ -7,6 +7,7 @@ const stateText: Record<ServiceState, string> = {
   unverified: "已配置，未测试",
   connected: "已连接",
   failed: "连接失败",
+  disabled: "已关闭",
 };
 
 /** Short reasons for a failed connection; the settings page shows the full message. */
@@ -18,17 +19,18 @@ const failureReason: Record<string, string> = {
   MODEL_SERVICE_ERROR: "服务暂时出错",
 };
 
-type ServiceKey = "story" | "image";
+type ServiceKey = "story" | "image" | "embedding";
 
 /** Each row opens its own section of the settings page (ids set on the sections there). */
 const services: Record<ServiceKey, { name: string; section: string; sectionName: string }> = {
   story: { name: "剧情模型", section: "story-model", sectionName: "剧情模型配置" },
   image: { name: "生图模型", section: "image-model", sectionName: "生图模型配置" },
+  embedding: { name: "嵌入模型", section: "embedding-model", sectionName: "嵌入模型配置" },
 };
 
 /** Model name to reveal on hover or tap; none while the service is not configured. */
 function modelName(status: ServiceStatus) {
-  return status.state === "not_configured" ? "" : status.model;
+  return status.state === "not_configured" || status.state === "disabled" ? "" : status.model;
 }
 
 function ServiceRow({ id, status, reason, revealed, onReveal }: {
@@ -39,9 +41,9 @@ function ServiceRow({ id, status, reason, revealed, onReveal }: {
   onReveal: (id: ServiceKey) => void;
 }) {
   const { name, section, sectionName } = services[id];
-  const secondary = id === "image";
-  // The image service is optional: "not configured" is neutral there, not a warning.
-  const dotState = secondary && status.state === "not_configured" ? "neutral" : status.state;
+  const secondary = id !== "story";
+  // The image and embedding services are optional: "not configured" is neutral there, not a warning.
+  const dotState = (secondary && status.state === "not_configured") || status.state === "disabled" ? "neutral" : status.state;
   const model = modelName(status);
   const label = `${name}${stateText[status.state]}${model ? `，模型 ${model}` : ""}${reason ? `，${reason}` : ""}。打开${sectionName}`;
   // On touch screens the first tap reveals the model name (and highlights the row); a tap on a revealed row opens settings.
@@ -64,7 +66,7 @@ function ServiceRow({ id, status, reason, revealed, onReveal }: {
 }
 
 /**
- * Bottom of the save sidebar (D-06): whether the story model (and the optional image model) is
+ * Bottom of the save sidebar (D-06): whether the story model (and the optional image and embedding models) is
  * configured and reachable. Each row is its own link to its section of the settings page.
  */
 export function ServiceStatusPanel({ services: statuses, offline }: { services: ServiceStatuses | null; offline: boolean }) {
@@ -94,6 +96,7 @@ export function ServiceStatusPanel({ services: statuses, offline }: { services: 
     <div className="service-status" ref={blockRef}>
       <ServiceRow id="story" status={story} reason={reason} revealed={revealed === "story"} onReveal={setRevealed} />
       <ServiceRow id="image" status={statuses.image_model} revealed={revealed === "image"} onReveal={setRevealed} />
+      {statuses.embedding_model && <ServiceRow id="embedding" status={statuses.embedding_model} revealed={revealed === "embedding"} onReveal={setRevealed} />}
     </div>
   );
 }

@@ -8,13 +8,14 @@ import {
   thinkingCapabilityLabel,
   thinkingCapabilityMessage,
 } from "./settingsLogic";
+import { TestFailurePanel } from "./TestFailurePanel";
 import type { SettingsController } from "./useSettingsPage";
 
 export function ModelSettingsSection({ ctl, settings }: { ctl: SettingsController; settings: AppSettings }) {
   const { modelState, narrationState, testState, setSettings, invalidateModelTest } = ctl;
-  const displayedTestResult = (ctl.testResult?.key === modelCapabilityKey(
-    settings.model.protocol, settings.model.base_url, settings.model.model
-  )) ? ctl.testResult.result : null;
+  const currentKey = modelCapabilityKey(settings.model.protocol, settings.model.base_url, settings.model.model);
+  const displayedTestResult = ctl.testResult?.key === currentKey ? ctl.testResult.result : null;
+  const displayedTestError = ctl.testError?.key === currentKey ? ctl.testError.problem : null;
   const canMutateModel = canMutateModelSettings(modelState, testState);
   const canSubmitSettingRequest = canStartSettingRequest(modelState, narrationState, testState);
   const feedback = ctl.structuredProbeFeedback;
@@ -63,6 +64,7 @@ export function ModelSettingsSection({ ctl, settings }: { ctl: SettingsControlle
           <label className="switch"><input type="checkbox" aria-labelledby="model-thinking-label" disabled={!canMutateModel || settings.model.thinking_capability !== "controlled"} checked={settings.model.thinking_capability === "controlled" ? settings.model.thinking_enabled : true} onChange={(e) => setSettings({ ...settings, model: { ...settings.model, thinking_enabled: e.target.checked } })} /><span aria-hidden="true" /></label>
         </div>
         {displayedTestResult && <ModelTestResultPanel result={displayedTestResult} />}
+        {displayedTestError && <TestFailurePanel problem={displayedTestError} hint="请检查服务类型、地址、模型名称和密钥后再试。" />}
         {settings.model.api_key_persistence === "memory_only" && <p className="warning-text full">当前环境只能临时保存密钥。重新启动游戏服务后，需要再次填写。</p>}
         <div className="form-actions full">
           <button className="secondary-button" type="button" disabled={!canSubmitSettingRequest} onClick={() => void ctl.testModel()}>{testState === "testing" ? "正在测试连接…" : "测试连接"}</button>

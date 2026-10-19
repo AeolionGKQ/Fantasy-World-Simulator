@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "../../components/Icon";
 import { Link, useParams } from "react-router-dom";
 import { api, asApiError } from "../../api";
+import { useNotify } from "../../app/notice";
 import { useAppNavigate } from "../../app/viewTransition";
 import { FadeImage } from "../../components/FadeImage";
 import { playerProblemMessage } from "../../playerCopy";
@@ -26,7 +27,12 @@ export default function SceneImageWorkspace() {
   const [size, setSize] = useState<ImageSize>("1536x1024");
   const [quality, setQuality] = useState<ImageQuality>("high");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const notify = useNotify();
+  // Failed requests go to the app's notice bar; failed generation attempts stay in the progress area.
+  const showError = useCallback((reason: unknown) => {
+    const problem = asApiError(reason).problem;
+    notify({ tone: "error", text: playerProblemMessage(problem), traceId: problem.trace_id });
+  }, [notify]);
   const [saving, setSaving] = useState(false);
   const [acceptUnknownCost, setAcceptUnknownCost] = useState(false);
   const [abandoning, setAbandoning] = useState(false);
@@ -37,9 +43,9 @@ export default function SceneImageWorkspace() {
       const next = (await api.getImageSession(saveId)).session;
       setSession(next); setAcceptUnknownCost(false);
       if (next) { setPrompt(next.prompt_draft ?? ""); setSize(next.selected_size); setQuality(next.selected_quality); }
-    } catch (reason) { setError(playerProblemMessage(asApiError(reason).problem)); }
+    } catch (reason) { showError(reason); }
     finally { setLoading(false); }
-  }, [saveId]);
+  }, [saveId, showError]);
   useEffect(() => { void load(); }, [load]);
   // Poll while the prompt or the image is being generated.
   useEffect(() => {
@@ -50,41 +56,41 @@ export default function SceneImageWorkspace() {
 
   const savePrompt = async () => {
     if (!session || !prompt.trim()) return null;
-    setSaving(true); setError("");
+    setSaving(true); 
     try {
       const next = await api.updateImagePrompt(saveId, session.id, prompt.trim(), session.prompt_revision, size, quality);
       setSession(next); return next;
-    } catch (reason) { setError(playerProblemMessage(asApiError(reason).problem)); return null; }
+    } catch (reason) { showError(reason); return null; }
     finally { setSaving(false); }
   };
   const generate = async () => {
     const next = await savePrompt();
     if (!next) return;
     try { await api.generateSceneImage(saveId, next.id, next.prompt_revision, crypto.randomUUID()); await load(); }
-    catch (reason) { setError(playerProblemMessage(asApiError(reason).problem)); }
+    catch (reason) { showError(reason); }
   };
   const complete = async () => {
     if (!session) return;
     try { await api.completeImageSession(saveId, session.id); setSession(null); }
-    catch (reason) { setError(playerProblemMessage(asApiError(reason).problem)); }
+    catch (reason) { showError(reason); }
   };
   const cancel = async () => {
     if (!session) return;
     try { setSession(await api.cancelImageSessionJob(saveId, session.id)); }
-    catch (reason) { setError(playerProblemMessage(asApiError(reason).problem)); }
+    catch (reason) { showError(reason); }
   };
   const abandon = async () => {
     if (!session || abandoning) return;
-    setAbandoning(true); setError("");
+    setAbandoning(true); 
     try {
       await api.completeImageSession(saveId, session.id, true);
       setSession(null);
       navigate(`/saves/${saveId}/game`);
-    } catch (reason) { setError(playerProblemMessage(asApiError(reason).problem)); setAbandoning(false); }
+    } catch (reason) { showError(reason); setAbandoning(false); }
   };
   const retryPrompt = () => {
     if (!session) return;
-    void api.retryImagePrompt(saveId, session.id, crypto.randomUUID()).then(load).catch((reason) => setError(playerProblemMessage(asApiError(reason).problem)));
+    void api.retryImagePrompt(saveId, session.id, crypto.randomUUID()).then(load).catch((reason) => showError(reason));
   };
 
   if (loading) return <div className="page image-workspace page-loading" key="loading"><div className="loading-panel" role="status">正在载入场景图片…</div></div>;
@@ -95,7 +101,6 @@ export default function SceneImageWorkspace() {
           <div><h1>生成此刻图片</h1><p>当前没有待生成的场景图片。请返回剧情页，选择“生成此刻图片”。</p></div>
           <Link viewTransition className="secondary-button" to={`/saves/${saveId}/game`}>返回剧情</Link>
         </header>
-        {error && <p className="inline-error">{error}</p>}
       </div>
     );
   }
@@ -114,7 +119,6 @@ export default function SceneImageWorkspace() {
           <button className="danger-button" type="button" disabled={abandoning} onClick={() => void abandon()}>{abandoning ? "正在放弃…" : "放弃并退出"}</button>
         </div>
       </header>
-      {error && <p className="inline-error" role="alert">{error}</p>}
       {promptBusy && (
         <section className="image-progress" role="status">
           <span aria-hidden="true"><Icon name="sparkle" /></span>

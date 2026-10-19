@@ -26,6 +26,11 @@
     font-size: var(--text-xs);
   }
 
+  /* A hint that the value is probably not what was meant; saving is still allowed. */
+  .field > small.field-warning {
+    color: var(--warning);
+  }
+
   .field input,
   .field textarea {
     width: 100%;

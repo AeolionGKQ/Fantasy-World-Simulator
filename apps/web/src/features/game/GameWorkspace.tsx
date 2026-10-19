@@ -1,10 +1,8 @@
 import { useEffect, type KeyboardEvent } from "react";
-import { Icon } from "../../components/Icon";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../api";
 import { prefersReducedMotion } from "../../app/viewTransition";
 import { LoadingPanel } from "../../components/LoadingPanel";
-import { usePresence } from "../../components/usePresence";
 import { useSlidingIndicator } from "../../components/useSlidingIndicator";
 import { playerProblemMessage } from "../../playerCopy";
 import type { ApiProblem } from "../../types";
@@ -18,7 +16,7 @@ import { MemoryPanel } from "./panels/MemoryPanel";
 import { QuestsPanel } from "./panels/QuestsPanel";
 import { ReputationsPanel } from "./panels/ReputationsPanel";
 import { StoryPanel } from "./panels/StoryPanel";
-import { useGameWorkspace, type GameNotice } from "./useGameWorkspace";
+import { useGameWorkspace } from "./useGameWorkspace";
 
 function LoadingGame() {
   return <div className="page game-page page-loading" key="loading"><LoadingPanel label="正在载入冒险" announce={false} /></div>;
@@ -37,16 +35,6 @@ function ProblemPanel({ problem, onRetry }: { problem: ApiProblem; onRetry: () =
         <button className="secondary-button" type="button" onClick={onRetry}>重新载入</button>
       </div>
     </section>
-  );
-}
-
-function GameNoticeBar({ notice, leaving, onDismiss }: { notice: GameNotice; leaving: boolean; onDismiss: () => void }) {
-  return (
-    <div className={`game-notice ${notice.tone} ${leaving ? "leaving" : ""}`} role={notice.tone === "error" ? "alert" : "status"}>
-      <span className="notice-icon" aria-hidden="true"><Icon name={notice.tone === "error" ? "alert" : "info"} /></span>
-      <p>{notice.text}{notice.traceId && <small>问题编号：{notice.traceId}</small>}</p>
-      <button type="button" onClick={onDismiss} aria-label="关闭游戏提示">×</button>
-    </div>
   );
 }
 
@@ -80,7 +68,6 @@ export default function GameWorkspace() {
   const { saveId = "" } = useParams();
   const game = useGameWorkspace(saveId);
   const { data, tab } = game;
-  const notice = usePresence(game.notice);
 
   if (game.loading && !data) return <LoadingGame />;
   if (game.problem && !data) return <div className="page game-page page-enter" key="problem"><ProblemPanel problem={game.problem} onRetry={() => void game.refresh()} /></div>;
@@ -103,7 +90,6 @@ export default function GameWorkspace() {
           ? <Link viewTransition className="secondary-button scene-image-button" to={`/saves/${saveId}/game/image`}>查看场景图片</Link>
           : <button className={`secondary-button scene-image-button ${data.imageConfigured ? "" : "unconfigured"}`} type="button" disabled={!latestTurn || game.startingImage} onClick={() => void game.startImageSession()}>{game.startingImage ? "正在创建…" : "生成此刻图片"}</button>}
       </header>
-      {notice.current && <GameNoticeBar key={notice.current.id} notice={notice.current} leaving={notice.leaving} onDismiss={() => game.setNotice(null)} />}
       <GameTabs tab={tab} onSelect={game.selectTab} />
       <section className="game-panel" id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} tabIndex={0}>
         {tab === "story" && (

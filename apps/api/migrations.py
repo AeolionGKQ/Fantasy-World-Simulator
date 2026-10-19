@@ -408,6 +408,31 @@ ON narrative_jobs(save_id)
 WHERE status IN ('queued','running','cancel_requested')
 AND job_type='memory_curation';
 """),
+    (13, """
+ALTER TABLE settings ADD COLUMN embedding_model_json TEXT NOT NULL DEFAULT '{}';
+CREATE TABLE service_status_v13 (
+    service TEXT PRIMARY KEY CHECK (service IN ('story_model','image_model','embedding_model')),
+    fingerprint TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('ok','failed')),
+    error_code TEXT,
+    message TEXT,
+    source TEXT NOT NULL CHECK (source IN ('test','call')),
+    checked_at TEXT NOT NULL
+);
+INSERT INTO service_status_v13 SELECT service,fingerprint,state,error_code,message,source,checked_at FROM service_status;
+DROP TABLE service_status;
+ALTER TABLE service_status_v13 RENAME TO service_status;
+CREATE TABLE memory_embeddings (
+    save_id TEXT NOT NULL REFERENCES saves(id) ON DELETE CASCADE,
+    memory_id TEXT NOT NULL,
+    model_key TEXT NOT NULL,
+    dimensions INTEGER NOT NULL,
+    text_sha256 TEXT NOT NULL,
+    vector BLOB NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(save_id, memory_id, model_key)
+);
+"""),
 )
 
 

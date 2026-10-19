@@ -1,5 +1,5 @@
 import { api, type ApiError } from "../../api";
-import type { AppSettings, ImageModelSettings, ModelTestResult } from "../../types";
+import type { AppSettings, EmbeddingModelSettings, ImageModelSettings, ModelTestResult } from "../../types";
 
 export type ModelState = "idle" | "saving" | "saved";
 export type ModelTestState = "idle" | "testing" | "thinking" | "probing";
@@ -7,6 +7,16 @@ export type NarrationState = "idle" | "saving" | "saved";
 export type ImageModelState = "idle" | "saving" | "testing" | "saved";
 
 export const IMAGE_MODEL_NAME = "gpt-image-2.5-sunburst" as const;
+
+/** The embedding service is optional and starts empty. */
+export const defaultEmbeddingModel: EmbeddingModelSettings = {
+  base_url: "",
+  model: "",
+  enabled: true,
+  timeout_seconds: 10,
+  configured: false,
+  api_key_configured: false,
+};
 
 /** Values shown and submitted before the image service has ever been configured. */
 export const defaultImageModel: ImageModelSettings = {
