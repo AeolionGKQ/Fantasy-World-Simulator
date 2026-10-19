@@ -86,7 +86,10 @@ export default function GameWorkspace() {
   if (game.problem && !data) return <div className="page game-page page-enter" key="problem"><ProblemPanel problem={game.problem} onRetry={() => void game.refresh()} /></div>;
   if (!data) return null;
   if (data.bootstrap.save_id !== saveId) return <LoadingGame />;
-  const stateBusy = game.submittingState || isNarrativeJobActive(data.story.active_job);
+  const memoryJob = data.story.active_memory_job ?? null;
+  const memoryBusy = game.submittingMemory || isNarrativeJobActive(memoryJob);
+  // A memory cleanup changes what the next turn reads, so story actions wait for it.
+  const stateBusy = game.submittingState || isNarrativeJobActive(data.story.active_job) || memoryBusy;
   const arcBusy = game.submittingArc || isNarrativeJobActive(data.story.active_arc_job);
   const latestTurn = data.story.latest_turn;
   return (
@@ -124,7 +127,9 @@ export default function GameWorkspace() {
         {tab === "inventory" && <InventoryPanel inventory={data.projections.inventory} />}
         {tab === "quests" && <QuestsPanel quests={data.projections.quests} />}
         {tab === "journals" && <JournalsPanel items={data.projections.journals.items} onRead={(id) => void game.readJournalTurn(id)} />}
-        {tab === "memory" && <MemoryPanel memory={data.projections.memory} memories={data.projections.memories.items} arcBusy={arcBusy} arcJob={data.story.active_arc_job} onMerge={(ids) => void game.startArcJob((version, signal) => api.mergeStoryArcs(saveId, version, ids, crypto.randomUUID(), signal))} onRebuild={() => void game.startArcJob((version, signal) => api.createStoryArc(saveId, version, crypto.randomUUID(), signal))} />}
+        {tab === "memory" && <MemoryPanel memory={data.projections.memory} memories={data.projections.memories.items} arcBusy={arcBusy} arcJob={data.story.active_arc_job} onMerge={(ids) => void game.startArcJob((version, signal) => api.mergeStoryArcs(saveId, version, ids, crypto.randomUUID(), signal))} onRebuild={() => void game.startArcJob((version, signal) => api.createStoryArc(saveId, version, crypto.randomUUID(), signal))}
+          saveId={saveId} memoryBusy={memoryBusy} memoryJob={memoryJob} storyBusy={game.submittingState || isNarrativeJobActive(data.story.active_job)}
+          onCurate={() => void game.startMemoryCuration()} onMemoryDeleted={() => void game.reloadMemories()} />}
         {tab === "bonds" && <BondsPanel items={data.projections.bonds.items} />}
         {tab === "reputations" && <ReputationsPanel data={data.projections.reputations} />}
       </section>

@@ -9,7 +9,8 @@ from api.content_registry import STATE_RULES_POLICY_VERSION, ContentRegistry, st
 from api.contract_registry import load_contract
 from api.model_provider import ProviderError
 from api.narrative_contract import ContractError, adjudicate, validate_gm_response
-from api.story_repository import canonical_location_map, initial_story_state
+from api.story_repository import (StoryRepository, canonical_location_map, initial_story_state,
+                                  number_active_memories)
 
 gm_response = base.gm_response
 
@@ -174,6 +175,28 @@ class StateRuleTest(unittest.TestCase):
         self.assertIn("不要提交年龄变化", " ".join(older["rules"]))
 
 
+class MemoryRecallTest(unittest.TestCase):
+    def test_player_input_keywords_count_and_open_threads_score_less(self):
+        def memory(key, importance, **fields):
+            return {"id": key, "status": "active", "importance": importance, "locations": [], "people": [],
+                    "keywords": [], "unresolved": [], "updated_at": key, **fields}
+        memories = number_active_memories([
+            memory("a-typed", 45, keywords=["黑塔"]),
+            memory("b-open", 60, unresolved=["约定未履行"]),
+            memory("c-here", 30, locations=["grand_academy"], unresolved=["钥匙下落"]),
+            memory("d-quiet", 50, keywords=["灯塔"]),
+        ])
+        recalled = StoryRepository._recall_memories(
+            {"location": {"id": "grand_academy"}}, [{"title": "", "summary": "", "body": "风很大。"}],
+            memories, "我想去黑塔看看")
+        self.assertEqual(["c-here", "a-typed", "b-open"], [item["id"] for item in recalled])  # 90, 85, 80
+        reasons = {item["id"]: item["recall_reason"] for item in recalled}
+        self.assertEqual("本轮输入关键词相关：黑塔", reasons["a-typed"])
+        self.assertEqual("当前位置相关；包含未解决事项", reasons["c-here"])
+        self.assertEqual([], StoryRepository._recall_memories(
+            {"location": {"id": "grand_academy"}}, [], [memory("e", 45, keywords=["黑塔"])], "随便走走"))
+
+
 class ReleaseApiTest(unittest.TestCase):
     setUp = base.PhaseTwoApiTest.setUp
     tearDown = base.PhaseTwoApiTest.tearDown
@@ -265,6 +288,123 @@ class ReleaseApiTest(unittest.TestCase):
         self.assertEqual("已学会游泳。", context["authoritative_state"]["character"]["identity"]["additional"])
         story = self.request("GET", f"/api/saves/{self.save_id}/story")
         self.assertEqual("已学会游泳。", story["state"]["character"]["identity"]["additional"])
+
+    def test_turn_input_recalls_memory_by_keyword(self):
+        opening = gm_response("opening")
+        opening["narrative"]["body"] = "旅人听说城外有一座古塔。"
+        opening["memory_candidates"] = [{"operation": "create", "memory_id": None, "kind": "clue",
+            "summary": "城外古塔藏有旧王的遗物", "importance": 30, "people": [], "locations": [],
+            "keywords": ["黑塔"], "facts": ["古塔里有遗物"], "unresolved": [], "reason": "线索",
+            "evidence": "旅人听说城外有一座古塔"}]
+        self.provider.responses.append(opening)
+        job = self.request("POST", f"/api/saves/{self.save_id}/story/opening",
+                           {"request_id": "recall-opening", "expected_state_version": 0, "guidance": ""}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        self.provider.responses.append(gm_response("turn"))
+        job = self.request("POST", f"/api/saves/{self.save_id}/turns", {"request_id": "recall-turn",
+            "expected_state_version": 1, "action": "我去黑塔看看", "option_id": None}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        context = json.loads(self.provider.messages[-1][1]["content"])
+        self.assertEqual(["本轮输入关键词相关：黑塔"],
+                         [item["recall_reason"] for item in context["long_term_memories"]])
+
+    def memory_candidate(self, summary, evidence, importance=60):
+        return {"operation": "create", "memory_id": None, "kind": "clue", "summary": summary,
+                "importance": importance, "people": [], "locations": [], "keywords": [], "facts": [summary],
+                "unresolved": [], "reason": "线索", "evidence": evidence}
+
+    def play(self, kind, request_id, version, memories=(), **fields):
+        response = gm_response(kind)
+        response["narrative"]["body"] = "旅人在学院里打听到三条消息。"
+        response["memory_candidates"] = list(memories)
+        self.provider.responses.append(response)
+        path = {"opening": "story/opening", "turn": "turns"}[kind]
+        body = {"request_id": request_id, "expected_state_version": version} | fields
+        job = self.request("POST", f"/api/saves/{self.save_id}/{path}", body, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+
+    def memories(self):
+        return self.request("GET", f"/api/saves/{self.save_id}/memories")["items"]
+
+    def assert_round_trip(self):
+        exported = self.request("GET", f"/api/saves/{self.save_id}/export")
+        self.assertTrue(self.request("POST", "/api/saves/import/validate", exported)["valid"])
+        self.request("POST", "/api/saves/import", {"request_id": "round-trip-" + str(len(self.provider.messages)),
+                                                   "payload": exported}, 201)
+
+    def test_player_removed_memory_stays_removed_after_reshape_and_export(self):
+        self.play("opening", "removal-opening", 0, [self.memory_candidate("钟楼下埋着钥匙", "打听到三条消息")],
+                  guidance="")
+        self.play("turn", "removal-turn", 1, action="继续打听", option_id=None)
+        memory = self.memories()[0]
+        path = f"/api/saves/{self.save_id}/memories/{memory['id']}"
+        self.assertEqual({"save_id": self.save_id, "memory_id": memory["id"], "removed": True},
+                         self.request("DELETE", path))
+        self.assertTrue(self.request("DELETE", path)["removed"])  # repeating is harmless
+        self.assertEqual("MEMORY_NOT_FOUND", self.request(
+            "DELETE", f"/api/saves/{self.save_id}/memories/missing", None, 404)["error"]["code"])
+        self.assertEqual([], self.memories())
+        self.request("PUT", f"/api/saves/{self.save_id}/character-state/additional",
+                     {"request_id": "removal-notes", "expected_state_version": 2, "additional": "怕黑。"})
+        self.assert_round_trip()  # removals and the edited setting do not break replay
+        turn_id = self.request("GET", f"/api/saves/{self.save_id}/story")["latest_turn"]["id"]
+        self.provider.responses.append(gm_response("reshape"))
+        job = self.request("POST", f"/api/saves/{self.save_id}/turns/{turn_id}/reshape",
+                           {"request_id": "removal-reshape", "expected_state_version": 3, "guidance": "换个说法"}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        self.assertEqual([], json.loads(self.provider.messages[-1][1]["content"])["long_term_memories"])
+        self.assertEqual([], self.memories())
+        self.assert_round_trip()
+
+    def test_memory_curation_removes_what_the_model_names(self):
+        self.play("opening", "curation-opening", 0, [
+            self.memory_candidate("钟楼下埋着钥匙", "打听到三条消息"),
+            self.memory_candidate("面包店周三打折", "打听到三条消息", 10),
+            self.memory_candidate("导师在等回信", "打听到三条消息")], guidance="")
+        before = self.memories()
+        self.assertEqual(3, len(before))
+        path = f"/api/saves/{self.save_id}/memory-curations"
+        # Two invalid answers fail the job with the reason, like any other model job.
+        bad = {"schema_version": "memory-curation/1",
+               "remove": [{"memory_number": 9, "category": "expired", "reason": "不存在"}]}
+        self.provider.responses.extend([bad, bad])
+        job = self.request("POST", path, {"request_id": "curation-bad", "expected_state_version": 1}, 202)
+        failed = self.wait_job(self.save_id, job["id"])
+        self.assertEqual(("failed", "MODEL_OUTPUT_FORMAT"), (failed["status"], failed["error"]["code"]))
+        self.assertEqual(3, len(self.memories()))
+        bakery = next(item["memory_number"] for item in before if item["summary"] == "面包店周三打折")
+        self.provider.responses.append({"schema_version": "memory-curation/1", "remove": [
+            {"memory_number": bakery, "category": "unimportant", "reason": "琐碎"}]})
+        job = self.request("POST", path, {"request_id": "curation-ok", "expected_state_version": 1}, 202)
+        done = self.wait_job(self.save_id, job["id"])
+        self.assertEqual("succeeded", done["status"])
+        self.assertEqual([{"memory_number": bakery, "summary": "面包店周三打折", "category": "unimportant",
+                           "reason": "琐碎"}], done["result"]["removed"])
+        system, dynamic = self.provider.messages[-1][0]["content"], json.loads(self.provider.messages[-1][1]["content"])
+        self.assertIn("RUNTIME_MEMORY_CURATION_POLICY_JSON", system)
+        self.assertIn("memory-curation/1", system)
+        self.assertEqual(3, len(dynamic["long_term_memories"]))  # every memory, not only recalled ones
+        self.assertEqual({"钟楼下埋着钥匙", "导师在等回信"}, {item["summary"] for item in self.memories()})
+        self.assert_round_trip()
+
+    def test_memory_curation_and_story_turns_wait_for_each_other(self):
+        self.play("opening", "wait-opening", 0, [self.memory_candidate("钟楼下埋着钥匙", "打听到三条消息")],
+                  guidance="")
+        story = self.server.app_context.story
+        job, created = story.create_memory_curation_job(self.save_id, {"request_id": "wait-curation",
+                                                                       "expected_state_version": 1})
+        self.assertTrue(created)  # left queued: nothing schedules it
+        view = self.request("GET", f"/api/saves/{self.save_id}/story")
+        self.assertEqual((job["id"], False), (view["active_memory_job"]["id"], view["can_act"]))
+        blocked = self.request("POST", f"/api/saves/{self.save_id}/turns", {"request_id": "wait-turn",
+            "expected_state_version": 1, "action": "继续", "option_id": None}, 409)
+        self.assertEqual("MEMORY_CURATION_ACTIVE", blocked["error"]["code"])
+        memory_id = self.memories()[0]["id"]
+        self.assertEqual("MEMORY_CURATION_ACTIVE", self.request(
+            "DELETE", f"/api/saves/{self.save_id}/memories/{memory_id}", None, 409)["error"]["code"])
+        self.assertEqual("MEMORY_CURATION_ACTIVE", self.request(
+            "POST", f"/api/saves/{self.save_id}/memory-curations",
+            {"request_id": "wait-second", "expected_state_version": 1}, 409)["error"]["code"])
 
     def test_quest_panel_lists_offered_and_finished_quests(self):
         quests = self.request("GET", f"/api/saves/{self.save_id}/quests")

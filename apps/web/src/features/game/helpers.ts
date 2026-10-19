@@ -233,5 +233,8 @@ export function narrativeJobMessage(job: NarrativeJob): string {
   }
   if (job.status === "stale") return "生成期间，存档内容已更新。这次生成的结果未保存，请查看最新剧情后再试。";
   if (job.status === "cancelled") return "已取消生成，剧情和角色状态没有改变。";
-  return job.error ? playerProblemMessage(job.error) : "GM 正在写下新剧情，等待时可以查看角色、背包等页签。";
+  if (job.error) return playerProblemMessage(job.error);
+  return job.type === "memory_curation"
+    ? "GM 正在回顾全部长期记忆，剔除已经解决、过期或不重要的内容。完成前暂时不能推进剧情。"
+    : "GM 正在写下新剧情，等待时可以查看角色、背包等页签。";
 }

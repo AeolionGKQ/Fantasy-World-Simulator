@@ -32,6 +32,7 @@ export function useGameWorkspace(saveId: string) {
   const [notice, setNotice] = useState<GameNotice | null>(null);
   const [submittingState, setSubmittingState] = useState(false);
   const [submittingArc, setSubmittingArc] = useState(false);
+  const [submittingMemory, setSubmittingMemory] = useState(false);
   const [startingImage, setStartingImage] = useState(false);
   const session = useRef(0);
   const controller = useRef<AbortController | null>(null);
@@ -162,6 +163,38 @@ export function useGameWorkspace(saveId: string) {
     return () => { disposed = true; pollController.abort(); window.clearInterval(interval); };
   }, [activeArcJob?.id, saveId, showProblem]);
 
+  // Poll the long-term memory cleanup; story actions wait for it.
+  const activeMemoryJob = data?.story.active_memory_job;
+  useEffect(() => {
+    if (!activeMemoryJob || !isNarrativeJobActive(activeMemoryJob)) return;
+    const token = session.current;
+    const requestedId = saveId;
+    const pollController = new AbortController();
+    let disposed = false;
+    const poll = async () => {
+      try {
+        const job = await api.getNarrativeJob(requestedId, activeMemoryJob.id, pollController.signal);
+        if (disposed || token !== session.current || job.save_id !== requestedId) return;
+        if (isNarrativeJobActive(job)) {
+          setData((current) => current && current.bootstrap.save_id === requestedId
+            ? { ...current, story: { ...current.story, active_memory_job: job } }
+            : current);
+          return;
+        }
+        const removed = job.result?.removed_count ?? 0;
+        setNotice(job.status === "succeeded"
+          ? { id: Date.now(), tone: "info", text: removed ? `长期记忆已整理，移除了 ${removed} 条。` : "长期记忆已整理，没有需要移除的内容。" }
+          : { id: Date.now(), tone: "error", text: narrativeJobMessage(job) });
+        await refresh(true, token);
+      } catch (reason) {
+        if (!disposed && !pollController.signal.aborted && token === session.current) showProblem(reason);
+      }
+    };
+    const interval = window.setInterval(() => void poll(), 1800);
+    void poll();
+    return () => { disposed = true; pollController.abort(); window.clearInterval(interval); };
+  }, [activeMemoryJob?.id, saveId, refresh, showProblem]);
+
   const startStateJob = async (factory: JobFactory) => {
     if (!data || submittingState || isNarrativeJobActive(data.story.active_job)) return;
     const token = session.current;
@@ -202,6 +235,39 @@ export function useGameWorkspace(saveId: string) {
       if (nextController.signal.aborted || token !== session.current) return;
       showProblem(reason);
     } finally { if (token === session.current) setSubmittingArc(false); }
+  };
+
+  const startMemoryCuration = async () => {
+    if (!data || submittingMemory || isNarrativeJobActive(data.story.active_memory_job ?? null)) return;
+    const token = session.current;
+    const requestedId = saveId;
+    setSubmittingMemory(true);
+    try {
+      const job = await api.startMemoryCuration(requestedId, data.story.state.state_version);
+      if (token !== session.current || job.save_id !== requestedId) return;
+      setData((current) => current && current.bootstrap.save_id === requestedId
+        ? { ...current, story: { ...current.story, active_memory_job: job, can_act: false, can_open: false, can_reshape: false } }
+        : current);
+      setNotice({ id: Date.now(), tone: "info", text: "正在整理长期记忆，完成前暂时不能推进剧情。" });
+    } catch (reason) {
+      if (token !== session.current) return;
+      showProblem(reason);
+      if (asApiError(reason).status === 409) await refresh(true);
+    } finally { if (token === session.current) setSubmittingMemory(false); }
+  };
+
+  /** Reload the memory tab after the player deleted a memory. */
+  const reloadMemories = async () => {
+    const token = session.current;
+    const requestedId = saveId;
+    try {
+      const [memory, memories] = await Promise.all([api.getMemory(requestedId), api.getMemories(requestedId)]);
+      if (token !== session.current) return;
+      setData((current) => current && current.bootstrap.save_id === requestedId
+        ? { ...current, projections: { ...current.projections, memory, memories } }
+        : current);
+      setNotice({ id: Date.now(), tone: "info", text: "已删除这条长期记忆。" });
+    } catch (reason) { if (token === session.current) showProblem(reason); }
   };
 
   const cancelJob = async () => {
@@ -311,8 +377,8 @@ export function useGameWorkspace(saveId: string) {
 
   return {
     data, tab, setTab, selectTab, viewedTurn, setViewedTurn, showTurn, loading, problem, notice, setNotice,
-    submittingState, submittingArc, startingImage,
+    submittingState, submittingArc, submittingMemory, startingImage,
     refresh, startStateJob, startArcJob, cancelJob, readJournalTurn, resolveStartPrerequisite,
-    saveCharacterAdditional, startImageSession,
+    saveCharacterAdditional, startMemoryCuration, reloadMemories, startImageSession,
   };
 }

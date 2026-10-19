@@ -303,6 +303,12 @@ export const api = {
     request<GameProjections["memory"]>(`/api/saves/${encodeURIComponent(saveId)}/memory`, { signal }),
   getMemories: (saveId: string, signal?: AbortSignal) =>
     request<GameProjections["memories"]>(`/api/saves/${encodeURIComponent(saveId)}/memories`, { signal }),
+  deleteMemory: (saveId: string, memoryId: string) =>
+    request<{ save_id: string; memory_id: string; removed: true }>(`/api/saves/${encodeURIComponent(saveId)}/memories/${encodeURIComponent(memoryId)}`, { method: "DELETE" }),
+  startMemoryCuration: (saveId: string, expectedStateVersion: number, requestId: string = crypto.randomUUID(), signal?: AbortSignal) =>
+    request<NarrativeJob>(`/api/saves/${encodeURIComponent(saveId)}/memory-curations`, {
+      method: "POST", signal, body: { request_id: requestId, expected_state_version: expectedStateVersion },
+    }),
   getBonds: (saveId: string, signal?: AbortSignal) =>
     request<GameProjections["bonds"]>(`/api/saves/${encodeURIComponent(saveId)}/bonds`, { signal }),
   getReputations: (saveId: string, signal?: AbortSignal) =>

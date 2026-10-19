@@ -395,6 +395,19 @@ CREATE TABLE image_attempts (
 );
 CREATE UNIQUE INDEX one_active_image_attempt ON image_attempts(session_id) WHERE status IN ('queued','running','cancel_requested');
 """),
+    (12, """
+CREATE TABLE memory_removals (
+    save_id TEXT NOT NULL REFERENCES saves(id) ON DELETE CASCADE,
+    memory_id TEXT NOT NULL,
+    source TEXT NOT NULL CHECK(source IN ('player','curation')),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(save_id, memory_id)
+);
+CREATE UNIQUE INDEX one_active_memory_job_per_save
+ON narrative_jobs(save_id)
+WHERE status IN ('queued','running','cancel_requested')
+AND job_type='memory_curation';
+"""),
 )
 
 

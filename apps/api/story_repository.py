@@ -97,12 +97,22 @@ def number_active_memories(memories):
     return active
 
 
+# Memory recall: score = importance + a bonus per matching reason; open threads count for less.
+RECALL_REASON_BONUS = 40
+RECALL_UNRESOLVED_BONUS = 20
+
+
 # Automatic story arcs: merge the earliest three once four are current; warn after three failures.
 # Same limit as the 其他补充 step in character creation.
 CHARACTER_ADDITIONAL_LIMIT = 8000
 AUTO_MERGE_THRESHOLD = 4
 AUTO_MERGE_COUNT = 3
 ARC_FAILURE_WARNING_COUNT = 3
+
+# The player-started job that asks the model which long-term memories to remove. It changes the
+# memories a story job reads, so the two never run at the same time.
+MEMORY_CURATION_JOB = "memory_curation"
+STATE_JOB_TYPES = ("opening", "turn", "intervene", "reshape")
 
 
 class StoryRepository:
@@ -254,6 +264,10 @@ class StoryRepository:
             if active:
                 raise DomainError("NARRATIVE_JOB_ACTIVE", "该存档已有活动叙事任务", 409,
                                   fields={"job_id": active["id"]}, retryable=True)
+            curating = self._active_job(connection, save_id, (MEMORY_CURATION_JOB,))
+            if curating:
+                raise DomainError("MEMORY_CURATION_ACTIVE", "长期记忆正在整理", 409,
+                                  fields={"job_id": curating["id"]}, retryable=True)
             now, job_id = utc_now(), new_id()
             request_input = dict(body)
             request_input["action_type"] = job_type
@@ -407,7 +421,8 @@ class StoryRepository:
                 # So is the player's own 其他补充 character setting.
                 base_state["character"]["identity"]["additional"] = (
                     state["character"]["identity"].get("additional", ""))
-                snapshot_memories = frozen["memories"]
+                removed = self._removed_memory_ids(connection, save_id)
+                snapshot_memories = [item for item in frozen["memories"] if item.get("id") not in removed]
             else:
                 turn = None; base_state = state; snapshot_memories = None
             history_rows = connection.execute(
@@ -456,7 +471,12 @@ class StoryRepository:
                         for quest_id in terminal_quests:
                             text = text.replace(quest_id, "[terminal-regional-quest]")
                         item[key] = text
-            memories = self._recall_memories(context_state, history, memories)
+            # The player's words this turn; a reshape also counts the input of the turn it rewrites.
+            player_inputs = [loads(job["input_json"], {})] + ([loads(turn["action_json"], {})] if turn else [])
+            player_input = " ".join(str(item.get(key) or "") for item in player_inputs
+                                    for key in ("action", "guidance"))
+            if job["job_type"] != MEMORY_CURATION_JOB:  # curation reviews every memory
+                memories = self._recall_memories(context_state, history, memories, player_input)
             claimed_memory_numbers = {
                 memory["memory_number"]: memory["id"] for memory in memories
             }
@@ -488,7 +508,9 @@ class StoryRepository:
                 "old_turn": dict(turn) if turn else None}
 
     @staticmethod
-    def _recall_memories(state, history, memories, limit=20):
+    def _recall_memories(state, history, memories, player_input="", limit=20):
+        """Memories worth showing the GM this turn. Each matching reason adds RECALL_REASON_BONUS
+        (an open thread only RECALL_UNRESOLVED_BONUS); with no reason, only importance >= 70 qualifies."""
         try:
             from .canonical_npcs import CANONICAL_NPCS
         except ImportError:
@@ -512,12 +534,15 @@ class StoryRepository:
                     people.append(name or person)
             if people:
                 reasons.append("近期人物相关：" + "、".join(people[:3]))
-            keywords = [word for word in memory.get("keywords", []) if word and word in recent_text]
+            words = [word for word in memory.get("keywords", []) if word]
+            typed = [word for word in words if word in player_input]
+            keywords = typed or [word for word in words if word in recent_text]
             if keywords:
-                reasons.append("近期关键词相关：" + "、".join(keywords[:3]))
+                reasons.append(("本轮输入关键词相关：" if typed else "近期关键词相关：") + "、".join(keywords[:3]))
+            score = memory.get("importance", 0) + RECALL_REASON_BONUS * len(reasons)
             if memory.get("unresolved"):
                 reasons.append("包含未解决事项")
-            score = memory.get("importance", 0) + 40 * bool(reasons)
+                score += RECALL_UNRESOLVED_BONUS
             if reasons or memory.get("importance", 0) >= 70:
                 recalled.append((score, memory.get("updated_at", ""), {
                     **copy.deepcopy(memory),
@@ -635,6 +660,15 @@ class StoryRepository:
                     "DELETE FROM location_nodes WHERE save_id=? AND canonical=0 AND created_turn_version_id IN "
                     "(SELECT id FROM turn_versions WHERE turn_id=?)", (save_id, turn_id))
                 self._restore_memories(connection, save_id, claimed["snapshot_memories"] or [])
+                # Keep the turn's snapshot in step, so an export replays the numbering the model saw.
+                snapshot_row = connection.execute("SELECT state_json FROM turn_snapshots WHERE turn_id=?",
+                                                  (turn_id,)).fetchone()
+                frozen = loads(snapshot_row["state_json"], {})
+                kept = {item["id"] for item in claimed["snapshot_memories"] or []}
+                if any(item.get("id") not in kept for item in frozen.get("memories", [])):
+                    frozen["memories"] = [item for item in frozen["memories"] if item.get("id") in kept]
+                    connection.execute("UPDATE turn_snapshots SET state_json=? WHERE turn_id=?",
+                                       (dumps(frozen), turn_id))
                 snapshot_locations = base_state.get("locations", {})
                 current_dynamic = connection.execute(
                     "SELECT id FROM location_nodes WHERE save_id=? AND canonical=0", (save_id,)).fetchall()
@@ -983,11 +1017,117 @@ class StoryRepository:
                 "SELECT * FROM narrative_jobs WHERE save_id=? AND status IN ('queued','running','cancel_requested') "
                 "AND job_type IN ('turns_to_arc','arcs_to_arc') ORDER BY created_at LIMIT 1",
                 (save_id,)).fetchone()
+            active_memory = self._active_job(connection, save_id, (MEMORY_CURATION_JOB,))
+        idle = active is None and active_memory is None
         return {"state": state, "latest_turn": latest, "active_job": self._job_row(active) if active else None,
                 "active_arc_job": self._job_row(active_arc) if active_arc else None,
+                "active_memory_job": self._job_row(active_memory) if active_memory else None,
                 "start_prerequisite": state["location"].get("prerequisite"),
-                "can_open": latest is None, "can_act": latest is not None and active is None,
-                "can_reshape": latest is not None and active is None}
+                "can_open": latest is None and active_memory is None, "can_act": latest is not None and idle,
+                "can_reshape": latest is not None and idle}
+
+    @staticmethod
+    def _active_job(connection, save_id, job_types):
+        placeholders = ",".join("?" for _ in job_types)
+        return connection.execute(
+            "SELECT * FROM narrative_jobs WHERE save_id=? AND status IN ('queued','running','cancel_requested') "
+            f"AND job_type IN ({placeholders}) ORDER BY created_at LIMIT 1", (save_id, *job_types)).fetchone()
+
+    @staticmethod
+    def _removed_memory_ids(connection, save_id):
+        return {row["memory_id"] for row in connection.execute(
+            "SELECT memory_id FROM memory_removals WHERE save_id=?", (save_id,)).fetchall()}
+
+    def _ensure_memories_idle(self, connection, save_id):
+        """Story jobs and curation read numbered memories; nothing may remove one under them."""
+        story_job = self._active_job(connection, save_id, STATE_JOB_TYPES)
+        if story_job:
+            raise DomainError("NARRATIVE_JOB_ACTIVE", "该存档已有活动叙事任务", 409,
+                              fields={"job_id": story_job["id"]}, retryable=True)
+        curating = self._active_job(connection, save_id, (MEMORY_CURATION_JOB,))
+        if curating:
+            raise DomainError("MEMORY_CURATION_ACTIVE", "长期记忆正在整理", 409,
+                              fields={"job_id": curating["id"]}, retryable=True)
+
+    def delete_memory(self, save_id, memory_id):
+        """The player removes one long-term memory; a later reshape does not bring it back."""
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self.initialize(save_id, connection)
+            if memory_id in self._removed_memory_ids(connection, save_id):
+                connection.commit()
+                return {"save_id": save_id, "memory_id": memory_id, "removed": True}
+            self._ensure_memories_idle(connection, save_id)
+            if not connection.execute("SELECT id FROM memories WHERE id=? AND save_id=? AND status='active'",
+                                      (memory_id, save_id)).fetchone():
+                raise DomainError("MEMORY_NOT_FOUND", "长期记忆不存在", 404)
+            connection.execute("DELETE FROM memories WHERE id=? AND save_id=?", (memory_id, save_id))
+            connection.execute("INSERT INTO memory_removals VALUES(?,?,?,?)",
+                               (save_id, memory_id, "player", utc_now()))
+            connection.commit()
+        return {"save_id": save_id, "memory_id": memory_id, "removed": True}
+
+    def create_memory_curation_job(self, save_id, body):
+        self._validate_write(body, {"request_id", "expected_state_version"})
+        fingerprint = dumps({"expected_state_version": body["expected_state_version"]})
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            state = self.initialize(save_id, connection)
+            previous = connection.execute("SELECT * FROM narrative_jobs WHERE save_id=? AND request_id=?",
+                                          (save_id, body["request_id"])).fetchone()
+            if previous:
+                if previous["request_fingerprint"] != fingerprint or previous["job_type"] != MEMORY_CURATION_JOB:
+                    raise DomainError("IDEMPOTENCY_CONFLICT", "request_id已用于不同请求", 409)
+                connection.commit(); return self._job_row(previous), False
+            if state["state_version"] != body["expected_state_version"]:
+                raise DomainError("STATE_VERSION_CONFLICT", "权威状态版本冲突", 409,
+                                  fields={"state_version": state["state_version"]})
+            self._ensure_memories_idle(connection, save_id)
+            if not connection.execute("SELECT 1 FROM memories WHERE save_id=? AND status='active' LIMIT 1",
+                                      (save_id,)).fetchone():
+                raise DomainError("NO_MEMORIES_TO_CURATE", "当前没有长期记忆需要整理", 409)
+            now, job_id = utc_now(), new_id()
+            connection.execute("INSERT INTO narrative_jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                               (job_id, save_id, body["request_id"], fingerprint, MEMORY_CURATION_JOB,
+                                state["state_version"], None, "queued",
+                                dumps({"action_type": MEMORY_CURATION_JOB}), None, None, None, None, 0, now, now))
+            row = connection.execute("SELECT * FROM narrative_jobs WHERE id=?", (job_id,)).fetchone()
+            connection.commit()
+        return self._job_row(row), True
+
+    def complete_memory_curation(self, claimed, response):
+        save_id, job_id = claimed["job"]["save_id"], claimed["job"]["id"]
+        number_to_id = claimed["claimed_memory_numbers"]
+        unknown = [item["memory_number"] for item in response["remove"]
+                   if item["memory_number"] not in number_to_id]
+        if unknown:
+            raise ContractError("剔除编号不在本次long_term_memories中：" + "、".join(map(str, unknown)))
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            job = connection.execute("SELECT * FROM narrative_jobs WHERE id=? AND save_id=?",
+                                     (job_id, save_id)).fetchone()
+            if job and job["status"] == "cancel_requested":
+                connection.execute("UPDATE narrative_jobs SET status='cancelled',updated_at=? WHERE id=?",
+                                   (utc_now(), job_id)); connection.commit(); return "cancelled"
+            if not job or job["status"] != "running":
+                connection.rollback(); return job["status"] if job else "missing"
+            now, removed = utc_now(), []
+            for item in response["remove"]:
+                memory_id = number_to_id[item["memory_number"]]
+                row = connection.execute("SELECT summary FROM memories WHERE id=? AND save_id=?",
+                                         (memory_id, save_id)).fetchone()
+                if not row:
+                    continue
+                connection.execute("DELETE FROM memories WHERE id=? AND save_id=?", (memory_id, save_id))
+                connection.execute("INSERT OR IGNORE INTO memory_removals VALUES(?,?,?,?)",
+                                   (save_id, memory_id, "curation", now))
+                removed.append({"memory_number": item["memory_number"], "summary": row["summary"],
+                                "category": item["category"], "reason": item["reason"]})
+            result = {"removed_count": len(removed), "removed": removed}
+            connection.execute("UPDATE narrative_jobs SET status='succeeded',result_json=?,updated_at=? WHERE id=?",
+                               (dumps(result), now, job_id))
+            connection.commit()
+        return "succeeded"
 
     def create_arc_job(self, save_id, body, parent_arc_ids=None, automatic=False):
         if automatic:

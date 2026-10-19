@@ -9,12 +9,12 @@ import uuid
 try:
     from .canonical_npcs import CANONICAL_NPCS, canonical_name_collision
     from .catalog import EXP_THRESHOLDS, POWER_BY_RANK
-    from .contract_registry import validate_contract
+    from .contract_registry import validate_contract, validate_json_schema
     from .location_graph import JURISDICTION_IDS
 except ImportError:
     from canonical_npcs import CANONICAL_NPCS, canonical_name_collision
     from catalog import EXP_THRESHOLDS, POWER_BY_RANK
-    from contract_registry import validate_contract
+    from contract_registry import validate_contract, validate_json_schema
     from location_graph import JURISDICTION_IDS
 
 
@@ -1436,3 +1436,42 @@ def validate_story_arc(value, contract=None):
     unresolved = [item.strip() for item in value["unresolved"] if item.strip()]
     return {"schema_version": "story-arc/2", "title": value["title"], "summary": value["summary"],
             "unresolved": unresolved}
+
+
+# Long-term memory curation: the model reviews every active memory and names the ones to remove.
+# A runtime contract, not frozen in a save's content revision, so every save can use it.
+MEMORY_CURATION_CATEGORIES = ("resolved", "expired", "unimportant")
+MEMORY_CURATION_CONTRACT = {
+    "kind": "memory_curation", "version": "memory-curation/1",
+    "text": ("只返回一个符合JSON Schema的JSON对象，不要输出解释、代码围栏或其他文字。"
+             "schema_version固定为memory-curation/1。remove列出需要剔除的长期记忆，每项填写："
+             "memory_number为本次long_term_memories中的编号；category为resolved（已解决）、"
+             "expired（过期、被推翻或被取代）或unimportant（琐碎、重复、对后续剧情没有持续影响）；"
+             "reason用一句话说明剔除依据。没有需要剔除的记忆时remove返回空数组。"),
+    "schema": {
+        "type": "object", "additionalProperties": False, "required": ["schema_version", "remove"],
+        "properties": {
+            "schema_version": {"type": "string", "const": "memory-curation/1"},
+            "remove": {"type": "array", "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["memory_number", "category", "reason"],
+                "properties": {
+                    "memory_number": {"type": "integer", "minimum": 1},
+                    "category": {"type": "string", "enum": list(MEMORY_CURATION_CATEGORIES)},
+                    "reason": {"type": "string", "maxLength": 500},
+                }}},
+        },
+    },
+}
+
+
+def validate_memory_curation(value, contract=None):
+    try:
+        validate_json_schema(value, (contract or MEMORY_CURATION_CONTRACT)["schema"])
+    except ValueError as exc:
+        raise ContractError(str(exc)) from None
+    numbers = [item["memory_number"] for item in value["remove"]]
+    if len(numbers) != len(set(numbers)):
+        raise ContractError("同一长期记忆编号只能剔除一次")
+    return {"remove": [{"memory_number": item["memory_number"], "category": item["category"],
+                        "reason": item["reason"].strip()} for item in value["remove"]]}

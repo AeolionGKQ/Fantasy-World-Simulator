@@ -15,7 +15,8 @@
     --surface-hover: #dce7fc;
     --row-hover: #f2ecdd;      /* warm neutral highlight for rows on the paper sidebar */
     --field-bg: #ffffff;
-    --toolbar-bg: #fffdf7f5;
+    /* Opaque: content scrolling underneath would otherwise ghost through the sticky toolbar. */
+    --toolbar-bg: #fffdf7;
     --selected: #e8efff;
     --line: #c4d0e5;
     --line-strong: #7385a3;

@@ -9,7 +9,9 @@
  *   turn    story history navigation: the reading column
  *   mode    story command mode change: the command form body
  *   world   world catalog entry change: the entry artwork and text
- * The root is never captured, so the sidebar and toolbar stay live and never cross-fade.
+ * The root is never captured, so the sidebar stays live and never cross-fades. The toolbar is
+ * captured in every transition, without animation, only so it stays above the snapshots: the
+ * browser draws those over the whole document, and scrolled content would flash across it.
  */
 @layer components {
   :root {
@@ -26,6 +28,22 @@
 
   :root:not([data-vt]) .toolbar-context {
     view-transition-name: toolbar-context;
+  }
+
+  .toolbar {
+    view-transition-name: toolbar;
+  }
+
+  ::view-transition-group(toolbar) {
+    animation: none;
+  }
+
+  ::view-transition-old(toolbar) {
+    display: none;
+  }
+
+  ::view-transition-new(toolbar) {
+    animation: none;
   }
 
   ::view-transition-group(page) {

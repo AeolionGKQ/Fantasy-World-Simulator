@@ -596,7 +596,7 @@ export interface Turn {
   versions?: TurnVersion[];
 }
 
-export type NarrativeJobType = "opening" | "turn" | "intervene" | "reshape" | "turns_to_arc" | "arcs_to_arc";
+export type NarrativeJobType = "opening" | "turn" | "intervene" | "reshape" | "turns_to_arc" | "arcs_to_arc" | "memory_curation";
 
 export interface NarrativeJob {
   id: string;
@@ -607,7 +607,7 @@ export interface NarrativeJob {
   target_turn_id: string | null;
   status: JobStatus;
   error: ApiProblem | null;
-  result: { turn_id?: string; sequence?: number; state_version?: number; story_arc_id?: string; start_sequence?: number; end_sequence?: number } | null;
+  result: { turn_id?: string; sequence?: number; state_version?: number; story_arc_id?: string; start_sequence?: number; end_sequence?: number; removed_count?: number } | null;
   context_manifest: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
@@ -618,6 +618,8 @@ export interface StoryView {
   latest_turn: Turn | null;
   active_job: NarrativeJob | null;
   active_arc_job: NarrativeJob | null;
+  /** The player-started long-term memory cleanup; story actions wait while it runs. */
+  active_memory_job?: NarrativeJob | null;
   start_prerequisite: StartPrerequisite | null;
   can_open: boolean;
   can_act: boolean;

@@ -25,7 +25,8 @@ try:
     from .image_repository import ImageRepository
     from .model_provider import (ModelProvider, OpenAIImageProvider, ProviderError,
                                  is_explicit_concurrency_rejection, validate_candidate)
-    from .narrative_contract import ContractError, validate_gm_response, validate_story_arc
+    from .narrative_contract import (MEMORY_CURATION_CONTRACT, ContractError, validate_gm_response,
+                                     validate_memory_curation, validate_story_arc)
     from .story_repository import StoryRepository
 except ImportError:  # Direct execution with the isolated embedded runtime.
     api_directory = str(Path(__file__).resolve().parent)
@@ -38,7 +39,8 @@ except ImportError:  # Direct execution with the isolated embedded runtime.
     from image_repository import ImageRepository
     from model_provider import (ModelProvider, OpenAIImageProvider, ProviderError,
                                 is_explicit_concurrency_rejection, validate_candidate)
-    from narrative_contract import ContractError, validate_gm_response, validate_story_arc
+    from narrative_contract import (MEMORY_CURATION_CONTRACT, ContractError, validate_gm_response,
+                                    validate_memory_curation, validate_story_arc)
     from story_repository import StoryRepository
 
 MAX_REQUEST_BYTES = 2_000_000
@@ -526,6 +528,9 @@ class AppContext:
                 frozen = self.story.claim_arc(claimed)
                 action = {"action_type": job_type, "frozen_sources": frozen}
                 contract_kind = "story_arc"
+            elif job_type == "memory_curation":
+                action = {"action_type": job_type}
+                contract_kind = "memory_curation"
             else:
                 action = dict(claimed["input"])
                 contract_kind = "gm_turn"
@@ -534,7 +539,8 @@ class AppContext:
                 claimed["recent_full_turns"], claimed["memories"], claimed["arcs"],
                 claimed["location_nodes"], claimed["documents"], contract_kind,
                 claimed["revision_manifest"])
-            contract = contract_from_documents(contract_kind, claimed["documents"])
+            contract = (MEMORY_CURATION_CONTRACT if contract_kind == "memory_curation" else
+                        contract_from_documents(contract_kind, claimed["documents"]))
             request_config = dict(config)
             request_config["_output_schema"] = contract["schema"]
             request_config["_output_schema_name"] = contract["version"].replace("-", "_").replace("/", "_")
@@ -544,7 +550,8 @@ class AppContext:
             def generate(request_messages):
                 if self.story.get_job(save_id, job_id)["status"] != "running":
                     return None
-                if job_type in {"turns_to_arc", "arcs_to_arc"}:
+                # Memory curation is the same kind of request as a story arc: thinking on, no retries.
+                if job_type in {"turns_to_arc", "arcs_to_arc", "memory_curation"}:
                     return self.provider.generate_story_arc(
                         request_config, api_key, request_messages,
                         lambda result: self.database.set_model_capability(config, result))
@@ -563,6 +570,10 @@ class AppContext:
                         config, lambda: generate(request_messages))
                     if proposal is None:
                         self.story.fail(save_id, job_id, "GENERATION_CANCELLED", "生成已取消")
+                        return
+                    if job_type == "memory_curation":
+                        self.story.complete_memory_curation(
+                            claimed, validate_memory_curation(proposal, contract))
                         return
                     if job_type in {"turns_to_arc", "arcs_to_arc"}:
                         outcome = self.story.complete_arc(claimed, validate_story_arc(proposal, contract))
@@ -593,7 +604,10 @@ class AppContext:
                     "；第二次错误：" + detail[:1600])
         except ProviderError as exc:
             if exc.code == "MODEL_TIMEOUT":
-                if claimed and claimed["job"]["type"] in {"turns_to_arc", "arcs_to_arc"}:
+                if claimed and claimed["job"]["type"] == "memory_curation":
+                    message = ("长期记忆整理请求已超时，系统不会自动重试。整理任务固定开启模型思考；"
+                               "你可以在设置中提高请求超时时长，或更换响应更快的模型后重试。")
+                elif claimed and claimed["job"]["type"] in {"turns_to_arc", "arcs_to_arc"}:
                     message = ("故事弧整理请求已超时，系统不会自动重试。故事弧任务固定开启模型思考；"
                                "你可以在设置中提高请求超时时长，或更换响应更快的模型后重试。")
                 else:
@@ -1006,6 +1020,12 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
             if len(parts) == 4 and parts[3] in {"character-state", "inventory", "quests", "journals",
                                                             "memory", "memories", "bonds", "reputations"} and method == "GET":
                 return 200, self.app.story.projections(save_id, parts[3], **self._api_query), {}
+            if len(parts) == 5 and parts[3] == "memories" and method == "DELETE":
+                return 200, self.app.story.delete_memory(save_id, parts[4]), {}
+            if len(parts) == 4 and parts[3] == "memory-curations" and method == "POST":
+                job, created = self.app.story.create_memory_curation_job(save_id, self._read_json())
+                if created: self.app.schedule_narrative(save_id, job["id"])
+                return (202 if created else 200), job, {}
             if len(parts) == 4 and parts[3] == "story-arcs" and method == "POST":
                 body = self._read_json(); job, created = self.app.story.create_arc_job(save_id, body)
                 if created: self.app.schedule_narrative(save_id, job["id"])

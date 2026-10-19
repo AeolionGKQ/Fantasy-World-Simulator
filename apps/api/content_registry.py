@@ -9,16 +9,18 @@ try:
     from .canonical_npcs import canonical_npc_catalog
     from .contract_registry import contract_from_documents
     from .narrative_contract import (AGE_DELTA_LIMIT, ATTRIBUTE_DELTA_LIMIT, BOND_IMPACT_LIMITS,
-                                     MODIFIER_SEVERITY_SHARE, ORDINARY_EQUIPMENT_SHARE,
-                                     RANK_UP_RESOURCE_GROWTH, REPUTATION_IMPACT_LIMITS)
+                                     MEMORY_CURATION_CONTRACT, MODIFIER_SEVERITY_SHARE,
+                                     ORDINARY_EQUIPMENT_SHARE, RANK_UP_RESOURCE_GROWTH,
+                                     REPUTATION_IMPACT_LIMITS)
     from .location_graph import (LOCATION_GRAPH_VERSION, location_catalog,
                                  location_graph_manifest)
 except ImportError:
     from canonical_npcs import canonical_npc_catalog
     from contract_registry import contract_from_documents
     from narrative_contract import (AGE_DELTA_LIMIT, ATTRIBUTE_DELTA_LIMIT, BOND_IMPACT_LIMITS,
-                                    MODIFIER_SEVERITY_SHARE, ORDINARY_EQUIPMENT_SHARE,
-                                    RANK_UP_RESOURCE_GROWTH, REPUTATION_IMPACT_LIMITS)
+                                    MEMORY_CURATION_CONTRACT, MODIFIER_SEVERITY_SHARE,
+                                    ORDINARY_EQUIPMENT_SHARE, RANK_UP_RESOURCE_GROWTH,
+                                    REPUTATION_IMPACT_LIMITS)
     from location_graph import (LOCATION_GRAPH_VERSION, location_catalog,
                                 location_graph_manifest)
 
@@ -202,6 +204,22 @@ def story_arc_policy(action_type):
 
 
 STATE_RULES_POLICY_VERSION = "state-rules/2"
+MEMORY_CURATION_POLICY_VERSION = "memory-curation-policy/1"
+
+
+def memory_curation_policy():
+    """Rules for the player-started long-term memory curation job."""
+    policy = {"priority": "mandatory", "version": MEMORY_CURATION_POLICY_VERSION, "rules": [
+        "本次任务是整理长期记忆：逐条审阅long_term_memories中的全部记忆，结合story_arcs、early_summaries、recent_full_turns与authoritative_state判断哪些应当剔除，不写剧情",
+        "resolved：记录的事项已经解决，承诺已兑现或已作废，冲突已结束且没有持续后果",
+        "expired：信息已经过时，被后续剧情推翻或证伪，或已被另一条记忆、故事弧或权威状态完整取代；内容高度重复的多条记忆只保留信息最完整的一条，其余按expired剔除",
+        "unimportant：琐碎的动作、场景细节或一次性信息，对后续剧情没有持续影响",
+        "仍未解决的事项、尚未兑现的承诺、持续中的关系与冲突、对角色或世界有长期影响的发现与后果必须保留；拿不准时保留",
+        "memory_number只能填写本次long_term_memories中出现的编号，每个编号最多出现一次；只能剔除，不能新建或改写记忆",
+    ]}
+    encoded = json.dumps(policy, ensure_ascii=True, separators=(",", ":")).replace(
+        "<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    return "\n<RUNTIME_MEMORY_CURATION_POLICY_JSON>\n" + encoded + "\n</RUNTIME_MEMORY_CURATION_POLICY_JSON>\n"
 
 
 def state_rules_policy(state, contract):
@@ -534,13 +552,16 @@ class ContentRegistry:
             quest_id: quest for quest_id, quest in prompt_state.get("regional_quests", {}).items()
             if quest_id in visible_quest_ids
         }
-        contract = contract_from_documents(contract_kind, source_documents)
+        contract = (MEMORY_CURATION_CONTRACT if contract_kind == "memory_curation" else
+                    contract_from_documents(contract_kind, source_documents))
         address_directive = player_address_directive(state)
         system_parts = []
         for item in by_category.get("protocol", [])[:2]:
             system_parts.append(self._protocol_container(item))
         if contract_kind == "story_arc":
             system_parts.append(story_arc_policy((action or {}).get("action_type")))
+        if contract_kind == "memory_curation":
+            system_parts.append(memory_curation_policy())
         if contract_kind == "gm_turn":
             location_policy = {
                 "priority": "mandatory",
@@ -709,6 +730,8 @@ class ContentRegistry:
         if contract_kind == "gm_turn":
             manifest["gm_writing_guidelines"] = dict(self._gm_writing_metadata)
             manifest["state_rules_policy_version"] = STATE_RULES_POLICY_VERSION
+        elif contract_kind == "memory_curation":
+            manifest["memory_curation_policy_version"] = MEMORY_CURATION_POLICY_VERSION
         else:
             manifest["story_arc_policy_version"] = STORY_ARC_POLICY_VERSION
         return ([{"role": "system", "content": "".join(system_parts)},

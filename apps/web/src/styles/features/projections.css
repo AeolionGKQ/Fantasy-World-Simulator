@@ -554,7 +554,7 @@
     border-radius: var(--radius-full);
   }
 
-  /* Summary in regular weight and full ink; importance as a small tag beside it (V-10). */
+  /* Summary in regular weight and full ink; a quiet delete button beside it. */
   .memory-summary {
     display: flex;
     align-items: flex-start;
@@ -566,14 +566,45 @@
     color: var(--ink);
   }
 
-  .memory-list .memory-importance {
+  .memory-list .memory-delete {
     flex: none;
-    padding: 2px 8px;
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
+    margin: -4px -4px 0 0;
     color: var(--muted);
+  }
+
+  .memory-list .memory-delete:hover:not(:disabled) {
+    color: var(--danger);
+  }
+
+  .memory-list .memory-delete:disabled {
+    opacity: .4;
+    background: transparent;
+    cursor: not-allowed;
+  }
+
+  .memory-list .memory-delete svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .memory-heading {
+    align-items: center;
+    margin-bottom: 14px;
+  }
+
+  .memory-heading h3 {
+    margin-bottom: 4px;
+  }
+
+  .memory-heading .muted-copy {
     font-size: var(--text-xs);
-    white-space: nowrap;
-    background: var(--surface-sunken);
-    border-radius: var(--radius-sm);
+  }
+
+  .memory-heading > button {
+    flex: none;
   }
 
   .memory-list .recall-reason {

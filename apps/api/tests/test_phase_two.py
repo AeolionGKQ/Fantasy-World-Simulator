@@ -1916,7 +1916,7 @@ class PhaseTwoApiTest(unittest.TestCase):
         memory = self.request("GET", f"/api/saves/{self.save_id}/memory")
         self.assertEqual(1, len(memory["story_arcs"])); self.assertEqual(25, memory["story_arcs"][0]["end_sequence"])
         with db.connect() as connection:
-            self.assertEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], [row[0] for row in connection.execute(
+            self.assertEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], [row[0] for row in connection.execute(
                 "SELECT version FROM schema_migrations ORDER BY version")])
 
     def test_manual_merge_combines_all_current_arcs_and_preserves_full_context(self):

@@ -1,8 +1,13 @@
+import { useState, type FormEvent } from "react";
+import { api, asApiError } from "../../../api";
+import { Icon } from "../../../components/Icon";
+import { Modal } from "../../../components/Modal";
+import { playerProblemMessage } from "../../../playerCopy";
 import type { MemoryEntry, MemoryProjection, NarrativeJob, StoryArc } from "../../../types";
 import { currentArcMerge, isNarrativeJobActive } from "../helpers";
 import { JobPanel } from "./JobPanel";
 
-export function MemoryPanel({ memory, memories, arcBusy, arcJob, onMerge, onRebuild }: {
+export function MemoryPanel({ memory, memories, arcBusy, arcJob, onMerge, onRebuild, saveId, memoryBusy, memoryJob, storyBusy, onCurate, onMemoryDeleted }: {
   memory: MemoryProjection;
   memories: MemoryEntry[];
   arcBusy: boolean;
@@ -10,7 +15,17 @@ export function MemoryPanel({ memory, memories, arcBusy, arcJob, onMerge, onRebu
   onMerge: (ids: string[]) => void;
   /** Start organising the next batch of earlier segments into a story arc now. */
   onRebuild: () => void;
+  saveId: string;
+  /** A memory cleanup is starting or running. */
+  memoryBusy: boolean;
+  memoryJob: NarrativeJob | null;
+  /** A story job is running; memories cannot change under it. */
+  storyBusy: boolean;
+  onCurate: () => void;
+  onMemoryDeleted: () => void;
 }) {
+  const [deleting, setDeleting] = useState<MemoryEntry | null>(null);
+  const locked = memoryBusy || storyBusy;
   const failures = memory.arc_failures;
   const currentArcs = memory.story_arcs.filter((arc) => arc.status === "current").sort((a, b) => a.start_sequence - b.start_sequence);
   const merge = currentArcMerge(currentArcs);
@@ -44,13 +59,27 @@ export function MemoryPanel({ memory, memories, arcBusy, arcJob, onMerge, onRebu
           : <p className="muted-copy">较早的剧情积累到连续 25 段后，会自动整理成一个故事弧，概括这一段旅程。</p>}
       </section>
       <section className="plain-section">
-        <h3>长期记忆</h3>
+        <div className="section-line memory-heading">
+          <div>
+            <h3>长期记忆</h3>
+            <p className="muted-copy">可以逐条删除，也可以让 GM 回顾全部记忆，剔除已经解决、过期或不重要的内容。</p>
+          </div>
+          <button className="secondary-button" type="button" disabled={locked || !memories.length} onClick={onCurate}>
+            {memoryBusy ? "正在整理长期记忆…" : "整理长期记忆"}
+          </button>
+        </div>
+        {memoryJob && isNarrativeJobActive(memoryJob) && <JobPanel job={memoryJob} onCancel={() => undefined} cancellable={false} />}
         {memories.length ? (
           <ol className="memory-list">
             {memories.map((item) => (
               <li key={item.id}>
                 <span className="memory-number" aria-label={`长期记忆 ${item.memory_number}`}>{item.memory_number}</span>
-                <div className="memory-summary"><p>{item.summary}</p><span className="memory-importance">重要度 {item.importance}</span></div>
+                <div className="memory-summary">
+                  <p>{item.summary}</p>
+                  <button className="icon-button memory-delete" type="button" disabled={locked} aria-label={`删除长期记忆 ${item.memory_number}`} title={locked ? "剧情生成或整理记忆期间不能删除" : "删除这条记忆"} onClick={() => setDeleting(item)}>
+                    <Icon name="trash" />
+                  </button>
+                </div>
                 {item.recall_reason && <p className="recall-reason">与本轮剧情相关：{item.recall_reason}</p>}
                 {item.facts.length > 0 && <p>{item.facts.join("；")}</p>}
                 {item.unresolved.length > 0 && <small>尚未解决：{item.unresolved.join("；")}</small>}
@@ -59,7 +88,35 @@ export function MemoryPanel({ memory, memories, arcBusy, arcJob, onMerge, onRebu
           </ol>
         ) : <p className="muted-copy">当前没有需要长期保留的记忆。</p>}
       </section>
+      {deleting && <DeleteMemoryModal saveId={saveId} memory={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); onMemoryDeleted(); }} />}
     </div>
+  );
+}
+
+function DeleteMemoryModal({ saveId, memory, onClose, onDeleted }: { saveId: string; memory: MemoryEntry; onClose: () => void; onDeleted: () => void }) {
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const remove = async (event: FormEvent) => {
+    event.preventDefault(); setBusy(true);
+    try {
+      await api.deleteMemory(saveId, memory.id);
+      onDeleted();
+    } catch (reason) {
+      setError(playerProblemMessage(asApiError(reason).problem));
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal title="删除长期记忆" onClose={onClose} labelledBy="delete-memory-title">
+      <form onSubmit={(event) => void remove(event)}>
+        <div className="danger-callout"><strong>删除后无法恢复</strong><p>GM 之后不会再记得这条记忆：“{memory.summary}”</p></div>
+        {error && <p className="field-error">{error}</p>}
+        <div className="modal-actions">
+          <button className="secondary-button" type="button" data-modal-close>保留</button>
+          <button className="danger-button" data-autofocus disabled={busy}>{busy ? "正在删除…" : "删除这条记忆"}</button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
