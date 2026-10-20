@@ -3,8 +3,6 @@
 # browser. Closing this Terminal window stops the game. Written for the bash 3.2 that macOS ships.
 
 cd "$(dirname "$0")" || exit 1
-PORT=8000
-APP_URL="http://127.0.0.1:$PORT"
 
 fail() {
   echo "[错误] $1"
@@ -35,13 +33,22 @@ if [ -z "$PYTHON" ]; then
   fail "没有找到 Python 3.9 或更高版本。请从 https://www.python.org/downloads/ 安装 Python 3 后再双击本文件。"
 fi
 
-if healthy; then
-  echo "[完成] 游戏已经在运行，正在打开浏览器：$APP_URL"
-  open "$APP_URL"
-  exit 0
-fi
-if (echo > "/dev/tcp/127.0.0.1/$PORT") >/dev/null 2>&1; then
-  fail "端口 $PORT 已被其他程序占用。请关闭该程序后重试。"
+# The game already running on a port from 8000 on is reused; otherwise the first free port is used.
+read -r LAUNCH_MODE PORT <<EOF
+$("$PYTHON" apps/api/launch_port.py)
+EOF
+APP_URL="http://127.0.0.1:$PORT"
+case "$LAUNCH_MODE" in
+  running)
+    echo "[完成] 游戏已经在运行，正在打开浏览器：$APP_URL"
+    open "$APP_URL"
+    exit 0
+    ;;
+  free) ;;
+  *) fail "端口 8000 至 8099 都已被占用，无法启动服务。请关闭部分程序后重试。" ;;
+esac
+if [ "$PORT" != "8000" ]; then
+  echo "[提示] 端口 8000 已被占用，本次改用端口 $PORT。"
 fi
 
 echo "[启动] Fantasy Simulator 后端服务（$("$PYTHON" -V 2>&1)）"

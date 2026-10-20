@@ -7,7 +7,7 @@ set "PROJECT_DIR=%~dp0"
 set "WEB_DIR=%PROJECT_DIR%apps\web"
 set "PYTHON_EXE=%PROJECT_DIR%runtime\python\python.exe"
 set "SERVER_FILE=%PROJECT_DIR%apps\api\server.py"
-set "APP_URL=http://127.0.0.1:8000"
+set "PORT_HELPER=%PROJECT_DIR%apps\api\launch_port.py"
 
 if not exist "%PYTHON_EXE%" (
   echo [错误] 未找到项目自带的 Python 运行时：
@@ -32,22 +32,24 @@ if not exist "%WEB_DIR%\dist\index.html" (
   popd
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$u='%APP_URL%/api/health'; try { $h=Invoke-RestMethod -Uri $u -TimeoutSec 1; if ($h.status -eq 'ok' -and $h.app_id -eq 'fantasy-simulator' -and $h.api_version -eq '1') { exit 0 }; exit 2 } catch { exit 1 }" >nul 2>nul
-if errorlevel 2 (
-  echo [错误] 端口 8000 已被其他服务占用。请关闭该服务后重试。
+rem The game already running on a port from 8000 on is reused; otherwise the first free port is used.
+set "LAUNCH_MODE="
+set "PORT="
+for /f "usebackq tokens=1,2" %%A in (`""%PYTHON_EXE%" "%PORT_HELPER%""`) do (
+  set "LAUNCH_MODE=%%A"
+  set "PORT=%%B"
+)
+if "%LAUNCH_MODE%"=="running" goto :already_running
+if not "%LAUNCH_MODE%"=="free" (
+  echo [错误] 端口 8000 至 8099 都已被占用，无法启动服务。请关闭部分程序后重试。
   pause
   exit /b 1
 )
-if errorlevel 1 (
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "$c=New-Object Net.Sockets.TcpClient; try { $c.Connect('127.0.0.1',8000); exit 0 } catch { exit 1 } finally { $c.Dispose() }" >nul 2>nul
-  if not errorlevel 1 (
-    echo [错误] 端口 8000 已被其他服务占用，且健康标识不匹配。请关闭该服务后重试。
-    pause
-    exit /b 1
-  )
-  echo [启动] Fantasy Simulator 后端服务...
-  start "Fantasy Simulator Server" /D "%PROJECT_DIR%" "%PYTHON_EXE%" "%SERVER_FILE%" --host 127.0.0.1 --port 8000
-)
+
+set "APP_URL=http://127.0.0.1:%PORT%"
+if not "%PORT%"=="8000" echo [提示] 端口 8000 已被占用，本次改用端口 %PORT%。
+echo [启动] Fantasy Simulator 后端服务...
+start "Fantasy Simulator Server" /D "%PROJECT_DIR%" "%PYTHON_EXE%" "%SERVER_FILE%" --host 127.0.0.1 --port %PORT%
 
 echo [等待] 正在确认服务可用...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$u='%APP_URL%/api/health'; 1..40 | ForEach-Object { try { $h=Invoke-RestMethod -Uri $u -TimeoutSec 1; if ($h.status -eq 'ok' -and $h.app_id -eq 'fantasy-simulator' -and $h.api_version -eq '1') { exit 0 } } catch {}; Start-Sleep -Milliseconds 250 }; exit 1"
@@ -56,7 +58,13 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+goto :open_browser
 
+:already_running
+set "APP_URL=http://127.0.0.1:%PORT%"
+echo [完成] 游戏已经在运行。
+
+:open_browser
 echo [完成] 正在打开浏览器：%APP_URL%
 start "" "%APP_URL%"
 exit /b 0
