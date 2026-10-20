@@ -1,11 +1,13 @@
 """SQLite persistence and atomic domain operations."""
 
+import base64
 import copy
 import hashlib
 import json
 import os
 import sqlite3
 import subprocess
+import sys
 import threading
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -97,14 +99,27 @@ class DomainError(Exception):
 
 
 class SecretStore:
-    """Keep credentials in Windows DPAPI storage, or in process memory only."""
+    """Keep credentials in Windows DPAPI storage, the macOS login Keychain, or process memory only.
 
-    def __init__(self, path):
+    The file at `path` holds the DPAPI ciphertext on Windows; on macOS it holds only a marker, the
+    key itself living in the Keychain. Elsewhere nothing is written and the key lasts until restart.
+    """
+
+    KEYCHAIN_SERVICE = "FantasySimulator"
+    KEYCHAIN_MARKER = "keychain:v1"
+    _KEYCHAIN_PENDING = object()  # prepare_api_key: write to the Keychain only on commit
+
+    def __init__(self, path, backend=None):
         self.path = os.path.abspath(path)
         self._lock = threading.Lock()
         self._value = None
-        self._persistence = "windows_dpapi" if os.name == "nt" else "memory_only"
+        self.backend = backend or ("dpapi" if os.name == "nt" else
+                                   "keychain" if sys.platform == "darwin" else None)
+        self._persistence = self._durable_label()
         self._migrate_legacy_plaintext()
+
+    def _durable_label(self):
+        return {"dpapi": "windows_dpapi", "keychain": "macos_keychain"}.get(self.backend, "memory_only")
 
     def _migrate_legacy_plaintext(self):
         legacy = os.path.join(os.path.dirname(self.path), "secrets.json")
@@ -116,15 +131,9 @@ class SecretStore:
                 candidate = json.load(handle).get("model_api_key", "")
             value = candidate if isinstance(candidate, str) else ""
             self._value = value
-            if os.name == "nt" and value:
-                cipher = self._protect(value)
-                temporary = self.path + ".tmp"
-                with open(temporary, "w", encoding="utf-8", newline="") as handle:
-                    handle.write(cipher)
-                os.replace(temporary, self.path)
-            elif os.name == "nt":
-                self._persistence = "windows_dpapi"
-            else:
+            if self.backend and value:
+                self._write_file(self._seal(value))
+            elif not self.backend:
                 self._persistence = "memory_only"
         except (OSError, ValueError, UnicodeError, subprocess.SubprocessError):
             self._persistence = "memory_only"
@@ -142,6 +151,7 @@ class SecretStore:
     def persistence(self):
         return self._persistence
 
+    # ---- Windows DPAPI ----
     @staticmethod
     def _powershell(script, value):
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -183,18 +193,81 @@ class SecretStore:
         )
         return cls._powershell(script, cipher)
 
+    # ---- macOS Keychain (the built-in `security` tool) ----
+    @staticmethod
+    def _security(args, stdin=None):
+        completed = subprocess.run(["/usr/bin/security", *args], input=stdin, capture_output=True,
+                                   text=True, encoding="utf-8", timeout=10, check=True)
+        return completed.stdout
+
+    def _keychain_account(self):
+        """One Keychain item per key file and install folder, so two copies of the game never collide."""
+        folder = hashlib.sha256(os.path.dirname(self.path).encode("utf-8")).hexdigest()[:16]
+        return f"{os.path.basename(self.path)}-{folder}"
+
+    def _keychain_write(self, value):
+        # Piped into `security -i`, so the key never appears on a command line (visible in `ps`);
+        # base64 keeps every character of it safe inside that one-line command.
+        encoded = base64.b64encode(value.encode("utf-8")).decode("ascii")
+        self._security(["-i"], f"add-generic-password -U -s {self.KEYCHAIN_SERVICE} "
+                               f"-a {self._keychain_account()} -w {encoded}\n")
+        if self._keychain_read() != value:
+            raise ValueError("Keychain did not keep the key")
+
+    def _keychain_read(self):
+        encoded = self._security(["find-generic-password", "-s", self.KEYCHAIN_SERVICE,
+                                  "-a", self._keychain_account(), "-w"]).strip()
+        return base64.b64decode(encoded, validate=True).decode("utf-8")
+
+    def _keychain_delete(self):
+        try:
+            self._security(["delete-generic-password", "-s", self.KEYCHAIN_SERVICE,
+                            "-a", self._keychain_account()])
+        except subprocess.CalledProcessError:
+            pass  # nothing stored
+
+    # ---- Backend-neutral helpers ----
+    def _seal(self, value):
+        """Store the key durably; returns the text kept in the key file."""
+        if self.backend == "keychain":
+            self._keychain_write(value)
+            return self.KEYCHAIN_MARKER
+        return self._protect(value)
+
+    def _open(self, stored):
+        if self.backend == "keychain":
+            if stored != self.KEYCHAIN_MARKER:
+                raise ValueError("unknown key file format")
+            return self._keychain_read()
+        return self._unprotect(stored)
+
+    def _forget(self):
+        if self.backend == "keychain":
+            self._keychain_delete()
+        try:
+            os.remove(self.path)
+        except FileNotFoundError:
+            pass
+
+    def _write_file(self, stored):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        temporary = self.path + ".tmp"
+        with open(temporary, "w", encoding="utf-8", newline="") as handle:
+            handle.write(stored)
+        os.replace(temporary, self.path)
+
     def get_api_key(self):
         with self._lock:
             if self._value is not None:
                 return self._value
-            if os.name != "nt":
+            if not self.backend:
                 self._value = ""
                 self._persistence = "memory_only"
                 return self._value
             try:
                 with open(self.path, "r", encoding="utf-8") as handle:
-                    cipher = handle.read().strip()
-                self._value = self._unprotect(cipher) if cipher else ""
+                    stored = handle.read().strip()
+                self._value = self._open(stored) if stored else ""
             except FileNotFoundError:
                 self._value = ""
             except (OSError, ValueError, UnicodeError, subprocess.SubprocessError):
@@ -207,24 +280,16 @@ class SecretStore:
             raise DomainError("INVALID_INPUT", "API Key 格式无效", fields={"api_key": "必须是长度不超过10000的文本"})
         with self._lock:
             self._value = value
-            if os.name != "nt":
+            if not self.backend:
                 self._persistence = "memory_only"
                 return False
             try:
                 if not value:
-                    try:
-                        os.remove(self.path)
-                    except FileNotFoundError:
-                        pass
-                    self._persistence = "windows_dpapi"
+                    self._forget()
+                    self._persistence = self._durable_label()
                     return True
-                cipher = self._protect(value)
-                os.makedirs(os.path.dirname(self.path), exist_ok=True)
-                temporary = self.path + ".tmp"
-                with open(temporary, "w", encoding="utf-8", newline="") as handle:
-                    handle.write(cipher)
-                os.replace(temporary, self.path)
-                self._persistence = "windows_dpapi"
+                self._write_file(self._seal(value))
+                self._persistence = self._durable_label()
                 return True
             except (OSError, ValueError, UnicodeError, subprocess.SubprocessError):
                 self._persistence = "memory_only"
@@ -235,38 +300,38 @@ class SecretStore:
                 return False
 
     def prepare_api_key(self, value):
-        """Encrypt before DB mutation so plaintext never reaches disk on failure."""
+        """Encrypt before DB mutation so plaintext never reaches disk on failure. The Keychain is
+        written only in commit_api_key, so a failed settings save leaves the stored key unchanged."""
         if not isinstance(value, str) or len(value) > 10000:
             raise DomainError("INVALID_INPUT", "API Key 格式无效", fields={"api_key": "必须是长度不超过10000的文本"})
-        if os.name != "nt" or not value:
+        if not self.backend or not value:
             return value, None
+        if self.backend == "keychain":
+            return value, self._KEYCHAIN_PENDING
         try:
             return value, self._protect(value)
         except (OSError, ValueError, UnicodeError, subprocess.SubprocessError):
             return value, None
 
     def commit_api_key(self, prepared):
-        value, cipher = prepared
+        value, stored = prepared
         with self._lock:
             self._value = value
-            if cipher is None:
-                self._persistence = "memory_only" if value else (
-                    "windows_dpapi" if os.name == "nt" else "memory_only")
-                if not value and os.name == "nt":
+            if stored is None:
+                self._persistence = "memory_only" if value else self._durable_label()
+                if not value and self.backend:
                     try:
-                        os.remove(self.path)
-                    except FileNotFoundError:
+                        self._forget()
+                    except (OSError, subprocess.SubprocessError):
                         pass
                 return False
             try:
-                os.makedirs(os.path.dirname(self.path), exist_ok=True)
-                temporary = self.path + ".tmp"
-                with open(temporary, "w", encoding="utf-8", newline="") as handle:
-                    handle.write(cipher)
-                os.replace(temporary, self.path)
-                self._persistence = "windows_dpapi"
+                if stored is self._KEYCHAIN_PENDING:
+                    stored = self._seal(value)
+                self._write_file(stored)
+                self._persistence = self._durable_label()
                 return True
-            except OSError:
+            except (OSError, ValueError, UnicodeError, subprocess.SubprocessError):
                 self._persistence = "memory_only"
                 try:
                     os.remove(self.path + ".tmp")

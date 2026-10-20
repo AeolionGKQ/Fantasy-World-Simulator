@@ -114,7 +114,7 @@ export default function SceneImageWorkspace() {
   return (
     <div className="page image-workspace page-enter" key="ready">
       <header>
-        <div><span className="ready-mark">当前剧情画面</span><h1>生成此刻图片</h1><p>先根据当前剧情整理画面描述。你可以修改描述、画幅和质量，再确认生成图片。</p></div>
+        <div><span className="ready-mark">{session.source_turn ? `第 ${session.source_turn.sequence} 段剧情画面：${session.source_turn.title}` : "当前剧情画面"}</span><h1>生成此刻图片</h1><p>先根据这段剧情整理画面描述。你可以修改描述、画幅和质量，再确认生成图片。</p></div>
         <div className="image-header-actions">
           <Link viewTransition className="secondary-button" to={`/saves/${saveId}/game`}>返回剧情</Link>
           <button className="danger-button" type="button" disabled={abandoning} onClick={() => void abandon()}>{abandoning ? "正在放弃…" : "放弃并退出"}</button>

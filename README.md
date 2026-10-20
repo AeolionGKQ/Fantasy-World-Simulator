@@ -58,13 +58,42 @@
 
 ## 启动
 
-普通玩家可以直接到 [Releases](https://github.com/AeolionGKQ/Fantasy-World-Simulator/releases) 下载 Windows 整合包，解压后即可运行，不需要安装 Python 或 Node.js。
+普通玩家可以直接到 [Releases](https://github.com/AeolionGKQ/Fantasy-World-Simulator/releases) 下载对应系统的整合包，解压后双击启动脚本即可。
 
-需要 Windows（已在 Windows 11 上测试）。双击根目录的 `启动游戏.bat`，脚本会用项目自带的 Python 运行时启动服务，等待服务就绪后打开 `http://127.0.0.1:8000`。
+### Windows
 
-仓库已包含构建好的前端，日常启动不需要安装 Node.js。只有 `apps/web/dist` 不存在时，脚本才会调用本机的 Node.js/npm 安装依赖并构建。
+下载 `windows-x64` 包，解压后双击 `启动游戏.bat`。整合包自带 Python 运行时，不需要另外安装 Python 或 Node.js。脚本会启动服务、等待服务就绪，然后打开 `http://127.0.0.1:8000`。需要 Windows 10 或 11（64 位，已在 Windows 11 上测试）。
 
-关闭名为 `Fantasy Simulator Server` 的终端窗口即可停止服务。
+首次运行如果出现“Windows 已保护你的电脑”，点“更多信息”→“仍要运行”。关闭名为 `Fantasy Simulator Server` 的窗口即可停止服务。
+
+### macOS
+
+1. 先安装 Python 3.9 或更高版本（[python.org](https://www.python.org/downloads/) 安装包或 Homebrew 均可）。使用 python.org 安装包时，安装后请在“应用程序 → Python 3.x”文件夹中双击 `Install Certificates.command`，否则连接模型服务时会出现证书错误。
+2. 下载 `macos` 包并解压，双击 `启动游戏.command`。脚本会找到可用的 Python、启动服务，并打开 `http://127.0.0.1:8000`。
+3. 首次打开时，macOS 可能提示无法验证开发者：到“系统设置 → 隐私与安全性”页面底部点“仍要打开”；也可以在“终端”中对游戏文件夹执行一次 `xattr -dr com.apple.quarantine 游戏文件夹路径` 后再双击。
+
+游戏运行期间请保持这个终端窗口打开，关闭窗口或按 Control+C 即可停止服务。
+
+### 启动脚本失败时手动启动
+
+一键脚本出错时，可以在游戏文件夹中手动启动服务，再用浏览器打开 `http://127.0.0.1:8000`。
+
+Windows：在游戏文件夹的空白处按住 Shift 点右键，选择“在终端中打开”（或“在此处打开 PowerShell 窗口”），执行：
+
+```powershell
+.\runtime\python\python.exe apps\api\server.py
+```
+
+macOS：打开“终端”，执行：
+
+```bash
+cd 游戏文件夹路径
+python3 apps/api/server.py
+```
+
+看到 `Fantasy Simulator listening on http://127.0.0.1:8000` 即表示启动成功。8000 端口被占用时，可以在命令末尾加上 `--port 8080` 换一个端口，并在浏览器中打开对应地址。停止服务时在窗口中按 Ctrl+C（macOS 为 Control+C）。
+
+从源码运行时，仓库已包含构建好的前端，日常启动不需要 Node.js；只有 `apps/web/dist` 不存在时，Windows 脚本才会调用本机的 Node.js/npm 安装依赖并构建。
 
 ## 连接模型
 
@@ -79,7 +108,7 @@
 ## 数据与密钥
 
 - 游戏数据保存在 `apps/api/.data`，不会提交到仓库。
-- API Key 在 Windows 上用当前用户的 DPAPI 加密后保存；加密不可用时只保存在内存中，重启后需要重新填写。
+- API Key 在 Windows 上用当前用户的 DPAPI 加密后保存，在 macOS 上保存在当前用户的“钥匙串”中（项目名为 FantasySimulator）；都不可用时只保存在内存中，重启后需要重新填写。
 - 导出的存档不包含任何密钥。
 
 ## 世界设定
@@ -92,10 +121,11 @@
 
 ```text
 启动游戏.bat        Windows 启动器
+启动游戏.command    macOS 启动器
 canon/              规则与世界正典文档
 apps/api/           后端：只依赖 Python 标准库
 apps/web/           前端：React + Vite，dist/ 为构建产物
-runtime/python/     随项目分发的 Python 运行时
+runtime/python/     随 Windows 包分发的 Python 运行时
 ```
 
 ## 开发与测试

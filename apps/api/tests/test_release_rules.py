@@ -233,13 +233,17 @@ class ReleaseApiTest(unittest.TestCase):
             return self.wait_job(self.save_id, job["id"])
         return None
 
-    def wait_for_arcs(self, current_count):
+    def wait_for_arcs(self, current_count, expected=None):
+        """Waits until the automatic arc chain settles. Between two jobs of the chain there is a moment
+        with no active job, so a test that knows the end state passes `expected` to wait for it."""
         deadline = time.time() + 20
         while time.time() < deadline:
             memory = self.request("GET", f"/api/saves/{self.save_id}/memory")
             view = self.request("GET", f"/api/saves/{self.save_id}/story")
             current = [arc for arc in memory["story_arcs"] if arc["status"] == "current"]
-            if len(current) == current_count and not view["active_arc_job"]:
+            shape = [(arc["start_sequence"], arc["end_sequence"], arc["level"]) for arc in current]
+            if (len(current) == current_count and not view["active_arc_job"] and
+                    (expected is None or shape == expected)):
                 return current
             time.sleep(.05)
         self.fail("story arcs did not settle")
@@ -410,6 +414,35 @@ class ReleaseApiTest(unittest.TestCase):
             "POST", f"/api/saves/{self.save_id}/memory-curations",
             {"request_id": "wait-second", "expected_state_version": 1}, 409)["error"]["code"])
 
+    def test_scene_image_can_draw_an_earlier_turn(self):
+        self.play("opening", "image-opening", 0, guidance="")
+        self.play("turn", "image-turn", 1, [self.memory_candidate("外海商船上藏着走私货", "打听到三条消息")],
+                  action="登上商船", option_id=None)
+        turns = self.request("GET", f"/api/saves/{self.save_id}/turns")["items"]
+        first, latest = turns[0], turns[-1]
+        settings = self.request("GET", "/api/settings")
+        self.request("PUT", "/api/settings/image-model", {
+            "request_id": "image-settings", "expected_revision": settings["revision"],
+            "base_url": "https://api.openai.com/v1", "model": "gpt-image-2.5-sunburst",
+            "timeout_seconds": 30, "api_key": "image-key"})
+        self.provider.generate_image_prompt = lambda *args: "旅人站在学院门口"
+        path = f"/api/saves/{self.save_id}/image-session"
+        # The latest turn can still change, so a stale state version is refused for it.
+        stale = self.request("POST", path, {"request_id": "image-stale", "source_turn_id": latest["id"],
+                                            "expected_state_version": 0}, 409)
+        self.assertEqual("STATE_VERSION_CONFLICT", stale["error"]["code"])
+        # An earlier turn cannot change, so it is drawn whatever the current version is.
+        session = self.request("POST", path, {"request_id": "image-earlier", "source_turn_id": first["id"],
+                                              "expected_state_version": 0}, 202)
+        self.assertEqual({"sequence": first["sequence"], "title": first["title"]}, session["source_turn"])
+        with self.server.app_context.database.connect() as connection:
+            frozen = json.loads(connection.execute(
+                "SELECT frozen_context_json FROM image_sessions WHERE id=?", (session["id"],)).fetchone()[0])
+        self.assertEqual(first["id"], frozen["turn"]["id"])
+        self.assertEqual([first["id"]], [item["id"] for item in frozen["recent_full_turns"] + frozen["early_summaries"]])
+        self.assertEqual(first["id"], frozen["state"]["current_turn_id"])  # the state right after that turn
+        self.assertEqual([], frozen["memories"])  # the later turn's memory is not part of this scene
+
     def test_quest_panel_lists_offered_and_finished_quests(self):
         quests = self.request("GET", f"/api/saves/{self.save_id}/quests")
         self.assertEqual({"active", "offered", "finished", "state_version"}, set(quests))
@@ -429,7 +462,7 @@ class ReleaseApiTest(unittest.TestCase):
     def test_four_current_arcs_merge_the_earliest_three(self):
         self.seed_turns(110)
         self.assertEqual("succeeded", self.run_automatic_arc()["status"])
-        current = self.wait_for_arcs(2)
+        current = self.wait_for_arcs(2, [(1, 75, 2), (76, 100, 1)])
         self.assertEqual([(1, 75, 2), (76, 100, 1)],
                          [(arc["start_sequence"], arc["end_sequence"], arc["level"]) for arc in current])
 

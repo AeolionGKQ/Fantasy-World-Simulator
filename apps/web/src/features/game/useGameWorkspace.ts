@@ -336,7 +336,9 @@ export function useGameWorkspace(saveId: string) {
     }
     setStartingImage(true);
     try {
-      await api.createImageSession(saveId, data.story.latest_turn.id,
+      // Draw the turn being read: an earlier one while browsing history, otherwise the latest.
+      const source = viewedTurn ?? data.story.latest_turn;
+      await api.createImageSession(saveId, source.id,
         data.story.state.state_version, crypto.randomUUID());
       navigate(`/saves/${saveId}/game/image`);
     } catch (reason) { showProblem(reason); }

@@ -55,8 +55,12 @@ class ImageRepository:
         successful = connection.execute(
             "SELECT * FROM image_attempts WHERE session_id=? AND status='succeeded' "
             "ORDER BY created_at DESC LIMIT 1", (row["id"],)).fetchone()
+        source = connection.execute("SELECT sequence,title FROM turns WHERE id=?",
+                                    (row["source_turn_id"],)).fetchone()
         return {"id": row["id"], "save_id": row["save_id"],
-                "source_turn_id": row["source_turn_id"], "status": row["status"],
+                "source_turn_id": row["source_turn_id"],
+                "source_turn": {"sequence": source["sequence"], "title": source["title"]} if source else None,
+                "status": row["status"],
                 "prompt_draft": row["prompt_draft"], "prompt_revision": row["prompt_revision"],
                 "selected_size": row["selected_size"],
                 "selected_quality": row["selected_quality"],
@@ -93,34 +97,52 @@ class ImageRepository:
             if not state_row:
                 raise DomainError("STORY_NOT_STARTED", "请先生成剧情节点", 409)
             state = loads(state_row["state_json"], {})
-            if (body["expected_state_version"] != state_row["state_version"] or
-                    body["source_turn_id"] != state_row["current_turn_id"]):
-                raise DomainError("STATE_VERSION_CONFLICT", "当前剧情节点已变化", 409)
             turn = connection.execute("SELECT * FROM turns WHERE id=? AND save_id=?",
                                       (body["source_turn_id"], save_id)).fetchone()
             if not turn:
                 raise DomainError("TURN_NOT_FOUND", "当前剧情节点不存在", 404)
+            # Any turn can be drawn, with the story as it stood right after it. Only the latest
+            # turn can still change (reshape), so only it is checked against the state version.
+            latest = turn["id"] == state_row["current_turn_id"]
+            if latest and body["expected_state_version"] != state_row["state_version"]:
+                raise DomainError("STATE_VERSION_CONFLICT", "当前剧情节点已变化", 409)
+            if latest:
+                memory_source = [dict(row) for row in connection.execute(
+                    "SELECT * FROM memories WHERE save_id=? AND status='active' ORDER BY updated_at,id",
+                    (save_id,)).fetchall()]
+            else:
+                # The next turn's snapshot holds the state and memories right after this one.
+                following = connection.execute(
+                    "SELECT s.state_json FROM turns t JOIN turn_snapshots s ON s.turn_id=t.id "
+                    "WHERE t.save_id=? AND t.sequence>? ORDER BY t.sequence LIMIT 1",
+                    (save_id, turn["sequence"])).fetchone()
+                if not following:
+                    raise DomainError("TURN_NOT_FOUND", "找不到这段剧情之后的状态记录", 409)
+                frozen_after = loads(following["state_json"], {})
+                state = {**frozen_after["state"], "content_revision_id": state["content_revision_id"]}
+                removed = {row[0] for row in connection.execute(
+                    "SELECT memory_id FROM memory_removals WHERE save_id=?", (save_id,)).fetchall()}
+                memory_source = [item for item in frozen_after.get("memories", [])
+                                 if item.get("id") not in removed]
             version = connection.execute("SELECT * FROM turn_versions WHERE id=?",
                                          (turn["current_version_id"],)).fetchone()
             history = [dict(row) for row in connection.execute(
                 "SELECT id,sequence,title,body,summary,action_type,action_json FROM turns "
-                "WHERE save_id=? ORDER BY sequence", (save_id,)).fetchall()]
+                "WHERE save_id=? AND sequence<=? ORDER BY sequence", (save_id, turn["sequence"])).fetchall()]
             recent_ids = {item["id"] for item in history[-10:]}
             for item in history:
                 item["action"] = loads(item.pop("action_json"), {})
                 item["projection"] = "full" if item["id"] in recent_ids else "summary"
                 if item["projection"] == "summary": item.pop("body", None)
-            memories = number_active_memories([dict(row) for row in connection.execute(
-                "SELECT * FROM memories WHERE save_id=? AND status='active' ORDER BY updated_at,id",
-                (save_id,)).fetchall()])
+            memories = number_active_memories(memory_source)
             for memory in memories:
                 for key in ("people", "locations", "keywords", "facts", "unresolved"):
                     stored = key + "_json"
                     if stored in memory: memory[key] = loads(memory.pop(stored), [])
             arcs = []
             for row in connection.execute(
-                    "SELECT * FROM story_arcs WHERE save_id=? AND status='current' ORDER BY start_sequence",
-                    (save_id,)).fetchall():
+                    "SELECT * FROM story_arcs WHERE save_id=? AND status='current' AND end_sequence<=? "
+                    "ORDER BY start_sequence", (save_id, turn["sequence"])).fetchall():
                 item = dict(row)
                 item["key_events"] = loads(item.pop("key_events_json"), [])
                 item["unresolved"] = loads(item.pop("unresolved_json"), [])

@@ -211,7 +211,7 @@ export interface ModelSettings {
   thinking_confidence: ThinkingConfidence;
   thinking_message?: string;
   thinking_probed_at?: string | null;
-  api_key_persistence?: "windows_dpapi" | "memory_only";
+  api_key_persistence?: "windows_dpapi" | "macos_keychain" | "memory_only";
   max_concurrency: number;
 }
 
@@ -251,7 +251,7 @@ export interface EmbeddingModelSettings {
   configured: boolean;
   api_key_configured: boolean;
   api_key_mask?: string | null;
-  api_key_persistence?: "windows_dpapi" | "memory_only";
+  api_key_persistence?: "windows_dpapi" | "macos_keychain" | "memory_only";
 }
 
 export interface EmbeddingModelTestResult {
@@ -268,7 +268,7 @@ export interface ImageModelSettings {
   configured: boolean;
   api_key_configured: boolean;
   api_key_mask?: string | null;
-  api_key_persistence?: "windows_dpapi" | "memory_only";
+  api_key_persistence?: "windows_dpapi" | "macos_keychain" | "memory_only";
 }
 
 export interface ImageModelTestResult {
@@ -283,6 +283,8 @@ export type ImageSize = "1024x1024" | "1536x1024" | "1024x1536";
 export type ImageQuality = "low" | "medium" | "high" | "xhigh" | "max" | "auto";
 export interface SceneImageSession {
   id: string; save_id: string; source_turn_id: string; status: "active" | "completing" | "completed";
+  /** The story turn this image is drawn from. */
+  source_turn?: { sequence: number; title: string } | null;
   prompt_draft: string | null; prompt_revision: number; selected_size: ImageSize;
   selected_quality: ImageQuality;
   prompt_attempt: { id: string; status: string; error?: { code: string; message: string; retryable: boolean } | null } | null;
