@@ -17,7 +17,7 @@ import { RenameSaveModal } from "../features/saves/RenameSaveModal";
 import SceneImageWorkspace from "../features/scene-image/SceneImageWorkspace";
 import { SettingsPage } from "../features/settings/SettingsPage";
 import { AppToolbar } from "./AppToolbar";
-import { INFO_NOTICE_MS, NoticeBar, NoticeProvider, type Notice, type Notify } from "./notice";
+import { INFO_NOTICE_MS, NoticeBar, NoticeProvider, NoticeViewProvider, type Notice, type NoticeView, type Notify } from "./notice";
 import { SaveSidebar } from "./SaveSidebar";
 import type { ShellActions } from "./shellActions";
 import { useAppNavigate } from "./viewTransition";
@@ -80,6 +80,16 @@ export default function App() {
   const currentId = /^\/saves\/([^/]+)/.exec(location.pathname)?.[1];
   const currentSave = saves.find((save) => save.id === currentId) ?? null;
   const shownNotice = usePresence(notice);
+  // Pages show the bar under their own header (NoticeSlot); the count tells whether one is mounted.
+  const [noticeSlots, setNoticeSlots] = useState(0);
+  const registerNoticeSlot = useCallback(() => {
+    setNoticeSlots((count) => count + 1);
+    return () => setNoticeSlots((count) => count - 1);
+  }, []);
+  const noticeView = useMemo<NoticeView>(() => ({
+    current: shownNotice.current, leaving: shownNotice.leaving,
+    dismiss: () => notify(null), register: registerNoticeSlot,
+  }), [shownNotice.current, shownNotice.leaving, notify, registerNoticeSlot]);
   const actions = useMemo<ShellActions>(() => ({ refreshSaves, refreshServiceStatus }), [refreshSaves, refreshServiceStatus]);
   const offline = Boolean(loadError) || servicesError;
   const storyState = services?.story_model.state;
@@ -104,6 +114,7 @@ export default function App() {
 
   return (
     <NoticeProvider value={notify}>
+    <NoticeViewProvider value={noticeView}>
     <div className="app-shell">
       <ScrollRestoration />
       <a className="skip-link" href="#main-content">跳到主要内容</a>
@@ -135,13 +146,13 @@ export default function App() {
           onImport={() => setModal("import")}
           onExport={() => void exportCurrent()}
         />
-        {/* Sticky under the toolbar, so a notice stays in view wherever the page is scrolled. */}
-        {shownNotice.current && (
-          <div className="app-notice-slot">
-            <NoticeBar key={shownNotice.current.id} notice={shownNotice.current} leaving={shownNotice.leaving} onDismiss={() => notify(null)} />
-          </div>
-        )}
         <main id="main-content" tabIndex={-1}>
+          {/* Fallback for screens without a NoticeSlot (loading and error states, not found). */}
+          {noticeSlots === 0 && shownNotice.current && (
+            <div className="notice-fallback">
+              <NoticeBar key={shownNotice.current.id} notice={shownNotice.current} leaving={shownNotice.leaving} onDismiss={() => notify(null)} />
+            </div>
+          )}
           <Routes>
             <Route path="/" element={<HomePage saves={saves} loading={loading} onNew={() => setModal("new")} />} />
             <Route path="/settings" element={<SettingsPage actions={actions} />} />
@@ -187,6 +198,7 @@ export default function App() {
         />
       )}
     </div>
+    </NoticeViewProvider>
     </NoticeProvider>
   );
 }

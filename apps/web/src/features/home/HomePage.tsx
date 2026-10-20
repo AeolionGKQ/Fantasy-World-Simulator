@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { NoticeSlot } from "../../app/notice";
 import { Icon } from "../../components/Icon";
 import { LoadingPanel } from "../../components/LoadingPanel";
 import { phaseLabel, saveRoute, type SaveSummary } from "../../types";
@@ -20,6 +21,7 @@ export function HomePage({ saves, loading, onNew }: { saves: SaveSummary[]; load
         <h1>冒险档案</h1>
         <p>继续已有的冒险，或创建角色，开始一段新旅程。</p>
       </header>
+      <NoticeSlot />
       {loading ? <LoadingPanel /> : saves.length ? (
         <section className="recent-list" aria-labelledby="recent-title">
           <div className="section-heading"><h2 id="recent-title">继续最近的档案</h2><button className="primary-button" type="button" onClick={onNew}><Icon name="plus" />新建存档</button></div>

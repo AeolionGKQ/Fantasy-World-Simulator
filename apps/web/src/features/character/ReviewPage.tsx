@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, ApiError, asApiError } from "../../api";
-import { useNotify } from "../../app/notice";
+import { NoticeSlot, useNotify } from "../../app/notice";
 import type { ShellActions } from "../../app/shellActions";
 import { useAppNavigate } from "../../app/viewTransition";
 import { ErrorPanel } from "../../components/ErrorPanel";
@@ -65,6 +65,7 @@ export function ReviewPage({ actions }: { actions: ShellActions }) {
   return (
     <div className="page review-page page-enter" key="ready">
       <header className="page-header"><div><span className="step-count">接受前检查</span><h1>确认角色候选</h1><p>这是 AI 生成的角色候选，接受后才会正式成为你的角色。</p></div></header>
+      <NoticeSlot />
       {regenBusy && <div className="inline-status"><StatusDot state="busy" />正在按你的意见重新生成…</div>}
       <CandidatePanel
         candidate={candidate}

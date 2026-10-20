@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useParams } from "react-router-dom";
 import { prefersReducedMotion } from "../../app/viewTransition";
+import { NoticeSlot } from "../../app/notice";
 import type { ShellActions } from "../../app/shellActions";
 import { ErrorPanel } from "../../components/ErrorPanel";
 import { LoadingPanel } from "../../components/LoadingPanel";
@@ -44,6 +45,7 @@ export function CharacterWizard({ actions }: { actions: ShellActions }) {
         </div>
         <DraftStatus status={saveStatus} onRetry={() => void wizard.persistDraft()} onReload={() => void wizard.load()} />
       </header>
+      <NoticeSlot />
       <div className="wizard-layout">
         <WizardStepNav step={step} draft={draft} catalog={catalog} onSelect={(number) => void wizard.go(number)} />
         <section className="step-content" aria-labelledby="step-title">

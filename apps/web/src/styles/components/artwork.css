@@ -1,9 +1,13 @@
-/* World artwork (races, locations, factions); a missing image collapses to a compact titled band. */
+/*
+ * World artwork (races, locations, factions) in fixed frames matching the artwork spec: landscape
+ * 16:9 everywhere; portrait 9:16 for races and locations, 1:1 for factions. A missing image
+ * collapses to a compact titled band.
+ */
 @layer components {
   .responsive-artwork {
     position: relative;
     width: 100%;
-    aspect-ratio: 12 / 5;
+    aspect-ratio: 16 / 9;
     margin: 0;
     overflow: hidden;
     background: var(--surface-sunken);
@@ -21,7 +25,7 @@
     object-fit: cover;
   }
 
-  /* No image: a 96px band (80px on mobile) instead of an empty 12:5 or 4:5 frame. */
+  /* No image: a 96px band (80px on mobile) instead of an empty frame. */
   .responsive-artwork.is-missing {
     height: 96px;
     aspect-ratio: auto;
@@ -64,12 +68,17 @@
 
   /*
    * Portrait art only on mobile screens held upright (keep in sync with PORTRAIT_ART_MEDIA in types.ts).
-   * The height cap keeps square-ish and tablet windows from showing a hero taller than the screen.
+   * The height cap keeps a tall portrait from being taller than the screen; beyond it the image is
+   * cropped to fill the frame rather than squeezed.
    */
   @media (max-width: 1023px) and (orientation: portrait) {
     .responsive-artwork {
-      aspect-ratio: 4 / 5;
+      aspect-ratio: 9 / 16;
       max-height: 85vh;
+    }
+
+    .responsive-artwork.faction-artwork {
+      aspect-ratio: 1 / 1;
     }
   }
 }

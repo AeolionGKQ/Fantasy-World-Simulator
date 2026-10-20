@@ -418,30 +418,32 @@
   }
 
   /* ---- Notice bar: every page's one-off messages and errors ----
-   * Sticky right under the toolbar and floating over the page (the slot has no height), so it
-   * stays in view wherever the page is scrolled and nothing shifts when it appears or goes.
-   * Rendered only while there is a notice. */
-  .app-notice-slot {
-    position: sticky;
-    z-index: 15;
-    top: var(--toolbar-height);
-    height: 0;
-  }
-
+   * In the page flow, right under the page header (NoticeSlot); on the game page between the title
+   * and the tabs. Rendered only while there is a notice. */
   .app-notice {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) 44px;
     align-items: center;
     gap: 12px;
-    width: min(calc(100% - 48px), 1100px);
     min-height: 56px;
-    margin: 12px auto 0;
+    margin: -8px 0 22px;
     padding: 6px 8px 6px 16px;
     background: var(--info-soft);
     border: 1px solid var(--info-line);
     border-radius: var(--radius-md);
-    box-shadow: var(--shadow-float);
     animation: notice-drop var(--dur-enter) var(--ease-out) both;
+  }
+
+  /* Screens without a slot (loading, error, not found) show it at the top of the content. */
+  .notice-fallback {
+    width: min(100%, 1400px);
+    margin: 0 auto;
+    padding: var(--page-padding);
+    padding-bottom: 0;
+  }
+
+  .notice-fallback .app-notice {
+    margin: 0;
   }
 
   .app-notice.leaving {
@@ -556,9 +558,8 @@
       gap: 4px;
     }
 
-    .app-notice {
-      width: calc(100% - 24px);
-      margin-top: 8px;
+    .notice-fallback {
+      padding: 16px 16px 0;
     }
 
     /* Icon-only toolbar buttons. */

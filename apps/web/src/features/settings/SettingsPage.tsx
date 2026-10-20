@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
+import { NoticeSlot } from "../../app/notice";
 import type { ShellActions } from "../../app/shellActions";
 import { prefersReducedMotion } from "../../app/viewTransition";
 import { ErrorPanel } from "../../components/ErrorPanel";
@@ -30,6 +31,7 @@ export function SettingsPage({ actions }: { actions: ShellActions }) {
   return (
     <div className="page settings-page page-enter" key="ready">
       <header className="page-header"><div><h1>设置</h1><p>在这里连接 AI 服务，调整故事节奏和描写方式。设置保存在本机，导出的存档不包含服务密钥。</p></div></header>
+      <NoticeSlot />
       <ModelSettingsSection ctl={ctl} settings={settings} />
       <ImageModelSettingsSection ctl={ctl} settings={settings} />
       <EmbeddingModelSettingsSection ctl={ctl} settings={settings} />

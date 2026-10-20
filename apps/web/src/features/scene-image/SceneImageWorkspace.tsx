@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "../../components/Icon";
 import { Link, useParams } from "react-router-dom";
 import { api, asApiError } from "../../api";
-import { useNotify } from "../../app/notice";
+import { NoticeSlot, useNotify } from "../../app/notice";
 import { useAppNavigate } from "../../app/viewTransition";
 import { FadeImage } from "../../components/FadeImage";
 import { playerProblemMessage } from "../../playerCopy";
@@ -101,6 +101,7 @@ export default function SceneImageWorkspace() {
           <div><h1>生成此刻图片</h1><p>当前没有待生成的场景图片。请返回剧情页，选择“生成此刻图片”。</p></div>
           <Link viewTransition className="secondary-button" to={`/saves/${saveId}/game`}>返回剧情</Link>
         </header>
+        <NoticeSlot />
       </div>
     );
   }
@@ -119,6 +120,7 @@ export default function SceneImageWorkspace() {
           <button className="danger-button" type="button" disabled={abandoning} onClick={() => void abandon()}>{abandoning ? "正在放弃…" : "放弃并退出"}</button>
         </div>
       </header>
+      <NoticeSlot />
       {promptBusy && (
         <section className="image-progress" role="status">
           <span aria-hidden="true"><Icon name="sparkle" /></span>

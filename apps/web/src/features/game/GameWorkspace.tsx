@@ -16,6 +16,7 @@ import { MemoryPanel } from "./panels/MemoryPanel";
 import { QuestsPanel } from "./panels/QuestsPanel";
 import { ReputationsPanel } from "./panels/ReputationsPanel";
 import { StoryPanel } from "./panels/StoryPanel";
+import { NoticeSlot } from "../../app/notice";
 import { useGameWorkspace } from "./useGameWorkspace";
 
 function LoadingGame() {
@@ -90,6 +91,7 @@ export default function GameWorkspace() {
           ? <Link viewTransition className="secondary-button scene-image-button" to={`/saves/${saveId}/game/image`}>查看场景图片</Link>
           : <button className={`secondary-button scene-image-button ${data.imageConfigured ? "" : "unconfigured"}`} type="button" disabled={!latestTurn || game.startingImage} onClick={() => void game.startImageSession()}>{game.startingImage ? "正在创建…" : "生成此刻图片"}</button>}
       </header>
+      <NoticeSlot />
       <GameTabs tab={tab} onSelect={game.selectTab} />
       <section className="game-panel" id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} tabIndex={0}>
         {tab === "story" && (

@@ -2,12 +2,16 @@ import { useState } from "react";
 import { mediaPictureSources, type MediaPaths } from "../types";
 import { FadeImage } from "./FadeImage";
 
-/** World artwork with portrait/landscape sources; falls back to a compact titled band when missing. */
+/**
+ * World artwork with portrait/landscape sources; falls back to a compact titled band when missing.
+ * The frame has the artwork's fixed proportions (artwork.css), so it holds its place before the
+ * image loads and switching items does not move the page.
+ */
 export function ResponsiveArtwork({ item, alt, kind }: { item: MediaPaths; alt: string; kind: "种族" | "地点" | "势力" }) {
   const [imageAvailable, setImageAvailable] = useState(true);
   const sources = mediaPictureSources(item);
   return (
-    <figure className={`responsive-artwork ${imageAvailable ? "" : "is-missing"}`}>
+    <figure className={`responsive-artwork ${kind === "势力" ? "faction-artwork" : ""} ${imageAvailable ? "" : "is-missing"}`}>
       {imageAvailable ? (
         <picture>
           {sources.map((source) => <source key={source.media} media={source.media} srcSet={source.srcSet} />)}
