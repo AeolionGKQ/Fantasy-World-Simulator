@@ -34,6 +34,7 @@ if [ -z "$PYTHON" ]; then
 fi
 
 # The game already running on a port from 8000 on is reused; otherwise the first free port is used.
+echo "[检查] 正在查找可用端口…"
 read -r LAUNCH_MODE PORT <<EOF
 $("$PYTHON" apps/api/launch_port.py)
 EOF
@@ -56,13 +57,13 @@ echo "[启动] Fantasy Simulator 后端服务（$("$PYTHON" -V 2>&1)）"
 SERVER_PID=$!
 trap 'kill "$SERVER_PID" 2>/dev/null' EXIT INT TERM HUP
 
-echo "[等待] 正在确认服务可用…"
-for _ in $(seq 1 60); do
-  healthy && break
+echo "[等待] 正在确认服务可用（首次启动可能需要稍等片刻）…"
+deadline=$((SECONDS + 60))
+until healthy; do
   kill -0 "$SERVER_PID" 2>/dev/null || fail "服务启动失败，请查看上方的错误信息。"
+  [ "$SECONDS" -ge "$deadline" ] && fail "服务未能在 60 秒内启动，请查看上方的错误信息。"
   sleep 0.25
 done
-healthy || fail "服务未能在 15 秒内启动，请查看上方的错误信息。"
 
 echo "[完成] 正在打开浏览器：$APP_URL"
 open "$APP_URL"

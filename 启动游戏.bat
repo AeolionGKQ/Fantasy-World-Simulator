@@ -33,6 +33,7 @@ if not exist "%WEB_DIR%\dist\index.html" (
 )
 
 rem The game already running on a port from 8000 on is reused; otherwise the first free port is used.
+echo [检查] 正在查找可用端口...
 set "LAUNCH_MODE="
 set "PORT="
 for /f "usebackq tokens=1,2" %%A in (`""%PYTHON_EXE%" "%PORT_HELPER%""`) do (
@@ -53,10 +54,10 @@ if not "%PORT%"=="8000" (
 echo [启动] Fantasy Simulator 后端服务...
 start "Fantasy Simulator Server" /D "%PROJECT_DIR%" "%PYTHON_EXE%" "%SERVER_FILE%" --host 127.0.0.1 --port %PORT%
 
-echo [等待] 正在确认服务可用...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$u='%APP_URL%/api/health'; 1..40 | ForEach-Object { try { $h=Invoke-RestMethod -Uri $u -TimeoutSec 1; if ($h.status -eq 'ok' -and $h.app_id -eq 'fantasy-simulator' -and $h.api_version -eq '1') { exit 0 } } catch {}; Start-Sleep -Milliseconds 250 }; exit 1"
+echo [等待] 正在确认服务可用（首次启动可能需要稍等片刻）...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$u='%APP_URL%/api/health'; $end=(Get-Date).AddSeconds(60); while ((Get-Date) -lt $end) { try { $h=Invoke-RestMethod -Uri $u -TimeoutSec 2; if ($h.status -eq 'ok' -and $h.app_id -eq 'fantasy-simulator' -and $h.api_version -eq '1') { exit 0 } } catch {}; Start-Sleep -Milliseconds 250 }; exit 1"
 if errorlevel 1 (
-  echo [错误] 服务未能在 10 秒内启动。请查看“Fantasy Simulator Server”窗口中的信息。
+  echo [错误] 服务未能在 60 秒内启动。请查看“Fantasy Simulator Server”窗口中的信息。
   pause
   exit /b 1
 )

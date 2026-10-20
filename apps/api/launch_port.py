@@ -2,17 +2,22 @@
 
 Prints one line: `running <port>` when this game already answers on a port in the range (the
 launcher then just opens it, so two servers never share one save folder), `free <port>` for the
-first free port from 8000 on, or `none` when every port in the range is taken.
+first free port from 8000 on, or `none` when every port in the range is taken. A game that is still
+starting accepts connections but does not answer yet, so a silent port is polled for a while before
+it is taken to belong to some other program.
 Usage: python launch_port.py [first_port] [last_port]
 """
 import json
 import socket
 import sys
+import time
+import urllib.error
 import urllib.request
 
 FIRST_PORT = 8000
 LAST_PORT = 8099
 HOST = "127.0.0.1"
+STARTUP_GRACE_SECONDS = 20.0
 
 # Health checks go straight to this machine, never through a configured proxy.
 _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -33,22 +38,37 @@ def _bindable(port):
         return True
 
 
-def _is_this_game(port):
+def _health(port):
+    """'game', 'other', or 'silent' (took the connection but has not answered yet)."""
     try:
         with _opener.open(f"http://{HOST}:{port}/api/health", timeout=1) as response:
             health = json.load(response)
+    except (socket.timeout, TimeoutError):
+        return "silent"
+    except urllib.error.URLError as exc:
+        return "silent" if isinstance(exc.reason, (socket.timeout, TimeoutError)) else "other"
     except (OSError, ValueError):
-        return False
-    return (isinstance(health, dict) and health.get("app_id") == "fantasy-simulator" and
-            health.get("api_version") == "1")
+        return "other"
+    is_game = (isinstance(health, dict) and health.get("app_id") == "fantasy-simulator" and
+               health.get("api_version") == "1")
+    return "game" if is_game else "other"
 
 
-def find_port(first=FIRST_PORT, last=LAST_PORT):
+def _is_this_game(port, grace=STARTUP_GRACE_SECONDS):
+    state = _health(port)
+    deadline = time.monotonic() + grace
+    while state == "silent" and time.monotonic() < deadline:
+        time.sleep(0.5)
+        state = _health(port)
+    return state == "game"
+
+
+def find_port(first=FIRST_PORT, last=LAST_PORT, grace=STARTUP_GRACE_SECONDS):
     """("running", port) if the game is already up, ("free", port), or ("none", None)."""
     free = None
     for port in range(first, last + 1):
         if _listening(port):
-            if _is_this_game(port):
+            if _is_this_game(port, grace):
                 return "running", port
         elif free is None and _bindable(port):
             free = port

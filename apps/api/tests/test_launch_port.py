@@ -3,6 +3,7 @@ import socket
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -45,13 +46,13 @@ class LaunchPortTest(unittest.TestCase):
         start = free_block(4)
         self.occupy(start)
         self.occupy(start + 1)
-        self.assertEqual(("free", start + 2), find_port(start, start + 3))
+        self.assertEqual(("free", start + 2), find_port(start, start + 3, grace=0.5))
 
     def test_every_port_taken(self):
         start = free_block(2)
         self.occupy(start)
         self.occupy(start + 1)
-        self.assertEqual(("none", None), find_port(start, start + 1))
+        self.assertEqual(("none", None), find_port(start, start + 1, grace=0.5))
 
     def test_a_running_game_is_reused_even_after_a_free_port(self):
         start = free_block(3)
@@ -65,7 +66,30 @@ class LaunchPortTest(unittest.TestCase):
         thread.start()
         self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join(2)))
         # start is free, but the game is already up on start + 1: open that one, don't start another.
-        self.assertEqual(("running", start + 1), find_port(start, start + 2))
+        self.assertEqual(("running", start + 1), find_port(start, start + 2, grace=0.5))
+
+    def test_a_silent_port_is_waited_for_then_skipped(self):
+        # Accepts connections but never answers, like another program that hangs.
+        start = free_block(2)
+        self.occupy(start)
+        began = time.monotonic()
+        self.assertEqual(("free", start + 1), find_port(start, start + 1, grace=1.5))
+        self.assertGreaterEqual(time.monotonic() - began, 1.5)
+
+    def test_a_game_still_starting_is_waited_for(self):
+        # The server takes its port first and answers once it is ready; a second launch in between
+        # must find it rather than start another server on the next port.
+        start = free_block(2)
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        static = Path(temporary.name) / "static"
+        static.mkdir()
+        (static / "index.html").write_text("<!doctype html>", encoding="utf-8")
+        server = create_server("127.0.0.1", start, str(Path(temporary.name) / ".data"), str(static))
+        thread = threading.Thread(target=lambda: (time.sleep(1.5), server.serve_forever()), daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join(4)))
+        self.assertEqual(("running", start), find_port(start, start + 1, grace=10))
 
     def test_a_second_server_cannot_take_a_port_in_use(self):
         # On Windows, SO_REUSEADDR would let it bind anyway and two servers would share one save folder.
