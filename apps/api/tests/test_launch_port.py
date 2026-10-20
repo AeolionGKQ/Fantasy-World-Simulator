@@ -67,6 +67,18 @@ class LaunchPortTest(unittest.TestCase):
         # start is free, but the game is already up on start + 1: open that one, don't start another.
         self.assertEqual(("running", start + 1), find_port(start, start + 2))
 
+    def test_a_second_server_cannot_take_a_port_in_use(self):
+        # On Windows, SO_REUSEADDR would let it bind anyway and two servers would share one save folder.
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        static = Path(temporary.name) / "static"
+        static.mkdir()
+        (static / "index.html").write_text("<!doctype html>", encoding="utf-8")
+        first = create_server("127.0.0.1", 0, str(Path(temporary.name) / "a"), str(static))
+        self.addCleanup(first.server_close)
+        with self.assertRaises(OSError):
+            create_server("127.0.0.1", first.server_port, str(Path(temporary.name) / "b"), str(static)).server_close()
+
 
 if __name__ == "__main__":
     unittest.main()

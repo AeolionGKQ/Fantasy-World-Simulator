@@ -8,6 +8,7 @@ import mimetypes
 import os
 import posixpath
 import secrets
+import socket
 import sys
 import tempfile
 import threading
@@ -1227,12 +1228,23 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+class GameServer(ThreadingHTTPServer):
+    """On Windows, SO_REUSEADDR lets a second process bind a port that is already in use, so two
+    servers could run on one save folder. There the port is claimed exclusively instead."""
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def create_server(host="127.0.0.1", port=8000, data_dir=None, static_dir=None, provider=None):
     api_dir = Path(__file__).resolve().parent
     workspace = api_dir.parents[1]
     data_dir = data_dir or str(api_dir / ".data")
     static_dir = static_dir or str(workspace / "apps" / "web" / "dist")
-    server = ThreadingHTTPServer((host, port), FantasySimulatorHandler)
+    server = GameServer((host, port), FantasySimulatorHandler)
     server.daemon_threads = True
     server.app_context = AppContext(data_dir, static_dir, provider)
     server.app_context.resume_queued()

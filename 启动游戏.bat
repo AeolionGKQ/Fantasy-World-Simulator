@@ -47,7 +47,9 @@ if not "%LAUNCH_MODE%"=="free" (
 )
 
 set "APP_URL=http://127.0.0.1:%PORT%"
-if not "%PORT%"=="8000" echo [提示] 端口 8000 已被占用，本次改用端口 %PORT%。
+if not "%PORT%"=="8000" (
+  echo [提示] 端口 8000 已被占用，本次改用端口 %PORT%。
+)
 echo [启动] Fantasy Simulator 后端服务...
 start "Fantasy Simulator Server" /D "%PROJECT_DIR%" "%PYTHON_EXE%" "%SERVER_FILE%" --host 127.0.0.1 --port %PORT%
 
