@@ -685,6 +685,8 @@ export interface Quest {
   objectives: string[];
   regional: boolean;
   breakthrough?: boolean;
+  /** Ended by the player from the quest tab ("忽略此任务"). */
+  dismissed_by_player?: boolean;
 }
 
 export interface QuestProjection {

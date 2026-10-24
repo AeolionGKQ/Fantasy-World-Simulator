@@ -311,6 +311,11 @@ export const api = {
     request<GameProjections["memory"]>(`/api/saves/${encodeURIComponent(saveId)}/memory`, { signal }),
   getMemories: (saveId: string, signal?: AbortSignal) =>
     request<GameProjections["memories"]>(`/api/saves/${encodeURIComponent(saveId)}/memories`, { signal }),
+  dismissQuest: (saveId: string, questId: string, expectedStateVersion: number, requestId: string) =>
+    request<{ save_id: string; state_version: number; quest_id: string; status: string }>(
+      `/api/saves/${encodeURIComponent(saveId)}/quests/${encodeURIComponent(questId)}/dismiss`, {
+        method: "POST", body: { request_id: requestId, expected_state_version: expectedStateVersion },
+      }),
   deleteMemory: (saveId: string, memoryId: string) =>
     request<{ save_id: string; memory_id: string; removed: true }>(`/api/saves/${encodeURIComponent(saveId)}/memories/${encodeURIComponent(memoryId)}`, { method: "DELETE" }),
   startMemoryCuration: (saveId: string, expectedStateVersion: number, requestId: string = crypto.randomUUID(), signal?: AbortSignal) =>

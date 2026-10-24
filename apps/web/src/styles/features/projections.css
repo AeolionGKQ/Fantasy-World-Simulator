@@ -441,6 +441,29 @@
     gap: 20px;
   }
 
+  /* "忽略此任务" under an open quest: quiet until hovered. */
+  .quest-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 6px;
+  }
+
+  .quest-actions .text-button {
+    min-height: 32px;
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .quest-actions .text-button:hover:not(:disabled) {
+    color: var(--danger);
+  }
+
+  .quest-actions .text-button:disabled {
+    opacity: .5;
+    text-decoration: none;
+    cursor: not-allowed;
+  }
+
   .record-heading span,
   .record-list > li > p,
   .arc-list p,

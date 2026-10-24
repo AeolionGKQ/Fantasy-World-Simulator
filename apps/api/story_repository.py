@@ -159,6 +159,9 @@ ARC_FAILURE_WARNING_COUNT = 3
 # The player-started job that asks the model which long-term memories to remove. It changes the
 # memories a story job reads, so the two never run at the same time.
 MEMORY_CURATION_JOB = "memory_curation"
+
+# Ignoring a quest from the quest tab: only an unanswered offer can be ignored, and it counts as declined.
+DISMISSED_STATUS = {"offered": "declined"}
 STATE_JOB_TYPES = ("opening", "turn", "intervene", "reshape")
 
 
@@ -468,6 +471,13 @@ class StoryRepository:
                 # So is the player's own 其他补充 character setting.
                 base_state["character"]["identity"]["additional"] = (
                     state["character"]["identity"].get("additional", ""))
+                # And quests the player dismissed from the quest tab stay dismissed.
+                for collection in ("quests", "regional_quests"):
+                    for quest_id, quest in state.get(collection, {}).items():
+                        earlier = base_state.get(collection, {}).get(quest_id)
+                        if quest.get("dismissed_by_player") and earlier and earlier.get("status") in DISMISSED_STATUS:
+                            base_state[collection][quest_id] = {
+                                **earlier, "status": DISMISSED_STATUS[earlier["status"]], "dismissed_by_player": True}
                 removed = self._removed_memory_ids(connection, save_id)
                 snapshot_memories = [item for item in frozen["memories"] if item.get("id") not in removed]
             else:
@@ -505,6 +515,10 @@ class StoryRepository:
             context_state["regional_quests"] = {
                 key: value for key, value in context_state.get("regional_quests", {}).items()
                 if key not in terminal_quests}
+            # Finished regular quests stay in the player's quest tab but no longer reach the GM.
+            context_state["quests"] = {
+                key: value for key, value in context_state.get("quests", {}).items()
+                if value.get("status") not in TERMINAL_QUEST_STATES}
             for item in history:
                 action_value = item.get("action")
                 if isinstance(action_value, dict):
@@ -1189,6 +1203,49 @@ class StoryRepository:
                                (save_id, memory_id, "player", utc_now()))
             connection.commit()
         return {"save_id": save_id, "memory_id": memory_id, "removed": True}
+
+    def dismiss_quest(self, save_id, quest_id, body):
+        """The player ignores an offered quest from the quest tab."""
+        self._validate_write(body, {"request_id", "expected_state_version"})
+        fingerprint = dumps({"quest_id": quest_id, "expected_state_version": body["expected_state_version"]})
+        scope = "quest-dismiss:" + save_id
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            previous = connection.execute(
+                "SELECT response_json FROM mutation_requests WHERE scope=? AND request_id=?",
+                (scope, body["request_id"])).fetchone()
+            if previous:
+                stored = loads(previous["response_json"])
+                if stored["fingerprint"] != fingerprint:
+                    raise DomainError("IDEMPOTENCY_CONFLICT", "request_id已用于不同的任务操作", 409)
+                connection.commit(); return stored["result"]
+            state = self.initialize(save_id, connection)
+            if state["state_version"] != body["expected_state_version"]:
+                raise DomainError("STATE_VERSION_CONFLICT", "权威状态版本冲突", 409,
+                                  fields={"state_version": state["state_version"]})
+            # A story job in flight was built from the current state; it must not change under it.
+            self._ensure_memories_idle(connection, save_id)
+            collection = next((key for key in ("quests", "regional_quests")
+                               if quest_id in state.get(key, {})), None)
+            if collection is None:
+                raise DomainError("QUEST_NOT_FOUND", "任务不存在", 404)
+            quest = state[collection][quest_id]
+            if quest["status"] not in DISMISSED_STATUS:
+                raise DomainError("QUEST_NOT_DISMISSABLE", "只能忽略待接取的任务", 409)
+            quest["status"] = DISMISSED_STATUS[quest["status"]]
+            quest["dismissed_by_player"] = True
+            state["state_version"] += 1
+            now = utc_now()
+            connection.execute(
+                "UPDATE story_states SET state_version=?,state_json=?,updated_at=? WHERE save_id=?",
+                (state["state_version"], dumps(state), now, save_id))
+            result = {"save_id": save_id, "state_version": state["state_version"],
+                      "quest_id": quest_id, "status": quest["status"]}
+            connection.execute("INSERT INTO mutation_requests VALUES(?,?,?,?)",
+                               (scope, body["request_id"], dumps({"fingerprint": fingerprint,
+                                                                  "result": result}), now))
+            connection.commit()
+        return result
 
     def create_memory_curation_job(self, save_id, body):
         self._validate_write(body, {"request_id", "expected_state_version"})

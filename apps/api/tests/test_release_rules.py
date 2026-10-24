@@ -443,6 +443,64 @@ class ReleaseApiTest(unittest.TestCase):
         self.assertEqual(first["id"], frozen["state"]["current_turn_id"])  # the state right after that turn
         self.assertEqual([], frozen["memories"])  # the later turn's memory is not part of this scene
 
+    def quest_proposal(self, operation, status, quest_id=None, name=None, action_evidence=""):
+        return {"operation": operation, "quest_id": quest_id, "name": name,
+                "description": f"{name}的说明" if name else None, "status": status, "progress": "等待答复",
+                "objectives": [], "quest_kind": "regular", "target_rank": None,
+                "action_evidence": action_evidence, "necessary_nodes": [], "terminal_cause": "none",
+                "reason": "委托", "evidence": "打听到三条消息"}
+
+    def test_player_can_dismiss_quests_and_finished_quests_leave_the_context(self):
+        opening = gm_response("opening")
+        opening["narrative"]["body"] = "旅人在学院里打听到三条消息。"
+        opening["proposals"]["quests"] = [self.quest_proposal("create", "offered", name="护送商船"),
+                                          self.quest_proposal("create", "offered", name="寻找失物")]
+        self.provider.responses.append(opening)
+        job = self.request("POST", f"/api/saves/{self.save_id}/story/opening",
+                           {"request_id": "quest-opening", "expected_state_version": 0, "guidance": ""}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        ids = {quest["name"]: quest["id"] for quest in self.request("GET", f"/api/saves/{self.save_id}/quests")["offered"]}
+        convoy, lost = ids["护送商船"], ids["寻找失物"]
+        turn = gm_response("turn")
+        turn["narrative"]["body"] = "旅人在学院里打听到三条消息。"
+        turn["proposals"]["quests"] = [self.quest_proposal("transition", "active", quest_id=lost,
+                                                            action_evidence="这个委托我接了")]
+        self.provider.responses.append(turn)
+        job = self.request("POST", f"/api/saves/{self.save_id}/turns", {"request_id": "quest-turn",
+            "expected_state_version": 1, "action": "这个委托我接了，马上出发", "option_id": None}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        # The GM is told when an unanswered offer may be ended.
+        system = self.provider.messages[-1][0]["content"]
+        self.assertIn(json.dumps("拿不准时保留")[1:-1], system)
+        self.assertIn("external_failure", system)
+
+        path = lambda quest_id: f"/api/saves/{self.save_id}/quests/{quest_id}/dismiss"
+        body = {"request_id": "dismiss-convoy", "expected_state_version": 2}
+        result = self.request("POST", path(convoy), body)
+        self.assertEqual(("declined", 3), (result["status"], result["state_version"]))  # unanswered offer
+        self.assertEqual(result, self.request("POST", path(convoy), body))  # the same request replays
+        self.assertEqual("QUEST_NOT_DISMISSABLE", self.request("POST", path(convoy), {
+            "request_id": "dismiss-again", "expected_state_version": 3}, 409)["error"]["code"])
+        self.assertEqual("QUEST_NOT_FOUND", self.request("POST", path("quest.missing"), {
+            "request_id": "dismiss-missing", "expected_state_version": 3}, 404)["error"]["code"])
+        self.assertEqual("QUEST_NOT_DISMISSABLE", self.request("POST", path(lost), {
+            "request_id": "dismiss-lost", "expected_state_version": 3}, 409)["error"]["code"])  # a taken quest
+        quests = self.request("GET", f"/api/saves/{self.save_id}/quests")
+        self.assertEqual(([lost], []), ([item["id"] for item in quests["active"]], quests["offered"]))
+        self.assertEqual({convoy: True}, {item["id"]: item["dismissed_by_player"] for item in quests["finished"]})
+
+        # Reshaping the last turn rewinds to before it, but the dismissal stays; finished quests are
+        # not sent to the GM.
+        turn_id = self.request("GET", f"/api/saves/{self.save_id}/story")["latest_turn"]["id"]
+        self.provider.responses.append(gm_response("reshape"))
+        job = self.request("POST", f"/api/saves/{self.save_id}/turns/{turn_id}/reshape",
+                           {"request_id": "quest-reshape", "expected_state_version": 3, "guidance": "换个说法"}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        self.assertEqual([lost], list(json.loads(self.provider.messages[-1][1]["content"])["authoritative_state"]["quests"]))
+        state = self.request("GET", f"/api/saves/{self.save_id}/story")["state"]
+        self.assertEqual({convoy: ("declined", True), lost: ("offered", False)},
+                         {key: (value["status"], value.get("dismissed_by_player", False)) for key, value in state["quests"].items()})
+
     def test_quest_panel_lists_offered_and_finished_quests(self):
         quests = self.request("GET", f"/api/saves/{self.save_id}/quests")
         self.assertEqual({"active", "offered", "finished", "state_version"}, set(quests))

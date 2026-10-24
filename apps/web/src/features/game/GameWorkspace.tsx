@@ -16,7 +16,7 @@ import { MemoryPanel } from "./panels/MemoryPanel";
 import { QuestsPanel } from "./panels/QuestsPanel";
 import { ReputationsPanel } from "./panels/ReputationsPanel";
 import { StoryPanel } from "./panels/StoryPanel";
-import { NoticeSlot } from "../../app/notice";
+import { NoticeSlot, useNotify } from "../../app/notice";
 import { useGameWorkspace } from "./useGameWorkspace";
 
 function LoadingGame() {
@@ -68,6 +68,7 @@ function GameTabs({ tab, onSelect }: { tab: GameTab; onSelect: (tab: GameTab) =>
 export default function GameWorkspace() {
   const { saveId = "" } = useParams();
   const game = useGameWorkspace(saveId);
+  const notify = useNotify();
   const { data, tab } = game;
 
   if (game.loading && !data) return <LoadingGame />;
@@ -113,7 +114,10 @@ export default function GameWorkspace() {
         )}
         {tab === "character" && <CharacterPanel character={data.projections.character} catalog={data.catalog} editLocked={stateBusy} onSaveAdditional={game.saveCharacterAdditional} />}
         {tab === "inventory" && <InventoryPanel inventory={data.projections.inventory} />}
-        {tab === "quests" && <QuestsPanel quests={data.projections.quests} />}
+        {tab === "quests" && (
+          <QuestsPanel quests={data.projections.quests} saveId={saveId} stateVersion={data.story.state.state_version} locked={stateBusy}
+            onDismissed={(quest) => { notify({ tone: "info", text: `已忽略任务“${quest.name}”。` }); void game.refresh(true); }} />
+        )}
         {tab === "journals" && <JournalsPanel items={data.projections.journals.items} onRead={(id) => void game.readJournalTurn(id)} />}
         {tab === "memory" && <MemoryPanel memory={data.projections.memory} memories={data.projections.memories.items} arcBusy={arcBusy} arcJob={data.story.active_arc_job} onMerge={(ids) => void game.startArcJob((version, signal) => api.mergeStoryArcs(saveId, version, ids, crypto.randomUUID(), signal))} onRebuild={() => void game.startArcJob((version, signal) => api.createStoryArc(saveId, version, crypto.randomUUID(), signal))}
           saveId={saveId} memoryBusy={memoryBusy} memoryJob={memoryJob} storyBusy={game.submittingState || isNarrativeJobActive(data.story.active_job)}
