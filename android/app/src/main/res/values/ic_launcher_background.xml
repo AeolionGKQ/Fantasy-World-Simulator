@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- The sunflower color in the web app's tokens.css -->
-    <color name="ic_launcher_background">#F7CE59</color>
+    <!-- The dark navy at the edges of the game icon (images/icon.png). -->
+    <color name="ic_launcher_background">#050818</color>
     <!-- The page background (index.html), shown while the app starts. -->
     <color name="launch_background">#EDF4FF</color>
 </resources>
