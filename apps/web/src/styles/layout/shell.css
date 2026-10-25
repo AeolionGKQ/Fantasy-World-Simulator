@@ -187,6 +187,14 @@
     visibility: visible;
   }
 
+  /* Phones and other touch screens have no hover: keep the buttons in view rather than
+     needing a long press to reveal them. */
+  @media (hover: none), (max-width: 1023px) {
+    .save-actions {
+      visibility: visible;
+    }
+  }
+
   .sidebar-empty {
     padding: 14px 8px;
     color: var(--muted);
