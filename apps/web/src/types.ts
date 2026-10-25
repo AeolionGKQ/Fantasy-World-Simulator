@@ -211,7 +211,7 @@ export interface ModelSettings {
   thinking_confidence: ThinkingConfidence;
   thinking_message?: string;
   thinking_probed_at?: string | null;
-  api_key_persistence?: "windows_dpapi" | "macos_keychain" | "memory_only";
+  api_key_persistence?: "windows_dpapi" | "macos_keychain" | "android_keystore" | "memory_only";
   max_concurrency: number;
 }
 
@@ -251,7 +251,7 @@ export interface EmbeddingModelSettings {
   configured: boolean;
   api_key_configured: boolean;
   api_key_mask?: string | null;
-  api_key_persistence?: "windows_dpapi" | "macos_keychain" | "memory_only";
+  api_key_persistence?: "windows_dpapi" | "macos_keychain" | "android_keystore" | "memory_only";
 }
 
 export interface EmbeddingModelTestResult {
@@ -268,7 +268,7 @@ export interface ImageModelSettings {
   configured: boolean;
   api_key_configured: boolean;
   api_key_mask?: string | null;
-  api_key_persistence?: "windows_dpapi" | "macos_keychain" | "memory_only";
+  api_key_persistence?: "windows_dpapi" | "macos_keychain" | "android_keystore" | "memory_only";
 }
 
 export interface ImageModelTestResult {

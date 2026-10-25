@@ -32,6 +32,7 @@ import type {
 } from "./types";
 import { normalizeAppSettings } from "./types";
 import { questProjectionFromResponse } from "./features/game/helpers";
+import { platformFetch } from "./platform/native";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -69,7 +70,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   let response: Response;
   try {
-    response = await fetch(path, { ...fetchOptions, headers, body });
+    response = await platformFetch(path, { ...fetchOptions, headers, body });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw new ApiError(0, {
@@ -162,7 +163,7 @@ export const api = {
   exportSave: async (saveId: string): Promise<{ blob: Blob; filename: string }> => {
     let response: Response;
     try {
-      response = await fetch(`/api/saves/${encodeURIComponent(saveId)}/export`, {
+      response = await platformFetch(`/api/saves/${encodeURIComponent(saveId)}/export`, {
         headers: { Accept: "application/json" },
       });
     } catch {

@@ -1,0 +1,120 @@
+apply plugin: 'com.android.application'
+apply plugin: 'com.chaquo.python'
+
+// versionName follows apps/web/package.json, so the game's version is set in one place.
+// versionCode must go up by one for every APK given to players (Android refuses to downgrade).
+def webPackage = new groovy.json.JsonSlurper().parse(file("../../apps/web/package.json"))
+
+// Release signing: keystore.properties (not in git) names the keystore and its passwords.
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+if (keystorePropertiesFile.exists()) keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+
+android {
+    namespace = "com.fantasysimulator.app"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.fantasysimulator.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName webPackage.version
+        ndk {
+            // Python's native libraries are bundled per ABI; the target phones are 64-bit ARM.
+            abiFilters "arm64-v8a"
+        }
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            if (keystoreProperties["storeFile"]) {
+                storeFile file(keystoreProperties["storeFile"])
+                storePassword keystoreProperties["storePassword"]
+                keyAlias keystoreProperties["keyAlias"]
+                keyPassword keystoreProperties["keyPassword"]
+            }
+        }
+    }
+    buildTypes {
+        release {
+            if (keystoreProperties["storeFile"]) signingConfig signingConfigs.release
+            // No shrinking: Capacitor plugins and Chaquopy's Java bridge are found by reflection.
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+// The game backend: the desktop apps/api package and the canon documents it reads, staged in the
+// layout ContentRegistry expects (<root>/apps/api next to <root>/canon), plus android_bridge.py
+// from src/main/python.
+def workspaceDir = file("../..")
+def stagedPython = layout.buildDirectory.dir("fantasy-python")
+
+tasks.register("stageFantasyPython", Sync) {
+    into stagedPython
+    from(new File(workspaceDir, "apps/api")) {
+        into "apps/api"
+        exclude "tests/**", ".data/**", "**/__pycache__/**", "launch_port.py"
+    }
+    from(new File(workspaceDir, "canon")) {
+        into "canon"
+    }
+    from(file("src/main/python-package")) {
+        into "apps"
+    }
+}
+tasks.matching { it.name ==~ /merge\w*PythonSources/ }.configureEach { dependsOn "stageFantasyPython" }
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) localPropertiesFile.withInputStream { localProperties.load(it) }
+
+chaquopy {
+    defaultConfig {
+        version = "3.14"
+        // A desktop Python 3.14 compiles the sources to bytecode; set chaquopy.buildPython in
+        // local.properties when it is not on PATH.
+        def buildPythonPath = localProperties.getProperty("chaquopy.buildPython")
+        if (buildPythonPath) buildPython(buildPythonPath)
+    }
+    sourceSets {
+        getByName("main") {
+            srcDir(stagedPython.get().asFile)
+        }
+    }
+}
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

@@ -104,8 +104,7 @@ export default function App() {
     if (!currentSave) return;
     try {
       const { blob, filename } = await api.exportSave(currentSave.id);
-      downloadBlob(blob, filename);
-      notify({ tone: "info", text: "存档已导出，文件中不含 AI 服务密钥。" });
+      if (await downloadBlob(blob, filename)) notify({ tone: "info", text: "存档已导出，文件中不含 AI 服务密钥。" });
     } catch (error) {
       const problem = asApiError(error).problem;
       notify({ tone: "error", text: playerProblemMessage(problem), traceId: problem.trace_id });

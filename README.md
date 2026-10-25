@@ -76,6 +76,14 @@
 
 两个启动脚本在 8000 端口被其他程序占用时，会自动依次尝试 8001、8002……直到找到空闲端口，并在窗口中提示本次使用的端口。如果游戏已经在运行，再次双击只会打开浏览器，不会启动第二个服务。
 
+### Android
+
+下载 `android.apk`，在手机上打开安装（首次安装需要允许“安装未知应用”）。应用名为“西幻世界模拟器”，需要 Android 7.0 或更高版本、64 位 ARM 处理器（近年的手机基本都是）。游戏完全在手机上运行，不需要电脑，也不需要开启任何服务；打开后同样先在“设置”中填写模型服务。
+
+- 剧情生成时可以切到其他应用，游戏会在通知栏显示“正在生成剧情”并在后台继续，生成完成后通知自动消失。
+- 导出存档、保存场景图片时会弹出系统的“另存为”窗口，选择保存位置即可；导入存档时从手机文件中选择导出的 `.json` 文件。电脑版和安卓版的存档文件可以互相导入。
+- 卸载应用会删除手机上的全部存档，卸载前请先导出。
+
 ### 启动脚本失败时手动启动
 
 一键脚本出错时，可以在游戏文件夹中手动启动服务，再用浏览器打开 `http://127.0.0.1:8000`。
@@ -111,6 +119,7 @@ python3 apps/api/server.py
 
 - 游戏数据保存在 `apps/api/.data`，不会提交到仓库。
 - API Key 在 Windows 上用当前用户的 DPAPI 加密后保存，在 macOS 上保存在当前用户的“钥匙串”中（项目名为 FantasySimulator）；都不可用时只保存在内存中，重启后需要重新填写。
+- 安卓版的游戏数据保存在应用私有目录中，API Key 用 Android Keystore 中的密钥加密后保存。
 - 导出的存档不包含任何密钥。
 
 ## 世界设定
@@ -128,6 +137,7 @@ canon/              规则与世界正典文档
 apps/api/           后端：只依赖 Python 标准库
 apps/web/           前端：React + Vite，dist/ 为构建产物
 runtime/python/     随 Windows 包分发的 Python 运行时
+android/            安卓版原生工程（Capacitor + Chaquopy），构建与同步说明见 android/SYNC.md
 ```
 
 ## 开发与测试
@@ -145,6 +155,8 @@ cd ../..
 .\runtime\python\python.exe apps\api\server.py                        # 单独启动后端
 .\runtime\python\python.exe -m unittest discover -s apps\api\tests    # 后端测试
 ```
+
+安卓版的构建、签名以及从电脑版同步改动的方法见 [android/SYNC.md](android/SYNC.md)。
 
 ## 许可
 

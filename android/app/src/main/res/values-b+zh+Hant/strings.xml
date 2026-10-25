@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">西幻世界模擬器</string>
+    <string name="title_activity_main">西幻世界模擬器</string>
+    <string name="job_channel_name">劇情生成</string>
+    <string name="job_notification_title">西幻世界模擬器</string>
+    <string name="job_notification_text">正在生成劇情，可以切換到其他應用。</string>
+</resources>

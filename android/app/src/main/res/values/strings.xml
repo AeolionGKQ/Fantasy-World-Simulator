@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Fantasy Simulator</string>
+    <string name="title_activity_main">Fantasy Simulator</string>
+    <string name="package_name">com.fantasysimulator.app</string>
+    <string name="custom_url_scheme">com.fantasysimulator.app</string>
+    <string name="job_channel_name">Story generation</string>
+    <string name="job_notification_title">Fantasy Simulator</string>
+    <string name="job_notification_text">Generating the story. You can switch to other apps.</string>
+</resources>

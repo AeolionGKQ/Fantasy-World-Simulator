@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { Icon } from "../../components/Icon";
 import { Link, useParams } from "react-router-dom";
 import { api, asApiError } from "../../api";
@@ -6,6 +6,8 @@ import { NoticeSlot, useNotify } from "../../app/notice";
 import { useAppNavigate } from "../../app/viewTransition";
 import { FadeImage } from "../../components/FadeImage";
 import { playerProblemMessage } from "../../playerCopy";
+import { isNativeApp, platformFetch } from "../../platform/native";
+import { downloadBlob } from "../saves/downloadBlob";
 import { isActiveJobStatus, type ImageQuality, type ImageSize, type SceneImageSession } from "../../types";
 
 const sizes: Array<{ value: ImageSize; label: string; detail: string }> = [
@@ -111,6 +113,18 @@ export default function SceneImageWorkspace() {
   const successful = session.latest_successful_image ?? (session.image_attempt?.image_available ? session.image_attempt : null);
   const imageReady = successful?.image_available;
   const imageUrl = `${api.sceneImageUrl(saveId, session.id)}?attempt=${successful?.id ?? ""}`;
+  const downloadUrl = `${api.sceneImageDownloadUrl(saveId, session.id)}?attempt=${successful?.id ?? ""}`;
+  // The Android app's WebView cannot follow a download link; fetch the image and offer "save as".
+  const saveInApp = async (event: MouseEvent) => {
+    event.preventDefault();
+    try {
+      const response = await platformFetch(downloadUrl);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (await downloadBlob(await response.blob(), "fantasy-scene.png")) notify({ tone: "info", text: "图片已保存。" });
+    } catch {
+      notify({ tone: "error", text: "图片保存失败，请重试。" });
+    }
+  };
   return (
     <div className="page image-workspace page-enter" key="ready">
       <header>
@@ -161,7 +175,7 @@ export default function SceneImageWorkspace() {
           <button type="button" onClick={() => dialog.current?.showModal()} aria-label="放大查看生成图片"><FadeImage key={imageUrl} src={imageUrl} alt="根据当前剧情生成的画面" /></button>
           <div>
             <span>{sizes.find((item) => item.value === successful?.requested_size)?.label} · {qualities.find((item) => item.value === successful?.requested_quality)?.label ?? "自动"}质量</span>
-            <a className="secondary-button" href={`${api.sceneImageDownloadUrl(saveId, session.id)}?attempt=${successful?.id ?? ""}`}>保存图片</a>
+            <a className="secondary-button" href={downloadUrl} onClick={isNativeApp ? (event) => void saveInApp(event) : undefined}>保存图片</a>
             <button className="primary-button" type="button" onClick={() => void complete()}>完成本次生成</button>
           </div>
         </section>

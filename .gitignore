@@ -17,6 +17,7 @@ __pycache__/
 
 # Frontend dependencies and build caches
 node_modules/
+/apps/web/dist-android/
 *.tsbuildinfo
 apps/web/.vite/
 apps/web/.vitest/

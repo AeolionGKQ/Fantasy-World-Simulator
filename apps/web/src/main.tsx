@@ -6,11 +6,13 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import "@fontsource/noto-serif-sc/400.css";
 import "@fontsource/noto-serif-sc/700.css";
 import App from "./app/App";
+import { installBackButton } from "./platform/native";
 import "./styles/index.css";
 
 // A data router (rather than <BrowserRouter>) is required for view-transition navigations,
 // navigate(..., { flushSync }) and <ScrollRestoration>. App keeps its own <Routes>.
 const router = createBrowserRouter([{ path: "*", element: <App /> }]);
+installBackButton();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

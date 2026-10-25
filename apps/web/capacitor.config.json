@@ -1,0 +1,8 @@
+{
+  "appId": "com.fantasysimulator.app",
+  "appName": "Fantasy Simulator",
+  "webDir": "dist-android",
+  "android": {
+    "path": "../../android"
+  }
+}

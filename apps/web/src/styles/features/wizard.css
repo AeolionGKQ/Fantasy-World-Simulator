@@ -347,8 +347,21 @@
       font-size: var(--text-xl);
     }
 
+    /* On a phone the header row is narrow: keep the step count and save status on one line
+       each and let the progress bar give up the space instead. */
     .draft-status {
       min-width: auto;
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
+    .wizard-progress .step-count {
+      white-space: nowrap;
+    }
+
+    .progress-track {
+      flex: 0 1 160px;
+      min-width: 40px;
     }
 
     .draft-status small {
