@@ -41,21 +41,24 @@
     line-height: 1.4;
   }
 
+  /* The game icon (public/app-icon.png) in the app's outlined tile. */
   .brand-mark {
-    display: grid;
-    place-items: center;
+    display: block;
+    flex: 0 0 auto;
     width: 36px;
     height: 36px;
-    color: var(--ink);
-    text-decoration: none;
-    background: var(--sunflower);
+    overflow: hidden;
+    background: var(--ink);
     border: 2px solid var(--outline);
     border-radius: var(--radius-md);
     box-shadow: 2px 2px 0 var(--sunflower-shadow);
   }
 
-  .brand-mark span {
-    font-weight: 700;
+  .brand-mark img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
 
   .sidebar-close {

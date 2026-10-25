@@ -26,7 +26,7 @@ export function SaveSidebar({ saves, currentId, loading, loadError, open, servic
   return (
     <aside className={`sidebar ${open ? "open" : ""}`} aria-label="存档列表">
       <div className="brand-block">
-        <Link viewTransition to="/" className="brand-mark" aria-label="Fantasy Simulator 首页"><span>F</span></Link>
+        <Link viewTransition to="/" className="brand-mark" aria-label="Fantasy Simulator 首页"><img src="/app-icon.png" alt="" width={36} height={36} /></Link>
         <div><strong>Fantasy Simulator</strong><small>冒险档案</small></div>
         <button className="icon-button sidebar-close" type="button" onClick={onClose} aria-label="关闭存档列表"><Icon name="close" /></button>
       </div>
