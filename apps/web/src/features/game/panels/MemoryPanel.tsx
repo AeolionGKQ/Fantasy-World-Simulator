@@ -13,7 +13,7 @@ export function MemoryPanel({ memory, memories, arcBusy, arcJob, onMerge, onRebu
   arcBusy: boolean;
   arcJob: NarrativeJob | null;
   onMerge: (ids: string[]) => void;
-  /** Start organising the next batch of earlier segments into a story arc now. */
+  /** Retry organising the next batch of earlier segments into a story arc; offered only after it failed. */
   onRebuild: () => void;
   saveId: string;
   /** A memory cleanup is starting or running. */
@@ -35,7 +35,7 @@ export function MemoryPanel({ memory, memories, arcBusy, arcJob, onMerge, onRebu
         <div><h2>记忆管理</h2><p>将较早的经历整理成摘要，帮助 GM 记住你的旅程。完整剧情仍可回看。</p></div>
         <div className="arc-merge-action">
           <div className="arc-actions">
-            <button className="secondary-button" type="button" disabled={arcBusy || memory.summary_buffer.length < memory.policy.arc_turn_count} onClick={onRebuild}>重新整理故事弧</button>
+            {failures && <button className="secondary-button" type="button" disabled={arcBusy || memory.summary_buffer.length < memory.policy.arc_turn_count} onClick={onRebuild}>重新整理故事弧</button>}
             <button className="secondary-button" type="button" disabled={arcBusy || !merge.valid} onClick={() => onMerge(merge.arcIds)}>{arcBusy ? "正在整理故事弧…" : merge.label}</button>
           </div>
           <small>{merge.message}</small>
@@ -123,7 +123,7 @@ function DeleteMemoryModal({ saveId, memory, onClose, onDeleted }: { saveId: str
 function ArcRow({ arc }: { arc: StoryArc }) {
   return (
     <li>
-      <div className="record-heading"><strong>{arc.title}</strong><span>第 {arc.start_sequence} 至 {arc.end_sequence} 段 · {arc.status === "current" ? "正在使用" : "已合并到后续摘要"}</span></div>
+      <div className="record-heading"><strong>{arc.title}</strong><span>第 {arc.start_sequence} 至 {arc.end_sequence} 段 · {arc.status === "current" ? "正在使用" : "已压缩到后续摘要"}</span></div>
       <p>{arc.summary}</p>
       {/* Key events are part of the summary; only open threads are listed, one per line. */}
       {arc.unresolved.length > 0 && (

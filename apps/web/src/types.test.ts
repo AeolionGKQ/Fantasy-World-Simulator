@@ -636,7 +636,7 @@ describe("game workspace helpers", () => {
       { id: "c", start_sequence: 76, end_sequence: 100, status: "current" },
     ] as Parameters<typeof validateArcSelection>[0];
     expect(validateArcSelection(arcs, ["a"]).valid).toBe(false);
-    expect(validateArcSelection(arcs, ["a", "b"])).toEqual({ valid: true, message: "将合并 2 个连续故事弧。" });
+    expect(validateArcSelection(arcs, ["a", "b"])).toEqual({ valid: true, message: "将压缩 2 个连续故事弧。" });
     expect(validateArcSelection(arcs, ["a", "c"]).message).toContain("在剧情顺序上相邻");
   });
 
@@ -648,15 +648,16 @@ describe("game workspace helpers", () => {
       { id: "b", start_sequence: 26, end_sequence: 50, status: "current" },
     ] as Parameters<typeof currentArcMerge>[0];
     expect(currentArcMerge(arcs)).toEqual({
-      arcIds: ["a", "b", "c"], valid: true, label: "合并当前 3 个故事弧",
-      message: "将第 1 至 75 段剧情整理成一份更精简的摘要，完整剧情仍会保留。",
+      arcIds: ["a", "b", "c"], valid: true, label: "压缩故事弧",
+      message: "将第 1 至 75 段剧情压缩成一份更精简的摘要，完整剧情仍会保留。",
     });
+    // The label always names the action; the reason it cannot run is in the message.
     expect(currentArcMerge(arcs.slice(1, 3))).toEqual(expect.objectContaining({
-      valid: false, label: "至少需要两个故事弧",
+      valid: false, label: "压缩故事弧", message: "当前只有一个故事弧。继续冒险，有两个以上故事弧时即可压缩。",
     }));
     expect(currentArcMerge([
       arcs[2], { ...arcs[0], start_sequence: 76 },
-    ])).toEqual(expect.objectContaining({ valid: false, label: "当前故事弧无法合并" }));
+    ])).toEqual(expect.objectContaining({ valid: false, label: "压缩故事弧", message: "请选择在剧情顺序上相邻的故事弧。" }));
   });
 
   it("固定声望键映射到准确中文名称", () => {
