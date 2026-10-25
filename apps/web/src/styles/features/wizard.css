@@ -347,8 +347,38 @@
       font-size: var(--text-xl);
     }
 
+    /* On a phone the header row is narrow. The save status keeps its own width (dot and
+       status on one line, a retry or reload button on the line below it) and the title side
+       gives up the space instead: the step count stays on one line and the progress bar
+       shrinks. */
     .draft-status {
+      display: grid;
+      grid-template-columns: auto auto;
+      align-items: center;
+      justify-content: end;
+      justify-items: end;
+      gap: 2px 8px;
+      flex-shrink: 0;
       min-width: auto;
+      white-space: nowrap;
+    }
+
+    .draft-status .text-button {
+      grid-column: 1 / -1;
+    }
+
+    .wizard-heading {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .wizard-progress .step-count {
+      white-space: nowrap;
+    }
+
+    .progress-track {
+      flex: 0 1 160px;
+      min-width: 40px;
     }
 
     .draft-status small {
