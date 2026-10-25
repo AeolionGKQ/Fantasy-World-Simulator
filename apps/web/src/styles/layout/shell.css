@@ -51,7 +51,6 @@
     background: var(--ink);
     border: 2px solid var(--outline);
     border-radius: var(--radius-md);
-    box-shadow: 2px 2px 0 var(--sunflower-shadow);
   }
 
   .brand-mark img {
