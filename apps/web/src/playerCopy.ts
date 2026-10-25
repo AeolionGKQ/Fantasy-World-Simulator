@@ -29,7 +29,7 @@ const problemMessages: Record<string, string> = {
   TURN_NOT_FOUND: "找不到这段剧情，请重新载入存档。",
   START_LOCATION_PREREQUISITE_REQUIRED: "当前起点需要防护或通行许可，请先确认这些条件，或选择其他起点。",
   START_PREREQUISITE_ALREADY_RESOLVED: "起点条件已确认，请重新载入后开始冒险。",
-  ARC_SOURCES_NOT_CONTIGUOUS: "只能合并在剧情顺序上相邻、尚未被合并的故事弧。",
+  ARC_SOURCES_NOT_CONTIGUOUS: "只能压缩在剧情顺序上相邻、尚未被压缩的故事弧。",
   ARC_SOURCE_NOT_READY: "还没有足够的早期剧情可供整理，请继续冒险。",
   IMAGE_MODEL_NOT_CONFIGURED: "请在设置的“生图模型配置”中填写 OpenAI 服务地址和密钥。",
   IMAGE_SESSION_NOT_FOUND: "找不到这次图片生成记录，请返回剧情页重新开始。",

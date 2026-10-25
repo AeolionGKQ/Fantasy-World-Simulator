@@ -34,9 +34,12 @@ export function validateArcSelection(arcs: StoryArc[], selectedIds: string[]): {
   if (selected.length !== selectedIds.length) return { valid: false, message: "只能选择当前有效的故事弧。" };
   const contiguous = selected.every((arc, index) => index === 0 || selected[index - 1].end_sequence + 1 === arc.start_sequence);
   return contiguous
-    ? { valid: true, message: `将合并 ${selected.length} 个连续故事弧。` }
+    ? { valid: true, message: `将压缩 ${selected.length} 个连续故事弧。` }
     : { valid: false, message: "请选择在剧情顺序上相邻的故事弧。" };
 }
+
+/** The button always names the action; why it cannot run yet goes in the message under it. */
+const ARC_COMPRESS_LABEL = "压缩故事弧";
 
 export function currentArcMerge(arcs: StoryArc[]): {
   arcIds: string[];
@@ -49,17 +52,17 @@ export function currentArcMerge(arcs: StoryArc[]): {
   const arcIds = current.map((arc) => arc.id);
   const selection = validateArcSelection(current, arcIds);
   if (current.length === 0) {
-    return { arcIds, valid: false, label: "暂无可合并的故事弧", message: "较早的剧情每积累到连续 25 段，就会自动整理成一个故事弧。" };
+    return { arcIds, valid: false, label: ARC_COMPRESS_LABEL, message: "较早的剧情每积累到连续 25 段，会自动整理成一个故事弧；有两个以上故事弧时可以压缩。" };
   }
   if (current.length === 1) {
-    return { arcIds, valid: false, label: "至少需要两个故事弧", message: "当前只有一个故事弧。继续冒险，积累更多摘要后即可合并。" };
+    return { arcIds, valid: false, label: ARC_COMPRESS_LABEL, message: "当前只有一个故事弧。继续冒险，有两个以上故事弧时即可压缩。" };
   }
   const range = `第 ${current[0].start_sequence} 至 ${current[current.length - 1].end_sequence} 段`;
   return {
     arcIds,
     valid: selection.valid,
-    label: selection.valid ? `合并当前 ${current.length} 个故事弧` : "当前故事弧无法合并",
-    message: selection.valid ? `将${range}剧情整理成一份更精简的摘要，完整剧情仍会保留。` : selection.message,
+    label: ARC_COMPRESS_LABEL,
+    message: selection.valid ? `将${range}剧情压缩成一份更精简的摘要，完整剧情仍会保留。` : selection.message,
   };
 }
 
