@@ -2,3 +2,5 @@
 *.bat text eol=crlf
 # The macOS launcher is a bash script and must keep LF line endings.
 *.command text eol=lf
+# The Gradle wrapper for macOS/Linux is a shell script and must keep LF line endings.
+android/gradlew text eol=lf
