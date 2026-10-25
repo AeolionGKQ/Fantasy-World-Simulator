@@ -43,7 +43,6 @@ WebView（apps/web 构建产物，Capacitor 托管在 https://localhost）
 - `apps/web/src/main.tsx`：`installBackButton()`。
 - `apps/web/src/types.ts`：密钥保存方式增加 `android_keystore`。
 - `apps/web/package.json`：Capacitor 依赖。
-- `apps/web/src/styles/features/wizard.css`：窄屏下角色向导标题行不换行（电脑版窄窗口同样适用，可考虑合回 main）。
 
 ## 构建
 
