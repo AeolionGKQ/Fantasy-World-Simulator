@@ -87,7 +87,7 @@ chaquopy.buildPython=D\:/Android/python-3.14/python.exe
 
 ## 从电脑版同步改动
 
-`origin` 指向本地的电脑版仓库 `D:\Fantasy Simulator\Fantasy-World-Simulator`。
+`origin` 指向本地的电脑版仓库 `D:\Fantasy Simulator\Fantasy-World-Simulator`；`github` 指向 GitHub 仓库，`android` 分支跟踪 `github/android`，提交后用 `git push` 推送。
 
 ```powershell
 git fetch origin
