@@ -400,5 +400,11 @@
     .candidate-footer > * {
       flex: 1;
     }
+
+    /* The empty spacer that right-aligns a lone button on wide screens would take half the row
+       here and squeeze the button's label onto two lines. */
+    .candidate-footer > :empty {
+      display: none;
+    }
   }
 }
