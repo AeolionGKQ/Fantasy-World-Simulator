@@ -58,7 +58,7 @@
 
 ## 启动
 
-普通玩家可以直接到 [Releases](https://github.com/AeolionGKQ/Fantasy-World-Simulator/releases) 下载对应系统的整合包，解压后双击启动脚本即可。
+普通玩家可以直接到 [Releases](https://github.com/AeolionGKQ/Fantasy-World-Simulator/releases) 下载对应系统的整合包，解压后双击启动脚本即可；安卓手机下载 `.apk` 安装包直接安装。
 
 ### Windows
 
