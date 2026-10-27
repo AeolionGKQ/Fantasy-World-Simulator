@@ -772,21 +772,14 @@
     margin-top: 20px;
   }
 
-  /* Quiet until hovered, like "忽略此任务". */
-  .bond-delete {
-    min-height: 32px;
-    color: var(--muted);
-    font-size: var(--text-sm);
-  }
-
-  .bond-delete:hover:not(:disabled) {
-    color: var(--danger);
-  }
-
+  /* The red trash button, as on a save in the sidebar. */
   .bond-delete:disabled {
-    opacity: .5;
-    text-decoration: none;
+    opacity: .45;
     cursor: not-allowed;
+  }
+
+  .relationship-list span + span {
+    margin-top: 2px;
   }
 
   /* Reputation tab: 整体声望 and 势力声望 as two labelled groups. */
