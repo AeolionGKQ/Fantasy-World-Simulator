@@ -22,14 +22,14 @@ export function BondsPanel({ items, saveId, stateVersion, locked, onDeleted }: {
         <ul className="relationship-list">
           {items.map((bond) => (
             <li key={bond.id}>
+              <button className="icon-button small danger-text bond-delete" type="button" disabled={locked}
+                title={locked ? "剧情生成或整理记忆期间不能删除羁绊" : undefined} aria-label={`删除与${bond.npc_name}的羁绊`}
+                onClick={() => setDeleting(bond)}><Icon name="trash" /></button>
               <div className="bond-body">
                 <div><strong>{bond.npc_name}</strong><span>{bond.relation_type}</span><span>{bond.level ?? "普通/陌生"}</span></div>
                 <meter min={-100} max={100} low={-20} high={50} optimum={100} value={bond.value} aria-label={`${bond.npc_name} 羁绊 ${bond.value}`} />
                 <b>{bond.value}</b>
               </div>
-              <button className="icon-button small danger-text bond-delete" type="button" disabled={locked}
-                title={locked ? "剧情生成或整理记忆期间不能删除羁绊" : undefined} aria-label={`删除与${bond.npc_name}的羁绊`}
-                onClick={() => setDeleting(bond)}><Icon name="trash" /></button>
             </li>
           ))}
         </ul>
