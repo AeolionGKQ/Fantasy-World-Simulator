@@ -322,6 +322,11 @@ export const api = {
     request<NarrativeJob>(`/api/saves/${encodeURIComponent(saveId)}/memory-curations`, {
       method: "POST", signal, body: { request_id: requestId, expected_state_version: expectedStateVersion },
     }),
+  deleteBond: (saveId: string, npcId: string, expectedStateVersion: number, requestId: string) =>
+    request<{ save_id: string; state_version: number; npc_id: string; removed: true }>(
+      `/api/saves/${encodeURIComponent(saveId)}/bonds/${encodeURIComponent(npcId)}/delete`, {
+        method: "POST", body: { request_id: requestId, expected_state_version: expectedStateVersion },
+      }),
   getBonds: (saveId: string, signal?: AbortSignal) =>
     request<GameProjections["bonds"]>(`/api/saves/${encodeURIComponent(saveId)}/bonds`, { signal }),
   getReputations: (saveId: string, signal?: AbortSignal) =>

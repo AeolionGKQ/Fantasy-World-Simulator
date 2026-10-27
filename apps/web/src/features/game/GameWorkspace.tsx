@@ -122,7 +122,10 @@ export default function GameWorkspace() {
         {tab === "memory" && <MemoryPanel memory={data.projections.memory} memories={data.projections.memories.items} arcBusy={arcBusy} arcJob={data.story.active_arc_job} onMerge={(ids) => void game.startArcJob((version, signal) => api.mergeStoryArcs(saveId, version, ids, crypto.randomUUID(), signal))} onRebuild={() => void game.startArcJob((version, signal) => api.createStoryArc(saveId, version, crypto.randomUUID(), signal))}
           saveId={saveId} memoryBusy={memoryBusy} memoryJob={memoryJob} storyBusy={game.submittingState || isNarrativeJobActive(data.story.active_job)}
           onCurate={() => void game.startMemoryCuration()} onMemoryDeleted={() => void game.reloadMemories()} />}
-        {tab === "bonds" && <BondsPanel items={data.projections.bonds.items} />}
+        {tab === "bonds" && (
+          <BondsPanel items={data.projections.bonds.items} saveId={saveId} stateVersion={data.story.state.state_version} locked={stateBusy}
+            onDeleted={(bond) => { notify({ tone: "info", text: `已删除与“${bond.npc_name}”的羁绊。` }); void game.refresh(true); }} />
+        )}
         {tab === "reputations" && <ReputationsPanel data={data.projections.reputations} />}
       </section>
     </div>

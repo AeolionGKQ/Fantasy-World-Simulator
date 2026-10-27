@@ -1099,6 +1099,8 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
                 return 200, self.app.story.projections(save_id, parts[3], **self._api_query), {}
             if len(parts) == 6 and parts[3] == "quests" and parts[5] == "dismiss" and method == "POST":
                 return 200, self.app.story.dismiss_quest(save_id, parts[4], self._read_json()), {}
+            if len(parts) == 6 and parts[3] == "bonds" and parts[5] == "delete" and method == "POST":
+                return 200, self.app.story.delete_bond(save_id, parts[4], self._read_json()), {}
             if len(parts) == 5 and parts[3] == "memories" and method == "DELETE":
                 return 200, self.app.story.delete_memory(save_id, parts[4]), {}
             if len(parts) == 4 and parts[3] == "memory-curations" and method == "POST":

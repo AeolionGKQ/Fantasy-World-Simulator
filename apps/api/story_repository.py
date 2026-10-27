@@ -478,6 +478,9 @@ class StoryRepository:
                         if quest.get("dismissed_by_player") and earlier and earlier.get("status") in DISMISSED_STATUS:
                             base_state[collection][quest_id] = {
                                 **earlier, "status": DISMISSED_STATUS[earlier["status"]], "dismissed_by_player": True}
+                # Bonds the player deleted stay deleted (the GM never removes a bond itself).
+                for npc_id in set(base_state.get("bonds", {})) - set(state.get("bonds", {})):
+                    del base_state["bonds"][npc_id]
                 removed = self._removed_memory_ids(connection, save_id)
                 snapshot_memories = [item for item in frozen["memories"] if item.get("id") not in removed]
             else:
@@ -964,6 +967,50 @@ class StoryRepository:
                 "unresolved": loads(row["unresolved_json"], []), "status": row["status"],
                 "job_id": row["job_id"], "created_at": row["created_at"]}
 
+    def _world_quests(self, save_id, state):
+        """The regional main quests in canon order, with where they start and whether the GM sees them now."""
+        with self.database.connect() as connection:
+            documents = load_revision_documents(connection, state["content_revision_id"])
+            manifest = load_revision_manifest(connection, state["content_revision_id"])
+            nodes = {row["id"]: dict(row) for row in connection.execute(
+                "SELECT * FROM location_nodes WHERE save_id=?", (save_id,)).fetchall()}
+            journals = connection.execute(
+                "SELECT sequence,title,summary,changes_json FROM journals WHERE save_id=? ORDER BY sequence",
+                (save_id,)).fetchall()
+        definitions = self._revision_quests(documents, manifest) if manifest else self.content_registry.quests
+        # Same selection the GM context uses: quests at the current location, plus offered or taken ones.
+        in_context = {item["id"]: item["context_eligibility"]
+                      for item in self.content_registry.select_quests(state, nodes, definitions)}
+        endings = {}
+        for row in journals:
+            for change in loads(row["changes_json"], []):
+                if change.get("kind") == "quest" and change.get("new") in TERMINAL_QUEST_STATES:
+                    endings[change.get("key")] = {"sequence": row["sequence"], "title": row["title"],
+                                                  "summary": row["summary"]}
+
+        def place(location_id):
+            node = nodes.get(location_id) or {}
+            region = nodes.get(node.get("region_id")) or {}
+            names = [region.get("name"), node.get("name") or location_id]
+            return {"id": location_id, "name": " · ".join(name for name in names if name)}
+
+        result = []
+        for definition in definitions:
+            quest = state.get("regional_quests", {}).get(definition["id"], {})
+            card = definition["normal_context_card"]
+            status = quest.get("status", "untriggered")
+            result.append({
+                "id": definition["id"], "name": definition["name"], "description": card["简介"],
+                "status": status, "progress": quest.get("progress", ""),
+                "objectives": quest.get("objectives", []), "regional": True,
+                "dismissed_by_player": quest.get("dismissed_by_player", False),
+                "trigger": card["触发条件"], "trigger_locations": [place(root) for root in definition["roots"]],
+                "in_context": definition["id"] in in_context,
+                "context_reason": in_context.get(definition["id"]),
+                "ending": endings.get(definition["id"]) if status in TERMINAL_QUEST_STATES else None,
+            })
+        return result
+
     def projections(self, save_id, kind, cursor=0, limit=50, enabled=False):
         state = self.get_state(save_id)
         if kind == "character-state": return state["character"] | {"state_version": state["state_version"]}
@@ -973,10 +1020,12 @@ class StoryRepository:
                     "currency": {"gold": copper // 10000, "silver": (copper % 10000) // 100,
                                  "copper": copper % 100}, "state_version": state["state_version"]}
         if kind == "quests":
-            all_quests = list(state["quests"].values()) + list(state["regional_quests"].values())
-            return {"active": [item for item in all_quests if item["status"] == "active"],
-                    "offered": [item for item in all_quests if item["status"] == "offered"],
-                    "finished": [item for item in all_quests if item["status"] in TERMINAL_QUEST_STATES],
+            # Regional quests are listed on their own, as world quests.
+            regular = list(state["quests"].values())
+            return {"active": [item for item in regular if item["status"] == "active"],
+                    "offered": [item for item in regular if item["status"] == "offered"],
+                    "finished": [item for item in regular if item["status"] in TERMINAL_QUEST_STATES],
+                    "world": self._world_quests(save_id, state),
                     "state_version": state["state_version"]}
         if kind == "bonds":
             return {"items": list(state["bonds"].values()), "state_version": state["state_version"]}
@@ -1241,6 +1290,44 @@ class StoryRepository:
                 (state["state_version"], dumps(state), now, save_id))
             result = {"save_id": save_id, "state_version": state["state_version"],
                       "quest_id": quest_id, "status": quest["status"]}
+            connection.execute("INSERT INTO mutation_requests VALUES(?,?,?,?)",
+                               (scope, body["request_id"], dumps({"fingerprint": fingerprint,
+                                                                  "result": result}), now))
+            connection.commit()
+        return result
+
+    def delete_bond(self, save_id, npc_id, body):
+        """The player deletes a bond from the bond tab: it leaves the state, so the GM no longer sees it,
+        and its affinity is gone (a bond formed again later starts from zero)."""
+        self._validate_write(body, {"request_id", "expected_state_version"})
+        fingerprint = dumps({"npc_id": npc_id, "expected_state_version": body["expected_state_version"]})
+        scope = "bond-delete:" + save_id
+        with self.database.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            previous = connection.execute(
+                "SELECT response_json FROM mutation_requests WHERE scope=? AND request_id=?",
+                (scope, body["request_id"])).fetchone()
+            if previous:
+                stored = loads(previous["response_json"])
+                if stored["fingerprint"] != fingerprint:
+                    raise DomainError("IDEMPOTENCY_CONFLICT", "request_id已用于不同的羁绊操作", 409)
+                connection.commit(); return stored["result"]
+            state = self.initialize(save_id, connection)
+            if state["state_version"] != body["expected_state_version"]:
+                raise DomainError("STATE_VERSION_CONFLICT", "权威状态版本冲突", 409,
+                                  fields={"state_version": state["state_version"]})
+            # A story job in flight was built from the current state; it must not change under it.
+            self._ensure_memories_idle(connection, save_id)
+            if npc_id not in state.get("bonds", {}):
+                raise DomainError("BOND_NOT_FOUND", "羁绊不存在", 404)
+            del state["bonds"][npc_id]
+            state["state_version"] += 1
+            now = utc_now()
+            connection.execute(
+                "UPDATE story_states SET state_version=?,state_json=?,updated_at=? WHERE save_id=?",
+                (state["state_version"], dumps(state), now, save_id))
+            result = {"save_id": save_id, "state_version": state["state_version"],
+                      "npc_id": npc_id, "removed": True}
             connection.execute("INSERT INTO mutation_requests VALUES(?,?,?,?)",
                                (scope, body["request_id"], dumps({"fingerprint": fingerprint,
                                                                   "result": result}), now))

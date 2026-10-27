@@ -1,5 +1,5 @@
 import { playerProblemMessage } from "../../playerCopy";
-import { isActiveJobStatus, type AuthoritativeChange, type NarrativeJob, type Quest, type QuestProjection, type Reputation, type ReputationKey, type StoryArc, type Turn } from "../../types";
+import { isActiveJobStatus, type AuthoritativeChange, type NarrativeJob, type Quest, type QuestProjection, type Reputation, type ReputationKey, type StoryArc, type Turn, type WorldQuest } from "../../types";
 
 export type ResourceKey = "hp" | "mp" | "sp" | "st";
 
@@ -67,13 +67,14 @@ export function currentArcMerge(arcs: StoryArc[]): {
 }
 
 export function questProjectionFromResponse(payload: unknown): QuestProjection {
-  if (!payload || typeof payload !== "object") return { active: [], offered: [], finished: [], state_version: 0 };
-  const value = payload as { active?: unknown; offered?: unknown; finished?: unknown; state_version?: unknown };
+  if (!payload || typeof payload !== "object") return { active: [], offered: [], finished: [], world: [], state_version: 0 };
+  const value = payload as { active?: unknown; offered?: unknown; finished?: unknown; world?: unknown; state_version?: unknown };
   const list = (items: unknown) => Array.isArray(items) ? items as Quest[] : [];
   return {
     active: list(value.active),
     offered: list(value.offered),
     finished: list(value.finished),
+    world: Array.isArray(value.world) ? value.world as WorldQuest[] : [],
     state_version: typeof value.state_version === "number" ? value.state_version : 0,
   };
 }

@@ -689,12 +689,25 @@ export interface Quest {
   dismissed_by_player?: boolean;
 }
 
+/** A regional main quest from the canon, listed in the quest tab's 世界任务 section. */
+export interface WorldQuest extends Quest {
+  trigger: string;
+  trigger_locations: { id: string; name: string }[];
+  /** The GM sees it now: the player is at its trigger location, or it is offered or taken. */
+  in_context: boolean;
+  context_reason: "location_matched" | "persistent_active" | null;
+  /** The chronicle entry of the turn that ended it; null while open or when ignored. */
+  ending: { sequence: number; title: string; summary: string } | null;
+}
+
 export interface QuestProjection {
+  /** Regular quests only; regional quests are in `world`. */
   active: Quest[];
   /** Offered to the player and waiting for an answer. */
   offered?: Quest[];
   /** Completed, failed, declined or abandoned. */
   finished?: Quest[];
+  world?: WorldQuest[];
   state_version: number;
 }
 
