@@ -762,7 +762,7 @@
     border-bottom: 1px dashed var(--line);
   }
 
-  /* A bond's name, meter and value sit in .bond-body; the trash button stays outside it, on the right. */
+  /* A bond's name, meter and value sit in .bond-body; the trash button stays outside it, on the left. */
   .relationship-list li {
     display: flex;
     align-items: center;
