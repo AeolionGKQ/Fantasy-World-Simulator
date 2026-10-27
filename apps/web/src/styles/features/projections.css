@@ -762,9 +762,34 @@
     border-bottom: 1px dashed var(--line);
   }
 
-  /* Bonds add a 删除 button after the value. */
+  /* A bond's name, meter and value sit in .bond-body; the trash button stays outside it, on the right. */
   .relationship-list li {
-    grid-template-columns: minmax(180px, 1fr) minmax(160px, 2fr) 54px auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 0;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .bond-body {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) minmax(160px, 2fr) 54px;
+    align-items: center;
+    gap: 20px;
+    min-height: 68px;
+    padding: 10px 14px;
+    border-bottom: 1px dashed var(--line);
+  }
+
+  .relationship-list li:last-child .bond-body {
+    border-bottom-color: transparent;
+  }
+
+  .bond-delete {
+    flex: none;
   }
 
   /* Space below the header rule, so it never touches the first row. */
@@ -912,7 +937,7 @@
       font-size: var(--text-xs);
     }
 
-    .relationship-list li,
+    .bond-body,
     .reputation-list li {
       grid-template-columns: minmax(0, 1fr) 46px;
       gap: 8px 14px;
@@ -920,7 +945,7 @@
     }
 
     .relationship-list li {
-      grid-template-columns: minmax(0, 1fr) 46px auto;
+      gap: 4px;
     }
 
     .relationship-list meter,
