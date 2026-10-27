@@ -603,9 +603,9 @@ describe("game workspace helpers", () => {
         objectives: [], regional: false }],
       state_version: 3 });
     expect(response).toEqual({ active: [expect.objectContaining({ id: "quest.active" })],
-      offered: [expect.objectContaining({ id: "quest.offered" })], finished: [], state_version: 3 });
+      offered: [expect.objectContaining({ id: "quest.offered" })], finished: [], world: [], state_version: 3 });
     expect("terminal" in response).toBe(false);
-    expect(questProjectionFromResponse({ state_version: 4 })).toEqual({ active: [], offered: [], finished: [], state_version: 4 });
+    expect(questProjectionFromResponse({ state_version: 4 })).toEqual({ active: [], offered: [], finished: [], world: [], state_version: 4 });
   });
 
   it("同一逻辑请求复用 ID，payload 变化后换 ID", () => {

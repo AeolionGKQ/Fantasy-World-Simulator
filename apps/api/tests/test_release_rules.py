@@ -503,7 +503,74 @@ class ReleaseApiTest(unittest.TestCase):
 
     def test_quest_panel_lists_offered_and_finished_quests(self):
         quests = self.request("GET", f"/api/saves/{self.save_id}/quests")
-        self.assertEqual({"active", "offered", "finished", "state_version"}, set(quests))
+        self.assertEqual({"active", "offered", "finished", "world", "state_version"}, set(quests))
+
+    def test_world_quests_show_trigger_context_and_ending(self):
+        world = self.request("GET", f"/api/saves/{self.save_id}/quests")["world"]
+        self.assertEqual(6, len(world))
+        academy = next(item for item in world if item["id"] == "regional_main.grand_academy_first_day")
+        self.assertEqual(("untriggered", False, None), (academy["status"], academy["in_context"], academy["ending"]))
+        self.assertEqual("玩家明确以入学为目的前往学院。", academy["trigger"])
+        self.assertEqual(["grand_academy.central_plaza"], [item["id"] for item in academy["trigger_locations"]])
+        self.assertIn("中央广场", academy["trigger_locations"][0]["name"])
+        # Standing at the trigger location puts the quest in the GM context; an ended quest shows the
+        # summary of the turn that ended it.
+        store = self.server.app_context.database
+        with store.connect() as connection:
+            state = json.loads(connection.execute("SELECT state_json FROM story_states WHERE save_id=?",
+                                                  (self.save_id,)).fetchone()[0])
+            state["location"]["id"] = "grand_academy.central_plaza"
+            state["regional_quests"]["regional_main.lost_tidevoice"]["status"] = "completed"
+            connection.execute("UPDATE story_states SET state_json=? WHERE save_id=?",
+                               (json.dumps(state, ensure_ascii=False), self.save_id))
+        self.seed_turns(1)
+        with store.connect() as connection:
+            connection.execute("INSERT INTO journals VALUES(?,?,?,?,?,?,?,?,?,?)", (
+                "seed-turn-1", self.save_id, 1, "潮音", "露米娅在港口重新唱响潮音。", "selavia_port", "傍晚",
+                json.dumps([{"kind": "quest", "key": "regional_main.lost_tidevoice", "old": "active",
+                             "new": "completed", "reason": "完成"}]), 0, "2026-10-18T00:00:00+00:00"))
+        world = {item["id"]: item for item in self.request("GET", f"/api/saves/{self.save_id}/quests")["world"]}
+        academy = world["regional_main.grand_academy_first_day"]
+        self.assertEqual((True, "location_matched"), (academy["in_context"], academy["context_reason"]))
+        lost = world["regional_main.lost_tidevoice"]
+        self.assertEqual((False, "露米娅在港口重新唱响潮音。"), (lost["in_context"], lost["ending"]["summary"]))
+
+    def test_player_can_delete_a_bond_and_it_stays_deleted(self):
+        opening = gm_response("opening")
+        opening["narrative"]["body"] = "旅人初遇名为诺兰的旅者，诺兰决定同行。"
+        opening["scene"]["new_npcs"] = [{"ref": "npc:new:1", "name": "诺兰", "description": "旅行者", "reason": "初次相遇"}]
+        opening["proposals"]["bonds"] = [{"operation": "create_or_join", "npc_id": None, "npc_ref": "npc:new:1",
+            "npc_name": "诺兰", "delta": 5, "relation_type": "companion", "impact": "minor",
+            "admission": "likely_recurring", "reason": "同行", "evidence": "诺兰决定同行"}]
+        self.provider.responses.append(opening)
+        job = self.request("POST", f"/api/saves/{self.save_id}/story/opening",
+                           {"request_id": "bond-opening", "expected_state_version": 0, "guidance": ""}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        self.provider.responses.append(gm_response("turn"))
+        job = self.request("POST", f"/api/saves/{self.save_id}/turns", {"request_id": "bond-turn",
+            "expected_state_version": 1, "action": "继续前进", "option_id": None}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        npc_id = next(iter(self.request("GET", f"/api/saves/{self.save_id}/bonds")["items"]))["npc_id"]
+
+        path = lambda key: f"/api/saves/{self.save_id}/bonds/{key}/delete"
+        body = {"request_id": "delete-bond", "expected_state_version": 2}
+        result = self.request("POST", path(npc_id), body)
+        self.assertEqual((3, True), (result["state_version"], result["removed"]))
+        self.assertEqual(result, self.request("POST", path(npc_id), body))  # the same request replays
+        self.assertEqual("BOND_NOT_FOUND", self.request("POST", path(npc_id), {
+            "request_id": "delete-again", "expected_state_version": 3}, 404)["error"]["code"])
+        self.assertEqual([], self.request("GET", f"/api/saves/{self.save_id}/bonds")["items"])
+        state = self.request("GET", f"/api/saves/{self.save_id}/story")["state"]
+        self.assertIn(npc_id, state["npcs"])  # the person stays in the world
+
+        # Reshaping the last turn rewinds to before it, but the bond stays deleted and is not sent to the GM.
+        turn_id = self.request("GET", f"/api/saves/{self.save_id}/story")["latest_turn"]["id"]
+        self.provider.responses.append(gm_response("reshape"))
+        job = self.request("POST", f"/api/saves/{self.save_id}/turns/{turn_id}/reshape",
+                           {"request_id": "bond-reshape", "expected_state_version": 3, "guidance": "换个说法"}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        self.assertEqual({}, json.loads(self.provider.messages[-1][1]["content"])["authoritative_state"]["bonds"])
+        self.assertEqual({}, self.request("GET", f"/api/saves/{self.save_id}/story")["state"]["bonds"])
 
     def test_failed_automatic_arc_is_retried_and_reported_after_three_failures(self):
         self.seed_turns(35)
