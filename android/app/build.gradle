@@ -17,7 +17,7 @@ android {
         applicationId "com.fantasysimulator.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
+        versionCode 3
         versionName webPackage.version
         ndk {
             // Python's native libraries are bundled per ABI; the target phones are 64-bit ARM.
