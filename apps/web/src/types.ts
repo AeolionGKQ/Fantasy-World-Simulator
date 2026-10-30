@@ -184,6 +184,8 @@ export interface NarrationSettings {
   tendency: "casual" | "balanced" | "combat";
   detail: "concise" | "standard" | "detailed";
   player_address: "full_name" | "given_name" | "second_person";
+  /** 破甲提示词: global, sent verbatim with story and story-arc requests; "" sends nothing. */
+  jailbreak_prompt: string;
 }
 
 export interface StoryNarrationSettings {
@@ -317,8 +319,9 @@ type AppSettingsResponse = Omit<AppSettings, "model" | "narration" | "image_mode
     structured_output_capability?: ModelSettings["structured_output_capability"];
     max_concurrency?: number;
   };
-  narration: Omit<NarrationSettings, "player_address"> & {
+  narration: Omit<NarrationSettings, "player_address" | "jailbreak_prompt"> & {
     player_address?: NarrationSettings["player_address"];
+    jailbreak_prompt?: string;
   };
   image_model?: ImageModelSettings;
   embedding_model?: EmbeddingModelSettings;
@@ -331,6 +334,7 @@ export function normalizeAppSettings(settings: AppSettingsResponse): AppSettings
     narration: {
       ...settings.narration,
       player_address: settings.narration.player_address ?? "second_person",
+      jailbreak_prompt: settings.narration.jailbreak_prompt ?? "",
     },
     model: {
       ...settings.model,

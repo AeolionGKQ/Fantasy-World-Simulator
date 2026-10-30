@@ -596,7 +596,10 @@ class AppContext:
                 claimed["context_state"], action, claimed["early_summaries"],
                 claimed["recent_full_turns"], claimed["memories"], claimed["arcs"],
                 claimed["location_nodes"], claimed["documents"], contract_kind,
-                claimed["revision_manifest"])
+                claimed["revision_manifest"],
+                # Story turns and story arcs carry the player's 破甲提示词; memory cleanup does not.
+                jailbreak_prompt=(self.database.get_jailbreak_prompt()
+                                  if contract_kind in {"gm_turn", "story_arc"} else ""))
             contract = (MEMORY_CURATION_CONTRACT if contract_kind == "memory_curation" else
                         contract_from_documents(contract_kind, claimed["documents"]))
             request_config = dict(config)

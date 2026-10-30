@@ -77,6 +77,9 @@ NARRATION_VALUES = {
 }
 
 
+MAX_JAILBREAK_PROMPT_CHARS = 20000
+
+
 def normalize_narration(value):
     """Add the backward-compatible address default and reject unknown preferences."""
     if not isinstance(value, dict) or set(value) - set(NARRATION_VALUES):
@@ -603,8 +606,14 @@ class Database:
                 "narration": {"pace": narration.get("pace"),
                               "tendency": narration.get("tone"),
                               "detail": narration.get("detail"),
-                              "player_address": narration.get("player_address")},
+                              "player_address": narration.get("player_address"),
+                              "jailbreak_prompt": row["jailbreak_prompt"]},
                 "revision": row["revision"]}
+
+    def get_jailbreak_prompt(self):
+        """The player's 破甲提示词, sent verbatim with story and story-arc requests ("" = none)."""
+        with self.connect() as connection:
+            return connection.execute("SELECT jailbreak_prompt FROM settings WHERE id=1").fetchone()[0]
 
     def get_image_model_config(self):
         with self.connect() as connection:
@@ -1001,7 +1010,7 @@ class Database:
     def update_narration_settings(self, data):
         self._validate_request_id(data)
         unknown = set(data) - {"request_id", "expected_revision", "pace", "tendency", "detail",
-                               "player_address"}
+                               "player_address", "jailbreak_prompt"}
         if unknown:
             raise DomainError("INVALID_INPUT", "存在未知叙事设置字段",
                               fields={key: "未知字段" for key in unknown})
@@ -1010,7 +1019,8 @@ class Database:
                               fields={"expected_revision": "缺少字段"})
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT narration_json,revision FROM settings WHERE id=1").fetchone()
+            row = connection.execute(
+                "SELECT narration_json,jailbreak_prompt,revision FROM settings WHERE id=1").fetchone()
             expected = data.get("expected_revision")
             if expected != row["revision"]:
                 connection.rollback()
@@ -1021,6 +1031,12 @@ class Database:
                          "player_address": data.get("player_address", current["player_address"])}
             fields = {key: "无效枚举值" for key, choices in NARRATION_VALUES.items()
                       if narration.get(key) not in choices}
+            # Stored as typed (only whitespace-only becomes empty); it is global, not part of a save.
+            jailbreak = data.get("jailbreak_prompt", row["jailbreak_prompt"])
+            if not isinstance(jailbreak, str) or len(jailbreak) > MAX_JAILBREAK_PROMPT_CHARS:
+                fields["jailbreak_prompt"] = f"必须是不超过{MAX_JAILBREAK_PROMPT_CHARS}个字符的文本"
+            elif not jailbreak.strip():
+                jailbreak = ""
             if fields:
                 connection.rollback()
                 raise DomainError("INVALID_INPUT", "叙事设置无效", fields=fields)
@@ -1036,8 +1052,9 @@ class Database:
                 raise DomainError("GENERATION_ACTIVE", "生成任务运行期间不能修改全局叙事设置", 409,
                                   fields={"job_id": (active or active_generation)["id"]}, retryable=True)
             revision = row["revision"] + 1
-            connection.execute("UPDATE settings SET narration_json=?, revision=?, updated_at=? WHERE id=1",
-                               (dumps(narration), revision, utc_now()))
+            connection.execute(
+                "UPDATE settings SET narration_json=?, jailbreak_prompt=?, revision=?, updated_at=? WHERE id=1",
+                (dumps(narration), jailbreak, revision, utc_now()))
             now = utc_now()
             connection.execute(
                 "UPDATE saves SET preferences_json=?,revision=revision+1,updated_at=?",

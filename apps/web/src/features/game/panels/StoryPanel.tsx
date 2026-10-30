@@ -61,10 +61,12 @@ export function StoryPanel({ story, turns, viewedTurn, busy, catalog, resources,
   const dead = story.state.character?.alive === false;
   const activeMode: CommandMode = dead ? "reshape" : mode;
   const notes = turn ? [...(turn.warnings ?? []), ...programNotes(turn)] : [];
+  // A new segment, or a reshape (same segment, new version), consumes what was typed.
+  const latestKey = story.latest_turn ? `${story.latest_turn.id}:${story.latest_turn.current_version_id}` : null;
   useEffect(() => {
     setAction("");
     setGuidance("");
-  }, [story.latest_turn?.id]);
+  }, [latestKey]);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const value = activeMode === "action" ? action.trim() : guidance.trim();

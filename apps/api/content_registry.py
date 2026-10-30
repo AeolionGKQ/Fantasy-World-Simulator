@@ -541,7 +541,7 @@ class ContentRegistry:
 
     def build_messages(self, state, action, early_summaries, recent_full_turns, memories, arcs,
                        location_nodes=None, documents=None, contract_kind="gm_turn",
-                       revision_manifest=None):
+                       revision_manifest=None, jailbreak_prompt=""):
         source_documents = list(documents or self._documents)
         frozen_manifest = revision_manifest or self.manifest
         graph_version = frozen_manifest.get("location_graph_version", LOCATION_GRAPH_VERSION)
@@ -562,7 +562,8 @@ class ContentRegistry:
         contract = (MEMORY_CURATION_CONTRACT if contract_kind == "memory_curation" else
                     contract_from_documents(contract_kind, source_documents))
         address_directive = player_address_directive(state)
-        system_parts = []
+        # The player's 破甲提示词 opens the system prompt exactly as typed; empty adds nothing.
+        system_parts = [jailbreak_prompt] if jailbreak_prompt else []
         for item in by_category.get("protocol", [])[:2]:
             system_parts.append(self._protocol_container(item))
         if contract_kind == "story_arc":
@@ -744,6 +745,8 @@ class ContentRegistry:
             manifest["memory_curation_policy_version"] = MEMORY_CURATION_POLICY_VERSION
         else:
             manifest["story_arc_policy_version"] = STORY_ARC_POLICY_VERSION
+        if jailbreak_prompt:
+            manifest["jailbreak_prompt_characters"] = len(jailbreak_prompt)
         return ([{"role": "system", "content": "".join(system_parts)},
                  {"role": "user", "content": json.dumps(dynamic, ensure_ascii=False,
                                                            separators=(",", ":"))}],

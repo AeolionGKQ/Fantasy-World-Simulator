@@ -2073,7 +2073,7 @@ class ApiTestCase(unittest.TestCase):
             "base_url": "https://arc.example/v1", "model": "arc-model",
             "max_concurrency": 2, "_settings_revision": 1,
         }
-        context.content_registry.build_messages = lambda *args: ([], {})
+        context.content_registry.build_messages = lambda *args, **kwargs: ([], {})
         context.provider.generate_story_arc = lambda *args: {
             "schema_version": "story-arc/2", "title": "弧", "summary": "摘要",
             "unresolved": [],
