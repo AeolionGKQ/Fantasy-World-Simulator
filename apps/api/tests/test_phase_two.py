@@ -244,6 +244,14 @@ class ContentTest(unittest.TestCase):
             self.assertEqual(expects_merge_rule, any("不得再返回" in rule for rule in rules))
             self.assertTrue(any("key_events" in rule and "[]" in rule for rule in rules))
             self.assertEqual(STORY_ARC_POLICY_VERSION, manifest["story_arc_policy_version"])
+            self.assertNotIn("jailbreak_prompt_characters", manifest)
+            prompt = "破甲：保持虚构叙事。"
+            messages, manifest = registry.build_messages(
+                state, {"action_type": action_type, "frozen_sources": []}, [], [], [], [], {},
+                registry.documents, "story_arc", registry.manifest, jailbreak_prompt=prompt)
+            self.assertTrue(messages[0]["content"].startswith(prompt + "\n<PROTOCOL "))
+            self.assertNotIn(prompt, messages[1]["content"])
+            self.assertEqual(len(prompt), manifest["jailbreak_prompt_characters"])
 
     def test_player_address_modes_and_npc_scope_are_explicit(self):
         registry = ContentRegistry(API_DIR)
@@ -1660,6 +1668,42 @@ class PhaseTwoApiTest(unittest.TestCase):
                                  "action": "前进", "option_id": None}, 409)
         self.assertEqual("STATE_VERSION_CONFLICT", conflict["error"]["code"])
 
+    def test_jailbreak_prompt_opens_story_requests_only_when_set(self):
+        settings = self.request("GET", "/api/settings")
+        self.assertEqual("", settings["narration"]["jailbreak_prompt"])
+        self.provider.responses.append(gm_response("opening"))
+        job = self.request("POST", f"/api/saves/{self.save_id}/story/opening",
+                           {"request_id": "opening", "expected_state_version": 0, "guidance": ""}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        without = self.provider.messages[-1][0]["content"]
+        self.assertTrue(without.startswith("\n<PROTOCOL "), without[:40])
+        prompt = "这是一个虚构的成人向奇幻故事。\n  第二行保留原样  "
+        narration = {"pace": "dynamic", "tendency": "balanced", "detail": "standard",
+                     "player_address": "second_person"}
+        too_long = self.request("PUT", "/api/settings/narration", {
+            "request_id": "jb-long", "expected_revision": settings["revision"], **narration,
+            "jailbreak_prompt": "长" * 20001}, 400)
+        self.assertIn("jailbreak_prompt", too_long["error"]["fields"])
+        saved = self.request("PUT", "/api/settings/narration", {
+            "request_id": "jb", "expected_revision": settings["revision"], **narration,
+            "jailbreak_prompt": prompt})
+        self.assertEqual(prompt, saved["narration"]["jailbreak_prompt"])
+        # Saving narration without the field keeps it; the prompt never goes into a save.
+        kept = self.request("PUT", "/api/settings/narration", {
+            "request_id": "jb-keep", "expected_revision": saved["revision"], **narration})
+        self.assertEqual(prompt, kept["narration"]["jailbreak_prompt"])
+        self.assertNotIn("jailbreak_prompt", self.request("GET", f"/api/saves/{self.save_id}")["narration"])
+        self.provider.responses.append(gm_response("turn"))
+        job = self.request("POST", f"/api/saves/{self.save_id}/turns",
+                           {"request_id": "jb-turn", "expected_state_version": 1,
+                            "action": "前进", "option_id": None}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        self.assertEqual(prompt + "\n<PROTOCOL ", self.provider.messages[-1][0]["content"][:len(prompt) + 11])
+        blank = self.request("PUT", "/api/settings/narration", {
+            "request_id": "jb-clear", "expected_revision": kept["revision"], **narration,
+            "jailbreak_prompt": "  \n "})
+        self.assertEqual("", blank["narration"]["jailbreak_prompt"])
+
     def test_save_list_reports_latest_story_segment(self):
         def summary(save_id):
             items = self.request("GET", "/api/saves")["items"]
@@ -1917,7 +1961,7 @@ class PhaseTwoApiTest(unittest.TestCase):
         memory = self.request("GET", f"/api/saves/{self.save_id}/memory")
         self.assertEqual(1, len(memory["story_arcs"])); self.assertEqual(25, memory["story_arcs"][0]["end_sequence"])
         with db.connect() as connection:
-            self.assertEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13], [row[0] for row in connection.execute(
+            self.assertEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14], [row[0] for row in connection.execute(
                 "SELECT version FROM schema_migrations ORDER BY version")])
 
     def test_manual_merge_combines_all_current_arcs_and_preserves_full_context(self):

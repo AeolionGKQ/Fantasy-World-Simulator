@@ -169,7 +169,7 @@ describe("API DTO contracts", () => {
         timeout_seconds: 17, structured_output: true, thinking_enabled: false, max_concurrency: 16,
         thinking_capability: "controlled", thinking_strategy: "enable_thinking", thinking_confidence: "verified" },
       narration: { pace: "dynamic" as const, tendency: "balanced" as const, detail: "standard" as const,
-        player_address: "given_name" as const }, revision: 4,
+        player_address: "given_name" as const, jailbreak_prompt: "保持沉浸" }, revision: 4,
     };
     const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify(payload), {
       status: 200, headers: { "Content-Type": "application/json" },
@@ -194,7 +194,7 @@ describe("API DTO contracts", () => {
       structured_output_probe_token: "probe-proof",
     }));
     expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({
-      pace: "dynamic", tendency: "balanced", detail: "standard", player_address: "given_name",
+      pace: "dynamic", tendency: "balanced", detail: "standard", player_address: "given_name", jailbreak_prompt: "保持沉浸",
       expected_revision: 4, request_id: "narration-request",
     });
     expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({
@@ -361,7 +361,7 @@ describe("API DTO contracts", () => {
         structured_output_capability: "unknown" as const,
         thinking_capability: "unknown" as const, thinking_strategy: null,
         thinking_confidence: "unknown" as const },
-      narration: { pace: "dynamic" as const, tendency: "balanced" as const, detail: "standard" as const, player_address: "second_person" as const },
+      narration: { pace: "dynamic" as const, tendency: "balanced" as const, detail: "standard" as const, player_address: "second_person" as const, jailbreak_prompt: "" },
       revision: 12,
     };
     const result: ModelTestResult = { ok: true, message: "ok", thinking_capability: "controlled",
@@ -382,7 +382,7 @@ describe("API DTO contracts", () => {
         timeout_seconds: 91, structured_output: false, structured_output_capability: "unknown" as const,
         thinking_enabled: false, max_concurrency: 9, thinking_capability: "unknown" as const,
         thinking_strategy: null, thinking_confidence: "unknown" as const },
-      narration: { pace: "dynamic" as const, tendency: "balanced" as const, detail: "standard" as const, player_address: "second_person" as const },
+      narration: { pace: "dynamic" as const, tendency: "balanced" as const, detail: "standard" as const, player_address: "second_person" as const, jailbreak_prompt: "" },
       revision: 5,
     };
     const supported: ModelTestResult = { ok: true, message: "ok", thinking_capability: "controlled",
@@ -420,14 +420,14 @@ describe("API DTO contracts", () => {
       thinking_enabled: false, max_concurrency: 2, thinking_capability: "controlled" as const,
       thinking_strategy: "enable_thinking" as const, thinking_confidence: "verified" as const,
     };
-    expect(resetStructuredOutputCapability({ model, narration: { pace: "dynamic", tendency: "balanced", detail: "standard", player_address: "second_person" }, revision: 1 }, "timeout")!.model)
+    expect(resetStructuredOutputCapability({ model, narration: { pace: "dynamic", tendency: "balanced", detail: "standard", player_address: "second_person", jailbreak_prompt: "" }, revision: 1 }, "timeout")!.model)
       .toEqual(expect.objectContaining({ structured_output: false, structured_output_capability: "unknown", structured_output_message: "timeout" }));
     expect(invalidateModelCapabilities({ ...model, base_url: "https://new.example/v1" }))
       .toEqual(expect.objectContaining({ structured_output: false, structured_output_capability: "unknown",
         structured_output_probe_token: undefined }));
     const current = { model: { ...model, base_url: "https://new.example/v1", structured_output: false,
       structured_output_capability: "unknown" as const }, narration: { pace: "dynamic" as const,
-      tendency: "balanced" as const, detail: "standard" as const, player_address: "second_person" as const }, revision: 1 };
+      tendency: "balanced" as const, detail: "standard" as const, player_address: "second_person" as const, jailbreak_prompt: "" }, revision: 1 };
     const oldKey = modelCapabilityKey("https://old.example/v1", "model-a");
     expect(isCurrentModelTestResponse(current, oldKey, 4, 4)).toBe(false);
     expect(isCurrentModelTestResponse(current, modelCapabilityKey(current.model.base_url, current.model.model), 3, 4)).toBe(false);
@@ -464,12 +464,12 @@ describe("API DTO contracts", () => {
         timeout_seconds: 45, structured_output: true, structured_output_capability: "supported",
         structured_output_probe_token: "current-probe-token", thinking_enabled: false, max_concurrency: 4,
         thinking_capability: "controlled", thinking_strategy: "enable_thinking", thinking_confidence: "verified" },
-      narration: { pace: "slow", tendency: "casual", detail: "detailed", player_address: "given_name" },
+      narration: { pace: "slow", tendency: "casual", detail: "detailed", player_address: "given_name", jailbreak_prompt: "" },
       revision: 8,
     };
     const modelResponse: AppSettings = {
       model: { ...current.model, model: "saved-model", api_key_mask: "****" },
-      narration: { pace: "fast", tendency: "combat", detail: "concise", player_address: "full_name" },
+      narration: { pace: "fast", tendency: "combat", detail: "concise", player_address: "full_name", jailbreak_prompt: "" },
       revision: 9,
     };
     const savedModel = mergeSavedModelSettings(current, modelResponse);
@@ -479,7 +479,7 @@ describe("API DTO contracts", () => {
 
     const narrationResponse: AppSettings = {
       model: { ...current.model, model: "stale-server-model", structured_output_probe_token: undefined },
-      narration: { pace: "dynamic", tendency: "balanced", detail: "standard", player_address: "second_person" },
+      narration: { pace: "dynamic", tendency: "balanced", detail: "standard", player_address: "second_person", jailbreak_prompt: "" },
       revision: 10,
     };
     const savedNarration = mergeSavedNarrationSettings(current, narrationResponse);

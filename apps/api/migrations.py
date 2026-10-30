@@ -433,6 +433,9 @@ CREATE TABLE memory_embeddings (
     PRIMARY KEY(save_id, memory_id, model_key)
 );
 """),
+    (14, """
+ALTER TABLE settings ADD COLUMN jailbreak_prompt TEXT NOT NULL DEFAULT '';
+"""),
 )
 
 
