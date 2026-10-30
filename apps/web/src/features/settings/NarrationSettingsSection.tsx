@@ -21,9 +21,8 @@ export function NarrationSettingsSection({ ctl, settings }: { ctl: SettingsContr
         <SegmentedField label="GM 对角色的称呼" value={settings.narration.player_address} options={playerAddressOptions} disabled={saving} onChange={(playerAddress) => update("player_address", playerAddress)} />
         <p className="field-help full">选择 GM 在剧情中如何称呼你：全名如“菲亚·维洛拉”，名字如“菲亚”，或直接用“你”。故事中的人物仍会根据关系和场合使用各自的称呼。</p>
         <label className="field full">
-          <span>破甲提示词 <small>可选</small></span>
+          <span>破甲提示词 <small className="field-caution">谨慎</small></span>
           <textarea maxLength={20000} disabled={saving} value={settings.narration.jailbreak_prompt} onChange={(event) => update("jailbreak_prompt", event.target.value)} />
-          <small>填写的内容会原样放入每轮剧情生成，以及故事弧生成和压缩时发给模型的提示词中；留空则不发送任何内容。</small>
           <small className="field-warning">请谨慎设置此项。如果设置后出现频繁生成失败或其他问题，请清空此项后重试。</small>
         </label>
         <div className="form-actions full">
