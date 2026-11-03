@@ -4,7 +4,9 @@ import copy
 import hashlib
 import json
 import re
+import unicodedata
 import uuid
+from difflib import SequenceMatcher
 
 try:
     from .canonical_npcs import CANONICAL_NPCS, canonical_name_collision
@@ -249,6 +251,78 @@ def _normalized_clause(text):
     return text.strip().strip("。！？!?；;，,：:\"'“”‘’「」『』").strip()
 
 
+# Models copy long quotes with small slips (a dropped or swapped character, other quote marks).
+# A quote of at least QUOTE_FUZZY_MIN_CHARS letters still counts when this similar to one passage.
+QUOTE_MATCH_THRESHOLD = 0.85
+QUOTE_FUZZY_MIN_CHARS = 8
+# Punctuation and spacing a quote may start or end with.
+_NOT_LETTERS = "。！？!?；;，,：:、…—-·.\"'“”‘’「」『』《》（）()【】[] \t\r\n　"
+
+
+def _quote_key(text):
+    """The letters a quote is compared on (no spaces, punctuation or control characters; width and
+    case folded), each with its index in text."""
+    letters, positions = [], []
+    for index, character in enumerate(text):
+        for folded in unicodedata.normalize("NFKC", character).lower():
+            if unicodedata.category(folded)[0] not in "PZC":
+                letters.append(folded)
+                positions.append(index)
+    return "".join(letters), positions
+
+
+def _locate_quote(quote, text):
+    """The (start, end) span of text that quote was copied from, or None.
+
+    Exact copies match directly; otherwise spacing, punctuation, width and case are ignored, and a
+    long enough quote may differ by a few characters from one nearby passage. Scattered words from
+    different sentences never add up to a match: the score counts only one window of text.
+    """
+    if not quote:
+        return None
+    start = text.find(quote)
+    if start >= 0:
+        return start, start + len(quote)
+    key, _ = _quote_key(quote)
+    haystack, positions = _quote_key(text)
+    if len(key) < 2:
+        return None
+
+    def widened(start, end):
+        # The letters matched; take as much of the story's punctuation around them as the quote had.
+        lead = len(quote) - len(quote.lstrip(_NOT_LETTERS))
+        trail = len(quote) - len(quote.rstrip(_NOT_LETTERS))
+        while lead and start > 0 and text[start - 1] in _NOT_LETTERS:
+            start -= 1; lead -= 1
+        while trail and end < len(text) and text[end] in _NOT_LETTERS:
+            end += 1; trail -= 1
+        return start, end
+
+    found = haystack.find(key)
+    if found >= 0:
+        return widened(positions[found], positions[found + len(key) - 1] + 1)
+    if len(key) < QUOTE_FUZZY_MIN_CHARS:
+        return None
+    slack = max(2, len(key) // 5)
+    best = None
+    for anchor in SequenceMatcher(None, haystack, key, autojunk=False).get_matching_blocks():
+        if anchor.size < 3:
+            continue
+        low = max(0, anchor.a - anchor.b - slack)
+        window = haystack[low:anchor.a - anchor.b + len(key) + slack]
+        blocks = [block for block in SequenceMatcher(None, window, key, autojunk=False).get_matching_blocks()
+                  if block.size]
+        matched = sum(block.size for block in blocks)
+        span = blocks[-1].a + blocks[-1].size - blocks[0].a
+        # Penalizes letters missing from either side: the quote's extras and the passage's skips.
+        score = 2 * matched / (len(key) + span)
+        if best is None or score > best[0]:
+            best = (score, low + blocks[0].a, low + blocks[-1].a + blocks[-1].size)
+    if best is None or best[0] < QUOTE_MATCH_THRESHOLD:
+        return None
+    return widened(positions[best[1]], positions[best[2] - 1] + 1)
+
+
 def _has_negated_action(text, terms):
     return any(_clause_negates_terms(clause, terms) for clause in _text_clauses(text))
 
@@ -300,28 +374,37 @@ def _evidence_authorizes_action(evidence, action_text):
     """Whether the player really chose to do something (accept a quest, attempt a breakthrough).
 
     The model judges the intent and quotes the short span of this turn's player input that
-    expresses it. The program only checks that the quote is verbatim from that input and that it
-    is not negated inside the quote or in the few characters right before it.
+    expresses it. The program only checks that the quote comes from that input (_locate_quote) and
+    that it is not negated inside the quote or in the few characters right before it.
     """
+    return _authorized_span(evidence, action_text) is not None
+
+
+def _authorized_span(evidence, action_text):
+    """The player's own words the quote stands for, or None when it is not from this input or is
+    negated."""
     quote = _normalized_clause(evidence).lower()
     if len(quote) < 2:
-        return False
-    start = action_text.find(quote)
-    if start < 0:
-        return False
+        return None
+    located = _locate_quote(quote, action_text)
+    if located is None:
+        return None
+    start, end = located
+    quote = action_text[start:end]
     # Look back to the start of the clause, or to a turn such as "但/还是/不过" that overrides
     # an earlier negation ("我不太确定，但我接了").
     boundary = max(action_text.rfind(mark, 0, start) for mark in CLAUSE_BOUNDARY)
     scope = re.split(r"但是|但|可是|还是|不过|然而", action_text[boundary + 1:start] + quote)[-1]
     for source, replacement in AFFIRMATIVE_NEGATION_IDIOMS.items():
         scope = scope.replace(source, replacement)
-    return not INTENT_NEGATION.search(scope)
+    return None if INTENT_NEGATION.search(scope) else quote
 
 
 def _evidence_authorizes_terms(evidence, action_text, terms):
-    """Regional quests keep their trigger words from the source text on top of the intent check."""
-    quote = _normalized_clause(evidence).lower()
-    return _evidence_authorizes_action(evidence, action_text) and _contains_any(quote, terms)
+    """Regional quests keep their trigger words from the source text on top of the intent check;
+    the words must be in what the player wrote, not only in the model's quote."""
+    span = _authorized_span(evidence, action_text)
+    return span is not None and _contains_any(span, terms)
 
 
 def _validate_breakthrough_intent(response, action):
@@ -381,8 +464,9 @@ def validate_gm_response(value, response_type=None, contract=None):
             _text(location[key], "scene.location." + key, 300)
     _text(location["reason"], "scene.location.reason", 2000, empty=True)
     if location["operation"] == "stay":
-        if location["location_id"] is not None or location["location_ref"] is not None:
-            raise ContractError("停留时不得填写地点引用")
+        # Naming the current place while staying is harmless; adjudicate checks it is the current one.
+        if location["location_ref"] is not None:
+            raise ContractError("停留时不得填写location_ref")
     elif bool(location["location_id"]) == bool(location["location_ref"]):
         raise ContractError("移动必须且只能引用一个地点")
     new_refs = set()
@@ -695,7 +779,7 @@ def _validate_regional_transition(quest_id, current, proposal, context_eligibili
         raise ContractError("地区任务缺少玩家动作或触发证据")
     terminal_evidence = " ".join((action_text, current.get("progress", ""), body))
     if target in {"declined", "failed", "abandoned"}:
-        if proposal["evidence"] not in body:
+        if _locate_quote(proposal["evidence"], body) is None:
             raise ContractError("地区任务终局路径缺少正文证据")
         if target == "declined" and not negated_active and not _contains_any(
                 terminal_evidence, ("拒绝", "不接受", "不接取", "不加入", "不参与")):
@@ -755,8 +839,13 @@ def _validate_narrative_consistency(state, response):
                       if not (item.get("delta") == 0 and item.get("operation") in (None, "adjust"))]
     for item, path in evidence_items:
         evidence = item.get("evidence", "")
-        if evidence and evidence not in body:
-            _path_error(path, "提案evidence必须逐字存在于叙事正文")
+        if not evidence:
+            continue
+        located = _locate_quote(evidence, body)
+        if located is None:
+            _path_error(path, "提案evidence必须摘自本次叙事正文，正文中找不到这段引用")
+        # Keep the passage as the story has it, so the saved change quotes the story exactly.
+        item["evidence"] = body[located[0]:located[1]]
     hp_delta = sum(item["delta"] for item in proposals["resources"] if item["key"] == "hp")
     hp_after = max(0, min(state["character"]["resources"]["hp"]["max"],
                           state["character"]["resources"]["hp"]["current"] + hp_delta))
@@ -853,6 +942,8 @@ def adjudicate(state, response, canonical_locations, regional_quest_ids,
         changes.append(_change("location_status", update["location_id"], None,
                                update["status"], update["reason"]))
     move = response["scene"]["location"]
+    if move["operation"] == "stay" and move["location_id"] not in (None, state["location"]["id"]):
+        raise ContractError("停留时location_id只能为null或当前地点；如果角色去了别处，请使用move")
     if move["operation"] == "move":
         destination = move["location_id"] or local_locations.get(move["location_ref"])
         target = canonical_locations.get(destination) or result.get("locations", {}).get(destination)
