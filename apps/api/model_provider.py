@@ -19,7 +19,8 @@ except ImportError:  # Direct execution: python server.py
 
 class ProviderError(Exception):
     def __init__(self, code, message, retryable=False, http_status=None,
-                 provider_message=None, provider_code=None, provider_param=None):
+                 provider_message=None, provider_code=None, provider_param=None,
+                 raw_output=None):
         super().__init__(message)
         self.code = code
         self.message = message
@@ -28,6 +29,8 @@ class ProviderError(Exception):
         self.provider_message = provider_message
         self.provider_code = provider_code
         self.provider_param = provider_param
+        # The model's reply as received, kept when it could not be read (shown in failure details).
+        self.raw_output = raw_output
 
 
 THINKING_CONFIG_VERSION = "thinking-control-v2"
@@ -490,7 +493,11 @@ def _request(url, api_key, timeout, method="GET", payload=None, max_retries=2,
                     raise ProviderError("MODEL_OUTPUT_TOO_LARGE", "模型响应体过大")
                 if not parse_json:
                     return None
-                return _strict_json_loads(raw.decode("utf-8"))
+                try:
+                    return _strict_json_loads(raw.decode("utf-8"))
+                except (UnicodeError, ValueError):
+                    raise ProviderError("MODEL_OUTPUT_FORMAT", "模型服务返回了无效 JSON",
+                                        raw_output=raw.decode("utf-8", "replace")) from None
         except urllib.error.HTTPError as exc:
             status = exc.code
             retryable = status == 429 or status >= 500
@@ -530,29 +537,41 @@ def _chat_content(response):
     try:
         content = response["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError):
-        raise ProviderError("MODEL_OUTPUT_FORMAT", "模型响应缺少 choices[0].message.content") from None
+        raise ProviderError("MODEL_OUTPUT_FORMAT", "模型响应缺少 choices[0].message.content",
+                            raw_output=_raw_response(response)) from None
     try:
         return _model_json_object(content)
     except (TypeError, ValueError) as exc:
-        raise ProviderError("MODEL_OUTPUT_FORMAT", str(exc)) from None
+        raise ProviderError("MODEL_OUTPUT_FORMAT", str(exc),
+                            raw_output=content if isinstance(content, str) else _raw_response(content)) from None
 
 
 def _anthropic_content(response):
     try:
         blocks = response["content"]
     except (KeyError, TypeError):
-        raise ProviderError("MODEL_OUTPUT_FORMAT", "模型响应缺少 content 内容块") from None
+        raise ProviderError("MODEL_OUTPUT_FORMAT", "模型响应缺少 content 内容块",
+                            raw_output=_raw_response(response)) from None
     if not isinstance(blocks, list):
-        raise ProviderError("MODEL_OUTPUT_FORMAT", "模型响应 content 必须是内容块数组")
+        raise ProviderError("MODEL_OUTPUT_FORMAT", "模型响应 content 必须是内容块数组",
+                            raw_output=_raw_response(response))
     text = "\n".join(block.get("text", "") for block in blocks
                      if isinstance(block, dict) and block.get("type") == "text" and
                      isinstance(block.get("text"), str))
     if not text:
-        raise ProviderError("MODEL_OUTPUT_FORMAT", "模型响应没有可用的 text 内容块")
+        raise ProviderError("MODEL_OUTPUT_FORMAT", "模型响应没有可用的 text 内容块",
+                            raw_output=_raw_response(response))
     try:
         return _model_json_object(text)
     except (TypeError, ValueError) as exc:
-        raise ProviderError("MODEL_OUTPUT_FORMAT", str(exc)) from None
+        raise ProviderError("MODEL_OUTPUT_FORMAT", str(exc), raw_output=text) from None
+
+
+def _raw_response(value):
+    try:
+        return json.dumps(value, ensure_ascii=False, indent=2)
+    except (TypeError, ValueError):
+        return repr(value)
 
 
 def _anthropic_messages(messages):

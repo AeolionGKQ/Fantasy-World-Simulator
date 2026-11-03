@@ -573,6 +573,8 @@ class AppContext:
 
     def _run_narrative(self, save_id, job_id):
         claimed = None
+        # Each rejected model reply, with the reason, so a failed job can show 查看详情.
+        attempts = []
         try:
             claimed = self.story.claim(save_id, job_id)
             if claimed is None:
@@ -624,10 +626,12 @@ class AppContext:
             first_error = None
             for attempt in range(2):
                 request_messages = list(messages)
+                correction = None
                 if first_error is not None:
-                    request_messages.append({"role": "system", "content": (
-                        "上一份回复未通过程序校验。不要讨论错误，不要添加解释或代码围栏；请重新返回一个完整JSON对象。\n"
-                        "校验失败位置：" + first_error)})
+                    correction = ("上一份回复未通过程序校验。不要讨论错误，不要添加解释或代码围栏；请重新返回一个完整JSON对象。\n"
+                                  "校验失败位置：" + first_error)
+                    request_messages.append({"role": "system", "content": correction})
+                proposal = None
                 try:
                     proposal = self._call_provider_with_concurrency_fallback(
                         config, lambda: generate(request_messages))
@@ -657,8 +661,14 @@ class AppContext:
                     if exc.code != "MODEL_OUTPUT_FORMAT":
                         raise
                     detail = "JSON解析：" + exc.message
+                    attempts.append(failed_attempt(attempt, "JSON解析", exc.message, exc.raw_output,
+                                                   "raw", correction))
                 except (ContractError, ValueError) as exc:
                     detail = "回复契约或权威规则：" + str(exc)
+                    attempts.append(failed_attempt(
+                        attempt, "回复契约或权威规则", str(exc),
+                        None if proposal is None else json.dumps(proposal, ensure_ascii=False, indent=2),
+                        "parsed", correction))
                 if attempt == 0:
                     first_error = detail[:1600]
                     continue
@@ -678,11 +688,11 @@ class AppContext:
                                "或关闭模型思考后重新提交。")
             else:
                 message = exc.message
-            self.story.fail(save_id, job_id, exc.code, message, exc.retryable)
+            self.story.fail(save_id, job_id, exc.code, message, exc.retryable, attempts)
         except ContractError as exc:
-            self.story.fail(save_id, job_id, "MODEL_OUTPUT_FORMAT", str(exc), False)
+            self.story.fail(save_id, job_id, "MODEL_OUTPUT_FORMAT", str(exc), False, attempts)
         except Exception:
-            self.story.fail(save_id, job_id, "INTERNAL_ERROR", "叙事任务发生内部错误", True)
+            self.story.fail(save_id, job_id, "INTERNAL_ERROR", "叙事任务发生内部错误", True, attempts)
         finally:
             current = threading.current_thread()
             with self._worker_lock:
@@ -693,6 +703,19 @@ class AppContext:
             workers = list(self._workers)
         for worker in workers:
             worker.join(timeout)
+
+
+# Enough for any real reply; a runaway one is cut so the job row stays readable.
+MAX_FAILED_RESPONSE_CHARS = 200_000
+
+
+def failed_attempt(index, stage, error, response, response_kind, correction):
+    """One rejected model reply: response_kind "raw" is the text as received, "parsed" the JSON
+    object the validator read."""
+    if response is not None and len(response) > MAX_FAILED_RESPONSE_CHARS:
+        response = response[:MAX_FAILED_RESPONSE_CHARS] + "\n…（内容过长，已截断）"
+    return {"attempt": index + 1, "stage": stage, "error": error, "response": response,
+            "response_kind": response_kind, "correction_prompt": correction}
 
 
 class FantasySimulatorHandler(BaseHTTPRequestHandler):
@@ -1095,6 +1118,8 @@ class FantasySimulatorHandler(BaseHTTPRequestHandler):
                 return (202 if created else 200), job, {}
             if len(parts) == 5 and parts[3] == "narrative-jobs" and method == "GET":
                 return 200, self.app.story.get_job(save_id, parts[4]), {}
+            if len(parts) == 6 and parts[3] == "narrative-jobs" and parts[5] == "failure-details" and method == "GET":
+                return 200, self.app.story.get_job_failure_details(save_id, parts[4]), {}
             if len(parts) == 6 and parts[3] == "narrative-jobs" and parts[5] == "cancel" and method == "POST":
                 return 200, self.app.story.cancel(save_id, parts[4], self._read_json()), {}
             if len(parts) == 4 and parts[3] in {"character-state", "inventory", "quests", "journals",

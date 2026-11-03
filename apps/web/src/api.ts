@@ -11,6 +11,7 @@ import type {
   ImportPreview,
   ImportResult,
   NarrativeJob,
+  NarrativeJobFailureDetails,
   ModelSettings,
   ImageModelSettings,
   EmbeddingModelSettings,
@@ -296,6 +297,8 @@ export const api = {
     request<Turn>(`/api/saves/${encodeURIComponent(saveId)}/turns/${encodeURIComponent(turnId)}`, { signal }),
   getNarrativeJob: (saveId: string, jobId: string, signal?: AbortSignal) =>
     request<NarrativeJob>(`/api/saves/${encodeURIComponent(saveId)}/narrative-jobs/${encodeURIComponent(jobId)}`, { signal }),
+  getNarrativeJobFailureDetails: (saveId: string, jobId: string, signal?: AbortSignal) =>
+    request<NarrativeJobFailureDetails>(`/api/saves/${encodeURIComponent(saveId)}/narrative-jobs/${encodeURIComponent(jobId)}/failure-details`, { signal }),
   cancelNarrativeJob: (saveId: string, jobId: string, expectedStateVersion: number, requestId: string = crypto.randomUUID(), signal?: AbortSignal) =>
     request<NarrativeJob>(`/api/saves/${encodeURIComponent(saveId)}/narrative-jobs/${encodeURIComponent(jobId)}/cancel`, {
       method: "POST", signal, body: { request_id: requestId, expected_state_version: expectedStateVersion },

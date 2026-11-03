@@ -642,8 +642,33 @@ export interface NarrativeJob {
   error: ApiProblem | null;
   result: { turn_id?: string; sequence?: number; state_version?: number; story_arc_id?: string; start_sequence?: number; end_sequence?: number; removed_count?: number } | null;
   context_manifest: Record<string, unknown> | null;
+  /** A failed job kept each rejected model reply; read them with getNarrativeJobFailureDetails. */
+  has_failure_details?: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/** One model reply the program rejected. */
+export interface NarrativeJobFailureAttempt {
+  attempt: number;
+  /** Where it failed: "JSON解析" (unreadable reply) or "回复契约或权威规则" (validation). */
+  stage: string;
+  error: string;
+  /** "raw": the reply text as received; "parsed": the JSON object the validator read. */
+  response: string | null;
+  response_kind: "raw" | "parsed";
+  /** The correction sent with this attempt (only on the retry). */
+  correction_prompt: string | null;
+}
+
+export interface NarrativeJobFailureDetails {
+  job_id: string;
+  type: NarrativeJobType;
+  status: JobStatus;
+  code: string;
+  message: string;
+  attempts: NarrativeJobFailureAttempt[];
+  failed_at: string;
 }
 
 export interface StoryView {

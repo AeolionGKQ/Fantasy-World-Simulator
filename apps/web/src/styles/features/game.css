@@ -118,4 +118,107 @@
       padding-top: 24px;
     }
   }
+
+  /* ---- 生成失败详情: each rejected model reply and why; long replies scroll inside their box ---- */
+  .failure-details-modal {
+    width: min(94vw, 860px);
+  }
+
+  .failure-details-modal .modal-heading {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+  }
+
+  .failure-details {
+    display: grid;
+    gap: 18px;
+    padding: 24px;
+  }
+
+  .failure-facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px 18px;
+  }
+
+  .failure-facts dt {
+    color: var(--muted);
+    font-size: var(--text-xs);
+  }
+
+  .failure-facts dd {
+    margin: 0;
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+  }
+
+  .failure-attempt {
+    display: grid;
+    gap: 8px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+  }
+
+  .failure-attempt h3 {
+    font-size: var(--text-md);
+  }
+
+  .failure-attempt h4 {
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  .failure-attempt pre {
+    max-height: 420px;
+    margin: 0;
+    padding: 12px 14px;
+    overflow: auto;
+    font-family: ui-monospace, monospace;
+    font-size: var(--text-xs);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--surface-sunken);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+  }
+
+  .failure-attempt .failure-error {
+    color: var(--danger);
+    background: var(--danger-soft);
+    border-color: var(--danger-line);
+  }
+
+  .failure-attempt summary {
+    color: var(--muted);
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+
+  .failure-attempt details pre {
+    margin-top: 8px;
+  }
+
+  .failure-details .modal-actions {
+    margin-top: 0;
+  }
+
+  .failure-details .copy-status {
+    margin-right: auto;
+    color: var(--muted);
+    font-size: var(--text-xs);
+  }
+
+  @media (max-width: 1023px) {
+    .failure-details {
+      padding: 20px 16px;
+    }
+
+    .failure-attempt pre {
+      max-height: 320px;
+    }
+  }
 }
