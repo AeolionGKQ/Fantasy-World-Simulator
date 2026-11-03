@@ -768,9 +768,12 @@ def _validate_regional_transition(quest_id, current, proposal, context_eligibili
                                  _normalized_clause(proposal["action_evidence"]).lower()), "")
     negated_active = bool(authorization_clause) and _clause_negates_terms(
         authorization_clause, REGIONAL_NEGATED_ACTION_TERMS[quest_id])
-    if target == "active" and negated_active:
+    # The player's trigger words authorize starting the quest; once it is active, later turns only
+    # update its progress and need no such quote (as for regular quests).
+    becoming_active = target == "active" and current["status"] != "active"
+    if becoming_active and negated_active:
         raise ContractError("玩家原始行动明确否定地区任务触发行为，不能转为active")
-    if target == "active" and not _evidence_authorizes_terms(
+    if becoming_active and not _evidence_authorizes_terms(
             proposal["action_evidence"], action_text,
             REGIONAL_ACTIVE_ACTION_TERMS[quest_id] + tuple(rule["start_terms"])):
         raise ContractError("地区任务active必须引用本次玩家行动中的触发原文")
