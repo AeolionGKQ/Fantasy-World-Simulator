@@ -8,7 +8,8 @@ import test_phase_two as base
 from api.content_registry import STATE_RULES_POLICY_VERSION, ContentRegistry, state_rules_policy
 from api.contract_registry import load_contract
 from api.model_provider import ProviderError
-from api.narrative_contract import ContractError, adjudicate, validate_gm_response
+from api.narrative_contract import (ContractError, _evidence_authorizes_action, adjudicate,
+                                    validate_gm_response)
 from api.story_repository import (StoryRepository, canonical_location_map, initial_story_state,
                                   number_active_memories)
 
@@ -154,6 +155,55 @@ class StateRuleTest(unittest.TestCase):
         response = gm_response("turn")
         response["proposals"]["resources"] = [{"key": "mp", "delta": 0, "reason": "无消耗", "evidence": "不在正文里"}]
         decide(story_state(), response)
+
+    def test_evidence_quotes_tolerate_small_copy_slips(self):
+        passage = ("莉娜两只小手捧着比自己脸蛋还大的糖酥，在姐姐的看护下咬开一角。"
+                   "浓稠微烫的糖蜜带着类似野生坚果与浆果的天然清甜，在小姑娘嘴里缓缓融开。")
+        body = "米娅拉着大家穿过人群。\n\n" + passage + "莉娜两只眼睛睁得圆溜溜的。\n\n远处传来钟声，旅人感到一阵疲惫。"
+
+        def spend(evidence):
+            response = gm_response("turn")
+            response["narrative"]["body"] = body
+            response["proposals"]["resources"] = [{"key": "st", "delta": -5, "reason": "逛街", "evidence": evidence}]
+            validated = validate_gm_response(response)
+            decided = adjudicate(story_state(), validated, canonical_location_map(), set(), {},
+                                 {"action": "继续前进"})
+            return decided, validated["proposals"]["resources"][0]["evidence"]
+
+        # The slip seen on the test phone: 「两只小手」 copied as 「两只手」. The saved change quotes the story.
+        decided, kept = spend(passage.replace("两只小手", "两只手"))
+        change = next(c for c in decided["changes"] if c["kind"] == "resource")
+        self.assertEqual(-5, change["new"] - change["old"])
+        self.assertEqual(passage, kept)
+        # Other quote marks, spacing and full-width punctuation do not matter either.
+        spend("远处传来钟声, 旅人感到一阵疲惫")
+        for wrong in ("旅人在雨夜里独自走向港口，心中满是不安与期待。",  # not in the story
+                      "米娅拉着大家穿过人群，远处传来钟声",  # words from two separate passages
+                      "远处传来铃声"):  # short quotes still need every letter
+            with self.subTest(wrong=wrong), self.assertRaisesRegex(ContractError, "正文中找不到这段引用"):
+                spend(wrong)
+
+    def test_player_input_quotes_tolerate_slips_but_keep_negation(self):
+        accept = "好的，我愿意接下护送商队前往沙海的这份委托。"
+        self.assertTrue(_evidence_authorizes_action("我愿意接下护送商队前往沙海的这份委托", accept))
+        self.assertTrue(_evidence_authorizes_action("我愿意接下护送商队去往沙海的这份委托", accept))
+        self.assertFalse(_evidence_authorizes_action(
+            "我愿意接下护送商队前往沙海的这份委托", "我不愿意接下护送商队前往沙海的这份委托"))
+        self.assertFalse(_evidence_authorizes_action("我愿意接下这份委托", "我想先去吃点东西"))
+
+    def test_stay_may_name_the_current_location_but_no_other(self):
+        state = story_state()
+        response = gm_response("turn")
+        response["scene"]["location"]["location_id"] = state["location"]["id"]
+        self.assertEqual(state["location"]["id"], decide(state, response)["state"]["location"]["id"])
+        elsewhere = copy.deepcopy(response)
+        elsewhere["scene"]["location"]["location_id"] = "noxvia.street"
+        with self.assertRaisesRegex(ContractError, "请使用move"):
+            decide(state, elsewhere)
+        reference = copy.deepcopy(response)
+        reference["scene"]["location"].update({"location_id": None, "location_ref": "location:new.1"})
+        with self.assertRaisesRegex(ContractError, "location_ref"):
+            validate_gm_response(reference)
 
     def test_state_rules_policy_reaches_every_gm_turn(self):
         registry = ContentRegistry(base.API_DIR)
