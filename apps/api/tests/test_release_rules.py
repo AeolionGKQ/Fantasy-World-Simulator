@@ -8,8 +8,8 @@ import test_phase_two as base
 from api.content_registry import STATE_RULES_POLICY_VERSION, ContentRegistry, state_rules_policy
 from api.contract_registry import load_contract
 from api.model_provider import ProviderError
-from api.narrative_contract import (ContractError, _evidence_authorizes_action, adjudicate,
-                                    validate_gm_response)
+from api.narrative_contract import (ContractError, _evidence_authorizes_action,
+                                    _validate_regional_transition, adjudicate, validate_gm_response)
 from api.story_repository import (StoryRepository, canonical_location_map, initial_story_state,
                                   number_active_memories)
 
@@ -190,6 +190,23 @@ class StateRuleTest(unittest.TestCase):
         self.assertFalse(_evidence_authorizes_action(
             "我愿意接下护送商队前往沙海的这份委托", "我不愿意接下护送商队前往沙海的这份委托"))
         self.assertFalse(_evidence_authorizes_action("我愿意接下这份委托", "我想先去吃点东西"))
+
+    def test_active_regional_quest_updates_need_no_new_trigger_quote(self):
+        body = "米娅拉着菲亚挤到熔岩糖酥摊前，四人分着吃完了刚出炉的糖酥。"
+        update = {"quest_id": "regional_main.mia_day_out", "status": "active", "action_evidence": "",
+                  "evidence": "四人分着吃完了刚出炉的糖酥", "terminal_cause": "none",
+                  "progress": "一起品尝了熔岩糖酥", "necessary_nodes": []}
+        # The choice on the test phone: no trigger words, and the quest was already 进行中.
+        snack = "先去尝尝刚出炉的熔岩糖酥"
+        _validate_regional_transition("regional_main.mia_day_out", {"status": "active"}, update,
+                                      "location_matched", snack, body)
+        # Starting the quest still needs the player's own trigger words.
+        with self.assertRaisesRegex(ContractError, "触发原文"):
+            _validate_regional_transition("regional_main.mia_day_out", {"status": "offered"}, update,
+                                          "location_matched", snack, body)
+        _validate_regional_transition(
+            "regional_main.mia_day_out", {"status": "offered"},
+            {**update, "action_evidence": "我愿意帮助米娅"}, "location_matched", "好，我愿意帮助米娅", body)
 
     def test_stay_may_name_the_current_location_but_no_other(self):
         state = story_state()
