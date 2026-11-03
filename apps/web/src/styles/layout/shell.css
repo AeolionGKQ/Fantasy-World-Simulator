@@ -507,6 +507,19 @@
     background: var(--surface-raised);
   }
 
+  /* A text button after the message (查看详情), not the 44px close button. */
+  .app-notice .notice-action {
+    width: auto;
+    height: auto;
+    min-height: 0;
+    margin-left: 6px;
+    padding: 0 4px;
+    color: var(--danger);
+    font-size: var(--text-sm);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
   @media (max-width: 1023px) {
     /* Closed: slides out quickly, then becomes hidden so its links leave the tab order. */
     .sidebar {

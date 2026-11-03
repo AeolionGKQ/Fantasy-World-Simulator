@@ -165,6 +165,13 @@ DISMISSED_STATUS = {"offered": "declined"}
 STATE_JOB_TYPES = ("opening", "turn", "intervene", "reshape")
 
 
+# Columns named so later additions (failure_details_json) default to NULL.
+INSERT_NARRATIVE_JOB = (
+    "INSERT INTO narrative_jobs(id,save_id,request_id,request_fingerprint,job_type,"
+    "source_state_version,target_turn_id,status,input_json,context_manifest_json,result_json,"
+    "error_code,error_message,retryable,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+
+
 class StoryRepository:
     def __init__(self, database, content_registry):
         self.database = database
@@ -228,6 +235,7 @@ class StoryRepository:
                 "target_turn_id": row["target_turn_id"], "status": row["status"],
                 "error": ({"code": row["error_code"], "message": row["error_message"],
                            "retryable": bool(row["retryable"])} if row["error_code"] else None),
+                "has_failure_details": bool(row["failure_details_json"]),
                 "result": loads(row["result_json"]),
                 "context_manifest": loads(row["context_manifest_json"]),
                 "created_at": row["created_at"], "updated_at": row["updated_at"]}
@@ -322,7 +330,7 @@ class StoryRepository:
             request_input = dict(body)
             request_input["action_type"] = job_type
             connection.execute(
-                "INSERT INTO narrative_jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                INSERT_NARRATIVE_JOB,
                 (job_id, save_id, body["request_id"], fingerprint, job_type,
                  state["state_version"], target_turn_id, "queued", dumps(request_input),
                  None, None, None, None, 0, now, now))
@@ -652,7 +660,8 @@ class StoryRepository:
             connection.execute("UPDATE narrative_jobs SET context_manifest_json=?,updated_at=? WHERE id=?",
                                (dumps(manifest), utc_now(), job_id))
 
-    def fail(self, save_id, job_id, code, message, retryable=False):
+    def fail(self, save_id, job_id, code, message, retryable=False, attempts=None):
+        """attempts: what each model attempt returned and why it was rejected, kept for 查看详情."""
         with self.database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT status FROM narrative_jobs WHERE id=? AND save_id=?",
@@ -661,9 +670,26 @@ class StoryRepository:
                 connection.rollback(); return
             status = "cancelled" if row["status"] == "cancel_requested" else "failed"
             connection.execute(
-                "UPDATE narrative_jobs SET status=?,error_code=?,error_message=?,retryable=?,updated_at=? WHERE id=?",
-                (status, code, message[:2000], int(retryable), utc_now(), job_id))
+                "UPDATE narrative_jobs SET status=?,error_code=?,error_message=?,retryable=?,"
+                "failure_details_json=?,updated_at=? WHERE id=?",
+                (status, code, message[:2000], int(retryable),
+                 dumps({"message": message, "attempts": attempts}) if attempts else None,
+                 utc_now(), job_id))
             connection.commit()
+
+    def get_job_failure_details(self, save_id, job_id):
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT id,job_type,status,error_code,failure_details_json,updated_at FROM narrative_jobs "
+                "WHERE id=? AND save_id=?", (job_id, save_id)).fetchone()
+        if not row:
+            raise DomainError("NARRATIVE_JOB_NOT_FOUND", "叙事任务不存在", 404)
+        if not row["failure_details_json"]:
+            raise DomainError("FAILURE_DETAILS_NOT_FOUND", "这次生成没有留下失败详情", 404)
+        details = loads(row["failure_details_json"])
+        return {"job_id": row["id"], "type": row["job_type"], "status": row["status"],
+                "code": row["error_code"], "message": details["message"],
+                "attempts": details["attempts"], "failed_at": row["updated_at"]}
 
     def complete_turn(self, claimed, response):
         save_id = claimed["job"]["save_id"]
@@ -1354,7 +1380,7 @@ class StoryRepository:
                                       (save_id,)).fetchone():
                 raise DomainError("NO_MEMORIES_TO_CURATE", "当前没有长期记忆需要整理", 409)
             now, job_id = utc_now(), new_id()
-            connection.execute("INSERT INTO narrative_jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            connection.execute(INSERT_NARRATIVE_JOB,
                                (job_id, save_id, body["request_id"], fingerprint, MEMORY_CURATION_JOB,
                                 state["state_version"], None, "queued",
                                 dumps({"action_type": MEMORY_CURATION_JOB}), None, None, None, None, 0, now, now))
@@ -1480,7 +1506,7 @@ class StoryRepository:
                     raise DomainError("IDEMPOTENCY_CONFLICT", "request_id已用于不同故事弧请求", 409)
                 connection.commit(); return self._job_row(previous), False
             now, job_id = utc_now(), new_id()
-            connection.execute("INSERT INTO narrative_jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            connection.execute(INSERT_NARRATIVE_JOB,
                                (job_id, save_id, body["request_id"], fingerprint, job_type,
                                 state["state_version"], None, "queued", dumps(source), None, None,
                                 None, None, 0, now, now))

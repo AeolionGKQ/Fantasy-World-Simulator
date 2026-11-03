@@ -8,6 +8,8 @@ export interface Notice {
   text: string;
   /** Shown for errors the player may need to report. */
   traceId?: string | null;
+  /** A text button after the message, e.g. 查看详情 for a failed generation. */
+  action?: { label: string; run: () => void };
 }
 
 /** Shows a notice (replacing the current one), or hides the bar with null. */
@@ -54,7 +56,7 @@ export function NoticeBar({ notice, leaving, onDismiss }: { notice: Notice; leav
   return (
     <div className={`app-notice ${notice.tone} ${leaving ? "leaving" : ""}`} role={notice.tone === "error" ? "alert" : "status"}>
       <span className="notice-icon" aria-hidden="true"><Icon name={notice.tone === "error" ? "alert" : "info"} /></span>
-      <p>{notice.text}{notice.traceId && <small>问题编号：{notice.traceId}</small>}</p>
+      <p>{notice.text}{notice.action && <button className="notice-action text-button" type="button" onClick={notice.action.run}>{notice.action.label}</button>}{notice.traceId && <small>问题编号：{notice.traceId}</small>}</p>
       <button type="button" onClick={onDismiss} aria-label="关闭提示">×</button>
     </div>
   );

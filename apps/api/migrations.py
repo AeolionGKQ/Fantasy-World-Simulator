@@ -436,6 +436,9 @@ CREATE TABLE memory_embeddings (
     (14, """
 ALTER TABLE settings ADD COLUMN jailbreak_prompt TEXT NOT NULL DEFAULT '';
 """),
+    (15, """
+ALTER TABLE narrative_jobs ADD COLUMN failure_details_json TEXT;
+"""),
 )
 
 

@@ -1791,6 +1791,38 @@ class PhaseTwoApiTest(unittest.TestCase):
         self.assertEqual("system", feedback["role"])
         self.assertIn("$.scene.elapsed_minutes", feedback["content"])
         self.assertIn("重新返回一个完整JSON对象", feedback["content"])
+        self.assertFalse(result["has_failure_details"])
+        missing = self.request(
+            "GET", f"/api/saves/{self.save_id}/narrative-jobs/{job['id']}/failure-details", None, 404)
+        self.assertEqual("FAILURE_DETAILS_NOT_FOUND", missing["error"]["code"])
+
+    def test_failed_retries_keep_both_attempts_for_the_details_dialog(self):
+        unreadable = "好的，下面是剧情：{\"narrative\": 未闭合"
+        invalid = gm_response("opening")
+        invalid["scene"]["elapsed_minutes"] = "five"
+        self.provider.responses.extend([
+            ProviderError("MODEL_OUTPUT_FORMAT", "模型回复中未找到完整JSON对象", raw_output=unreadable),
+            invalid])
+        job = self.request("POST", f"/api/saves/{self.save_id}/story/opening", {
+            "request_id": "details", "expected_state_version": 0, "guidance": ""}, 202)
+        result = self.wait_job(self.save_id, job["id"])
+        self.assertEqual(("failed", "MODEL_OUTPUT_FORMAT"), (result["status"], result["error"]["code"]))
+        self.assertTrue(result["has_failure_details"])
+        details = self.request(
+            "GET", f"/api/saves/{self.save_id}/narrative-jobs/{job['id']}/failure-details")
+        first, second = details["attempts"]
+        self.assertEqual((1, "JSON解析", "模型回复中未找到完整JSON对象", unreadable, "raw", None),
+                         (first["attempt"], first["stage"], first["error"], first["response"],
+                          first["response_kind"], first["correction_prompt"]))
+        self.assertEqual((2, "回复契约或权威规则", "parsed"),
+                         (second["attempt"], second["stage"], second["response_kind"]))
+        self.assertIn("$.scene.elapsed_minutes", second["error"])
+        self.assertEqual("five", json.loads(second["response"])["scene"]["elapsed_minutes"])
+        # The correction the model got before its second try is the one shown in the dialog.
+        self.assertEqual(self.provider.messages[1][-1]["content"], second["correction_prompt"])
+        self.assertIn("模型回复中未找到完整JSON对象", second["correction_prompt"])
+        self.assertIn("第二次错误", details["message"])
+        self.assertEqual("MODEL_OUTPUT_FORMAT", details["code"])
 
     def test_narrative_timeout_stops_without_retry_and_gives_recovery_options(self):
         self.provider.responses.append(ProviderError("MODEL_TIMEOUT", "模型服务请求超时", True))
@@ -1961,7 +1993,7 @@ class PhaseTwoApiTest(unittest.TestCase):
         memory = self.request("GET", f"/api/saves/{self.save_id}/memory")
         self.assertEqual(1, len(memory["story_arcs"])); self.assertEqual(25, memory["story_arcs"][0]["end_sequence"])
         with db.connect() as connection:
-            self.assertEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14], [row[0] for row in connection.execute(
+            self.assertEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], [row[0] for row in connection.execute(
                 "SELECT version FROM schema_migrations ORDER BY version")])
 
     def test_manual_merge_combines_all_current_arcs_and_preserves_full_context(self):

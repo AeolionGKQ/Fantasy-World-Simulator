@@ -12,6 +12,12 @@ import { isNarrativeJobActive, narrativeJobMessage, refreshedViewedTurn } from "
 
 type JobFactory = (version: number, signal: AbortSignal) => Promise<NarrativeJob>;
 
+/** The error notice for a failed job; when the model's rejected replies were kept, it offers 查看详情. */
+function failedJobNotice(job: NarrativeJob, showDetails: (job: NarrativeJob) => void) {
+  return { tone: "error" as const, text: narrativeJobMessage(job),
+    action: job.status === "failed" && job.has_failure_details ? { label: "查看详情", run: () => showDetails(job) } : undefined };
+}
+
 /**
  * Game session state for one save. Every async action captures a session token and the
  * requested save id so responses that arrive after a save switch are dropped.
@@ -29,6 +35,8 @@ export function useGameWorkspace(saveId: string) {
   const [submittingArc, setSubmittingArc] = useState(false);
   const [submittingMemory, setSubmittingMemory] = useState(false);
   const [startingImage, setStartingImage] = useState(false);
+  // The failed job whose 查看详情 dialog is open.
+  const [failedJob, setFailedJob] = useState<NarrativeJob | null>(null);
   const session = useRef(0);
   const controller = useRef<AbortController | null>(null);
   const stateActionController = useRef<AbortController | null>(null);
@@ -104,7 +112,7 @@ export function useGameWorkspace(saveId: string) {
           notify({ tone: "info", text: job.type === "turns_to_arc" || job.type === "arcs_to_arc" ? "故事弧已更新。" : "新剧情已保存，角色状态已更新。" });
           await refresh(true, token, job.result?.turn_id);
         } else {
-          notify({ tone: "error", text: narrativeJobMessage(job) });
+          notify(failedJobNotice(job, setFailedJob));
           await refresh(true);
         }
       } catch (reason) { if (!disposed && !pollController.signal.aborted && token === session.current) showProblem(reason); }
@@ -147,7 +155,7 @@ export function useGameWorkspace(saveId: string) {
           setData((current) => current && current.bootstrap.save_id === requestedId
             ? { ...current, story: { ...current.story, active_arc_job: null } }
             : current);
-          notify({ tone: "error", text: narrativeJobMessage(job) });
+          notify(failedJobNotice(job, setFailedJob));
         }
       } catch (reason) {
         if (!disposed && !pollController.signal.aborted && token === session.current) showProblem(reason);
@@ -179,7 +187,7 @@ export function useGameWorkspace(saveId: string) {
         const removed = job.result?.removed_count ?? 0;
         notify(job.status === "succeeded"
           ? { tone: "info", text: removed ? `长期记忆已整理，移除了 ${removed} 条。` : "长期记忆已整理，没有需要移除的内容。" }
-          : { tone: "error", text: narrativeJobMessage(job) });
+          : failedJobNotice(job, setFailedJob));
         await refresh(true, token);
       } catch (reason) {
         if (!disposed && !pollController.signal.aborted && token === session.current) showProblem(reason);
@@ -385,7 +393,7 @@ export function useGameWorkspace(saveId: string) {
 
   return {
     data, tab, setTab, selectTab, viewedTurn, setViewedTurn, showTurn, loading, problem,
-    submittingState, submittingArc, submittingMemory, startingImage,
+    submittingState, submittingArc, submittingMemory, startingImage, failedJob, setFailedJob,
     refresh, startStateJob, startArcJob, cancelJob, readJournalTurn, resolveStartPrerequisite,
     saveCharacterAdditional, startMemoryCuration, reloadMemories, startImageSession,
   };

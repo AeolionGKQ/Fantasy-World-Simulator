@@ -7,6 +7,7 @@ import { useSlidingIndicator } from "../../components/useSlidingIndicator";
 import { playerProblemMessage } from "../../playerCopy";
 import type { ApiProblem } from "../../types";
 import { gameTabs, type GameTab } from "./gameTabs";
+import { FailureDetailsModal } from "./FailureDetailsModal";
 import { isNarrativeJobActive } from "./helpers";
 import { BondsPanel } from "./panels/BondsPanel";
 import { CharacterPanel } from "./panels/CharacterPanel";
@@ -128,6 +129,7 @@ export default function GameWorkspace() {
         )}
         {tab === "reputations" && <ReputationsPanel data={data.projections.reputations} />}
       </section>
+      {game.failedJob && <FailureDetailsModal saveId={saveId} job={game.failedJob} onClose={() => game.setFailedJob(null)} />}
     </div>
   );
 }
