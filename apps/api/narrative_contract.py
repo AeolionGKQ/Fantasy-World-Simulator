@@ -415,7 +415,29 @@ def _validate_breakthrough_intent(response, action):
             raise ContractError("突破尝试或成功时，action_evidence必须逐字摘取本次玩家输入中表达突破意图的短句，且不能是否定说法")
 
 
+# A memory delete only uses memory_id; these fields the contract still requires are never read.
+UNUSED_MEMORY_DELETE_FIELDS = ("kind", "summary", "reason", "evidence")
+
+
+def _fill_program_owned_fields(value, response_type):
+    """Fields the program already knows or never reads, filled in before checking the reply so a
+    model that gets them wrong is not failed for it (frozen contracts still require them)."""
+    if not isinstance(value, dict):
+        return value
+    value = copy.deepcopy(value)
+    # The job decides what kind of reply this is; the model's own label is not used anywhere.
+    if response_type:
+        value["response_type"] = response_type
+    for item in value.get("memory_candidates") or []:
+        if isinstance(item, dict) and item.get("operation") in {"resolve", "supersede"}:
+            for key in UNUSED_MEMORY_DELETE_FIELDS:
+                if item.get(key) in ("", None):
+                    item[key] = "（删除时不使用）"
+    return value
+
+
 def validate_gm_response(value, response_type=None, contract=None):
+    value = _fill_program_owned_fields(value, response_type)
     try:
         validate_contract(value, "gm_turn", contract)
     except ValueError as exc:
@@ -426,8 +448,6 @@ def validate_gm_response(value, response_type=None, contract=None):
         raise ContractError("schema_version无效")
     if value["response_type"] not in {"opening", "turn", "intervene", "reshape"}:
         raise ContractError("response_type无效")
-    if response_type and value["response_type"] != response_type:
-        raise ContractError("response_type与任务类型不符")
 
     narrative = value["narrative"]
     _exact(narrative, {"title", "body", "chronicle_summary", "suggested_options"}, "narrative")
@@ -819,7 +839,9 @@ def _validate_regional_transition(quest_id, current, proposal, context_eligibili
             raise ContractError("学院任务完成必须记录所选学院和对应指引员")
 
 
-def _validate_narrative_consistency(state, response):
+def _validate_narrative_consistency(state, response, guidance=""):
+    """guidance: the player's 干涉命运 text. There the player states facts on purpose ("薇薇安已
+    成长到二阶"), so evidence may quote it as well as the story."""
     body = response["narrative"]["body"]
     proposals = response["proposals"]
     evidence_items = []
@@ -844,11 +866,15 @@ def _validate_narrative_consistency(state, response):
         evidence = item.get("evidence", "")
         if not evidence:
             continue
-        located = _locate_quote(evidence, body)
-        if located is None:
-            _path_error(path, "提案evidence必须摘自本次叙事正文，正文中找不到这段引用")
-        # Keep the passage as the story has it, so the saved change quotes the story exactly.
-        item["evidence"] = body[located[0]:located[1]]
+        # Keep the passage as written where it was found, so the saved change quotes it exactly.
+        for source in (body, guidance):
+            located = _locate_quote(evidence, source) if source else None
+            if located is not None:
+                item["evidence"] = source[located[0]:located[1]]
+                break
+        else:
+            _path_error(path, "提案evidence必须摘自本次叙事正文或玩家的命运引导，找不到这段引用"
+                        if guidance else "提案evidence必须摘自本次叙事正文，正文中找不到这段引用")
     hp_delta = sum(item["delta"] for item in proposals["resources"] if item["key"] == "hp")
     hp_after = max(0, min(state["character"]["resources"]["hp"]["max"],
                           state["character"]["resources"]["hp"]["current"] + hp_delta))
@@ -883,7 +909,9 @@ def adjudicate(state, response, canonical_locations, regional_quest_ids,
 
     _reject_duplicate_keyed_proposals(response["proposals"])
     _validate_breakthrough_intent(response, action)
-    _validate_narrative_consistency(state, response)
+    intervention = action if isinstance(action, dict) and action.get("action_type") == "intervene" else {}
+    _validate_narrative_consistency(state, response,
+                                    intervention.get("guidance", "") or intervention.get("action", ""))
     result = copy.deepcopy(state)
     changes = []
     receipts = []

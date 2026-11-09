@@ -208,6 +208,40 @@ class StateRuleTest(unittest.TestCase):
             "regional_main.mia_day_out", {"status": "offered"},
             {**update, "action_evidence": "我愿意帮助米娅"}, "location_matched", "好，我愿意帮助米娅", body)
 
+    def test_reply_type_comes_from_the_job_not_the_model(self):
+        # Seen on the test phone: a 干涉命运 reply labelled "turn" failed although nothing else was wrong.
+        labelled_turn = gm_response("turn")
+        self.assertEqual("intervene", validate_gm_response(labelled_turn, "intervene")["response_type"])
+        self.assertEqual("turn", labelled_turn["response_type"])  # the model's reply is not changed
+
+    def test_memory_deletes_need_none_of_the_unused_fields(self):
+        response = gm_response("turn")
+        memory = {"operation": "resolve", "memory_id": "2", "kind": "", "summary": "", "importance": 50,
+                  "people": [], "locations": [], "keywords": [], "facts": [], "unresolved": [],
+                  "reason": "", "evidence": ""}
+        response["memory_candidates"] = [memory, {**memory, "operation": "supersede", "memory_id": "3"}]
+        validate_gm_response(response, "turn")
+        # A new memory still needs its summary.
+        response["memory_candidates"] = [{**memory, "operation": "create", "memory_id": None,
+                                          "kind": "事件", "reason": "记下", "evidence": "晨光"}]
+        with self.assertRaisesRegex(ContractError, "summary"):
+            validate_gm_response(response, "turn")
+
+    def test_intervene_evidence_may_quote_the_players_guidance(self):
+        guidance = "几个月过去，薇薇安已经成长为了一名合格的店员，等阶也成长到了二阶"
+        response = gm_response("intervene")
+        response["narrative"]["body"] = "三月的晨风仍带寒意，菲亚推开店门，柜台后的少女抬头问好。"
+        response["proposals"]["resources"] = [{"key": "st", "delta": -5, "reason": "数月操劳",
+                                               "evidence": "薇薇安已经成长为了一名合格的店员"}]
+        validated = validate_gm_response(response, "intervene")
+        adjudicate(story_state(), validated, canonical_location_map(), set(), {},
+                   {"action_type": "intervene", "guidance": guidance})
+        self.assertEqual("薇薇安已经成长为了一名合格的店员", validated["proposals"]["resources"][0]["evidence"])
+        # Only 干涉命运 states facts on purpose; an ordinary action is not a source of evidence.
+        with self.assertRaisesRegex(ContractError, "正文中找不到这段引用"):
+            adjudicate(story_state(), validate_gm_response(response, "turn"), canonical_location_map(),
+                       set(), {}, {"action_type": "turn", "action": guidance})
+
     def test_stay_may_name_the_current_location_but_no_other(self):
         state = story_state()
         response = gm_response("turn")
