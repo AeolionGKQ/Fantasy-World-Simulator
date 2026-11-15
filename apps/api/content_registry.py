@@ -58,7 +58,11 @@ CONTRACT_DOCUMENTS = (
     ("contract.story_arc.schema", "content/story_arc.schema.json"),
 )
 TERMINAL_QUEST_STATES = {"completed", "declined", "failed", "abandoned"}
-PLAYER_ADDRESS_PROTOCOL_VERSION = "player-address/1"
+PLAYER_ADDRESS_PROTOCOL_VERSION = "player-address/2"
+# With the name modes, models also had the character call themself by name in their own lines.
+PLAYER_SELF_REFERENCE_RULE = (
+    "gm_narration_address只用于GM叙述；玩家角色自己的台词、心声、书信等第一人称内容中，"
+    "自称一律用“我”（按语境也可用“我们”），不得用自己的名字、全名或第三人称自称")
 PLAYER_ADDRESS_MODES = {"full_name", "given_name", "second_person"}
 
 QUEST_SPECS = (
@@ -334,6 +338,7 @@ def player_address_directive(state):
         "instructions": [
             "GM叙述者称呼玩家角色时稳定使用gm_narration_address，不把其他姓名形式当作常规称呼",
             "本设置仅约束GM叙述者，不得据此改写NPC台词中的称呼",
+            PLAYER_SELF_REFERENCE_RULE,
             "NPC称呼由关系、场合与其确实知道的身份独立决定：尊称或陌生关系用姓+先生/小姐，朋友或熟悉关系用名，书面场合用全名",
             "姓名使用“·”“・”、空格或连字符等明确分隔符时按“名+姓”结构拆分，例如菲亚·维洛拉、菲亚 维洛拉、菲亚-维洛拉均识别为名“菲亚”、姓“维洛拉”",
             "不可拆分或只有名时由NPC结合语境自然调整，尊称可直接使用原始姓名+先生/小姐",
@@ -668,6 +673,7 @@ class ContentRegistry:
                 "forbidden_gm_second_person_pronouns": (
                     ["你", "您", "你们"] if address_directive["mode"] != "second_person" else []),
                 "scope": "只约束GM叙述者；NPC台词不受此项限制",
+                "player_character_self_reference": PLAYER_SELF_REFERENCE_RULE,
             }
             encoded_address_policy = json.dumps(
                 address_policy, ensure_ascii=True, separators=(",", ":")

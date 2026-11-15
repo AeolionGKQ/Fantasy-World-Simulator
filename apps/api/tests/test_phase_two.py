@@ -263,7 +263,7 @@ class ContentTest(unittest.TestCase):
             "canonical_npcs": registry.manifest["canonical_npcs"],
         })[0]
         self.assertEqual(registry.revision_id, original_revision)
-        self.assertEqual("player-address/1", PLAYER_ADDRESS_PROTOCOL_VERSION)
+        self.assertEqual("player-address/2", PLAYER_ADDRESS_PROTOCOL_VERSION)
         base_state = {
             "state_version": 0, "location": {"id": "grand_academy"},
             "regional_quests": {},
@@ -298,6 +298,10 @@ class ContentTest(unittest.TestCase):
                                  runtime_policy["forbidden_gm_second_person_pronouns"])
             self.assertTrue(any("不得据此改写NPC台词" in instruction for instruction in
                                 dynamic["player_address_directive"]["instructions"]))
+            # The character still says 我 in their own lines, whatever the GM calls them.
+            self_reference = runtime_policy["player_character_self_reference"]
+            self.assertIn("自称一律用“我”", self_reference)
+            self.assertIn(self_reference, dynamic["player_address_directive"]["instructions"])
         for separated_name in ("菲亚 维洛拉", "菲亚-维洛拉", "菲亚–维洛拉", "菲亚・维洛拉"):
             separated = copy.deepcopy(base_state)
             separated["character"]["identity"]["name"] = separated_name
