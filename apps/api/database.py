@@ -78,6 +78,9 @@ NARRATION_VALUES = {
 
 
 MAX_JAILBREAK_PROMPT_CHARS = 20000
+# Nullable columns added to exported narrative tables after saves were already being exported;
+# an older export may leave them out (failure_details_json: migration 15).
+IMPORT_COLUMNS_ADDED_LATER = {"narrative_jobs": ("failure_details_json",)}
 
 
 def normalize_narration(value):
@@ -2327,6 +2330,10 @@ class Database:
             expected_columns[table] = [row[1] for row in connection.execute(
                 f"PRAGMA table_info({table})").fetchall()]
             for row in narrative[table]:
+                # Saves exported before a column was added leave it out; it starts empty.
+                if isinstance(row, dict):
+                    for column in IMPORT_COLUMNS_ADDED_LATER.get(table, ()):
+                        row.setdefault(column, None)
                 if not isinstance(row, dict) or set(row) != set(expected_columns[table]):
                     raise DomainError("IMPORT_INVALID", "叙事表字段无效",
                                       fields={"narrative." + table: "字段不匹配"})

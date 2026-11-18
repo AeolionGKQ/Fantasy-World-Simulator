@@ -2108,6 +2108,25 @@ class PhaseTwoApiTest(unittest.TestCase):
         imported = clean.import_save({"request_id": "legacy-journal-import", "payload": exported})
         self.assertEqual("ready", imported["phase"])
 
+    def test_exports_from_before_failure_details_still_import(self):
+        self.provider.responses.append(gm_response("opening"))
+        job = self.request("POST", f"/api/saves/{self.save_id}/story/opening", {
+            "request_id": "pre-details-opening", "expected_state_version": 0, "guidance": ""}, 202)
+        self.assertEqual("succeeded", self.wait_job(self.save_id, job["id"])["status"])
+        exported = self.request("GET", f"/api/saves/{self.save_id}/export")
+        # Older versions exported generation jobs without the failure_details_json column.
+        for row in exported["narrative"]["narrative_jobs"]:
+            row.pop("failure_details_json")
+        self.assertTrue(self.request("POST", "/api/saves/import/validate", exported)["valid"])
+        imported = self.request("POST", "/api/saves/import",
+                                {"request_id": "pre-details-import", "payload": exported}, 201)
+        self.assertEqual(1, len(self.request("GET", f"/api/saves/{imported['id']}/turns")["items"]))
+        # Columns nobody has are still refused.
+        exported["narrative"]["narrative_jobs"][0]["made_up_column"] = 1
+        invalid = self.request("POST", "/api/saves/import",
+                               {"request_id": "made-up-column-import", "payload": exported}, 400)
+        self.assertEqual("叙事表字段无效", invalid["error"]["message"])
+
     def test_legacy_exports_gain_second_person_address_on_import(self):
         self.request("GET", f"/api/saves/{self.save_id}/game-bootstrap")
         exported = self.request("GET", f"/api/saves/{self.save_id}/export")
