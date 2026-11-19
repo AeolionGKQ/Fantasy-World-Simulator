@@ -108,6 +108,18 @@ class StateRuleTest(unittest.TestCase):
         created = next(q for q in decide(story_state(), rescue)["state"]["quests"].values() if q["name"] == "驰援空艇")
         self.assertIsNone(created["target_rank"])
 
+    def test_world_flags_format_is_explained_and_type_errors_name_the_type(self):
+        # Seen twice on test phones: the state's {flag: value} lookup copied into the proposals.
+        response = gm_response("intervene")
+        response["proposals"]["world_flags"] = {"vivian_reached_rank_2": True}
+        with self.assertRaisesRegex(ContractError, r"\$\.proposals\.world_flags类型无效，应为数组"):
+            validate_gm_response(response, "intervene")
+        state = story_state()
+        policy = json.loads(state_rules_policy(state, load_contract("gm_turn")).strip().split("\n")[1])
+        rule = next(rule for rule in policy["rules"] if rule.startswith("世界标记"))
+        self.assertIn("必须是数组", rule)
+        self.assertIn("不要照抄它的对象格式", rule)
+
     def test_rank_up_raises_all_resource_maxima(self):
         state = story_state(rank=3, exp=200)
         state["character"]["breakthrough_eligible"] = True

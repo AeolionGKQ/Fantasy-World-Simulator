@@ -211,7 +211,7 @@ def story_arc_policy(action_type):
     return "\n<RUNTIME_STORY_ARC_POLICY_JSON>\n" + encoded + "\n</RUNTIME_STORY_ARC_POLICY_JSON>\n"
 
 
-STATE_RULES_POLICY_VERSION = "state-rules/4"
+STATE_RULES_POLICY_VERSION = "state-rules/5"
 MEMORY_CURATION_POLICY_VERSION = "memory-curation-policy/1"
 
 
@@ -282,6 +282,9 @@ def state_rules_policy(state, contract):
         + "、".join(f"{key}为{limit}" for key, limit in REPUTATION_IMPACT_LIMITS.items())
         + "（可正可负）。continental_overall只用于跨势力、广泛传播的事件；主要发生在某一势力辖区或直接影响该势力的事件，使用对应势力的键；同一事件理由充分时可同时影响二者。visibility须为公开、被发现或已传播",
         "delta为0的提案不需要evidence；其余状态提案的evidence必须逐字存在于本次narrative.body",
+        # Models copied the state's {key: value} lookup into proposals.world_flags.
+        "世界标记proposals.world_flags必须是数组，每项是{\"key\":标记名,\"value\":字符串、整数、布尔值或null,\"reason\":理由,\"evidence\":正文原句}，"
+        "没有变化时返回[]；authoritative_state.world_flags只是当前标记值的对照表（标记名→值），不要照抄它的对象格式",
     ]
     if supports_age:
         rules.append("年龄age：正常情况下只随剧情中流逝的时间增长，跨过生日或经过多年时用proposals.age提出years_delta（正数增长）；"
