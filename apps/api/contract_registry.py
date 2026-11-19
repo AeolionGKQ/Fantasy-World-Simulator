@@ -41,6 +41,10 @@ def contract_from_documents(kind, documents):
             "text": indexed[text_id]["text_content"]}
 
 
+TYPE_NAMES = {"object": "对象", "array": "数组", "string": "字符串", "integer": "整数",
+              "boolean": "布尔值", "null": "null"}
+
+
 def _matches_type(value, expected):
     if isinstance(expected, list):
         return any(_matches_type(value, item) for item in expected)
@@ -78,7 +82,10 @@ def validate_json_schema(value, schema, label="$", root=None):
         raise ValueError(f"{label}不是允许的枚举值")
     expected_type = schema.get("type")
     if expected_type is not None and not _matches_type(value, expected_type):
-        raise ValueError(f"{label}类型无效")
+        # Naming the expected type lets the model's retry fix it (it sees this message).
+        wanted = "或".join(TYPE_NAMES.get(name, name) for name in (
+            expected_type if isinstance(expected_type, list) else [expected_type]))
+        raise ValueError(f"{label}类型无效，应为{wanted}")
     if value is None:
         return
     if isinstance(value, dict):
