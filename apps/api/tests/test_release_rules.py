@@ -66,6 +66,48 @@ class StateRuleTest(unittest.TestCase):
         self.assertEqual(1, len([q for q in again["state"]["quests"].values()
                                  if q["quest_kind"] == "breakthrough"]))
 
+    def test_breakthrough_quests_are_the_gms_own_and_target_rank_is_only_theirs(self):
+        def quest(**fields):
+            return {"operation": "update", "quest_id": None, "name": None, "description": None,
+                    "status": "eligible", "progress": None, "objectives": [], "quest_kind": "breakthrough",
+                    "target_rank": 7, "action_evidence": "", "necessary_nodes": [], "terminal_cause": "none",
+                    "reason": "剧情展开", "evidence": "", **fields}
+
+        full_exp = story_state(rank=6, exp=640)
+        response = gm_response("turn")
+        response["narrative"]["body"] = "一次艰难的护卫让旅人的力量趋于圆满，她决定去风暴之眼完成御风试炼。"
+        response["proposals"]["experience"] = [{"amount": 20, "growth_type": "实战", "challenge": "high",
+            "novelty": "new", "repetition": "none", "reason": "护卫", "evidence": "一次艰难的护卫"}]
+        # The GM may write the character's own trial on the turn EXP fills; then there is no placeholder.
+        own = copy.deepcopy(response)
+        own["proposals"]["quests"] = [quest(operation="create", name="风暴之眼的御风试炼",
+                                            description="在风暴之眼中维持御风飞行一刻钟", status="offered",
+                                            evidence="去风暴之眼完成御风试炼")]
+        trials = [q for q in decide(full_exp, own)["state"]["quests"].values() if q["quest_kind"] == "breakthrough"]
+        self.assertEqual(["风暴之眼的御风试炼"], [q["name"] for q in trials])
+        # Otherwise the program's placeholder can be renamed and described later.
+        placeholder_state = decide(full_exp, response)["state"]
+        placeholder = next(q for q in placeholder_state["quests"].values() if q["quest_kind"] == "breakthrough")
+        self.assertEqual("突破至7阶", placeholder["name"])
+        renamed = gm_response("turn")
+        renamed["narrative"]["body"] = "导师说，她需要独自穿越风暴之眼才能触到七阶的门槛。"
+        renamed["proposals"]["quests"] = [quest(quest_id=placeholder["id"], name="穿越风暴之眼",
+                                                description="独自穿越风暴之眼", status="offered",
+                                                evidence="独自穿越风暴之眼")]
+        decided = decide(placeholder_state, renamed)
+        self.assertEqual(("穿越风暴之眼", "独自穿越风暴之眼", "offered"),
+                         tuple(decided["state"]["quests"][placeholder["id"]][key]
+                               for key in ("name", "description", "status")))
+        self.assertTrue(any(c["kind"] == "quest" and c["key"] == placeholder["id"] for c in decided["changes"]))
+        # An ordinary quest's target_rank (a difficulty, to the model) is dropped instead of failing the reply.
+        rescue = gm_response("turn")
+        rescue["narrative"]["body"] = "调度中心请她去救援被四阶雷隼围攻的空艇。"
+        rescue["proposals"]["quests"] = [quest(operation="create", name="驰援空艇", description="击退雷隼",
+                                               status="offered", quest_kind="regular", target_rank=4,
+                                               evidence="去救援被四阶雷隼围攻的空艇")]
+        created = next(q for q in decide(story_state(), rescue)["state"]["quests"].values() if q["name"] == "驰援空艇")
+        self.assertIsNone(created["target_rank"])
+
     def test_rank_up_raises_all_resource_maxima(self):
         state = story_state(rank=3, exp=200)
         state["character"]["breakthrough_eligible"] = True
