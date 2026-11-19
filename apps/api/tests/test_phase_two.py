@@ -263,7 +263,7 @@ class ContentTest(unittest.TestCase):
             "canonical_npcs": registry.manifest["canonical_npcs"],
         })[0]
         self.assertEqual(registry.revision_id, original_revision)
-        self.assertEqual("player-address/2", PLAYER_ADDRESS_PROTOCOL_VERSION)
+        self.assertEqual("player-address/3", PLAYER_ADDRESS_PROTOCOL_VERSION)
         base_state = {
             "state_version": 0, "location": {"id": "grand_academy"},
             "regional_quests": {},
@@ -293,15 +293,19 @@ class ContentTest(unittest.TestCase):
             runtime_policy = json.loads(runtime)
             self.assertEqual(address, runtime_policy["required_gm_narration_address"])
             self.assertEqual("mandatory", runtime_policy["priority"])
+            # The setting covers narration outside quotes; nothing bans 你 outright any more.
+            self.assertNotIn("forbidden_gm_second_person_pronouns", runtime_policy)
+            self.assertIn("引号外的叙述文字", runtime_policy["narration"])
+            self.assertIn(f"“{address}”", runtime_policy["narration"])
             if mode != "second_person":
-                self.assertEqual(["你", "您", "你们"],
-                                 runtime_policy["forbidden_gm_second_person_pronouns"])
-            self.assertTrue(any("不得据此改写NPC台词" in instruction for instruction in
-                                dynamic["player_address_directive"]["instructions"]))
-            # The character still says 我 in their own lines, whatever the GM calls them.
-            self_reference = runtime_policy["player_character_self_reference"]
-            self.assertIn("自称一律用“我”", self_reference)
-            self.assertIn(self_reference, dynamic["player_address_directive"]["instructions"])
+                self.assertIn("叙述中不用“你/您”指代玩家角色", runtime_policy["narration"])
+            # Inside quotes: the character says 我, and people talking to the character say 你.
+            dialogue = runtime_policy["dialogue"]
+            for expected_rule in ("自称“我”", "当面对话时互称“你/您”", "不得当面用名字代替“你”"):
+                self.assertIn(expected_rule, dialogue)
+            instructions = dynamic["player_address_directive"]["instructions"]
+            self.assertIn(dialogue, instructions)
+            self.assertIn(runtime_policy["consistency"], instructions)
         for separated_name in ("菲亚 维洛拉", "菲亚-维洛拉", "菲亚–维洛拉", "菲亚・维洛拉"):
             separated = copy.deepcopy(base_state)
             separated["character"]["identity"]["name"] = separated_name
@@ -2217,8 +2221,7 @@ class PhaseTwoApiTest(unittest.TestCase):
             "\n</RUNTIME_PLAYER_ADDRESS_JSON>", 1)[0]
         runtime_policy = json.loads(runtime)
         self.assertEqual("艾琳", runtime_policy["required_gm_narration_address"])
-        self.assertEqual(["你", "您", "你们"],
-                         runtime_policy["forbidden_gm_second_person_pronouns"])
+        self.assertIn("“艾琳”", runtime_policy["narration"])
 
         queued, _ = self.server.app_context.story.create_job(self.save_id, "turn", {
             "request_id": "address-active-turn",
