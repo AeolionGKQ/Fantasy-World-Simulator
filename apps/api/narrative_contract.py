@@ -428,6 +428,12 @@ def _fill_program_owned_fields(value, response_type):
     # The job decides what kind of reply this is; the model's own label is not used anywhere.
     if response_type:
         value["response_type"] = response_type
+    # target_rank is the rank a breakthrough quest leads to. Models also fill it in on ordinary
+    # quests as a difficulty level ("四阶魔兽"); the program never reads it there.
+    proposals = value.get("proposals")
+    for item in (proposals.get("quests") or []) if isinstance(proposals, dict) else []:
+        if isinstance(item, dict) and item.get("quest_kind") in {"regular", "regional"}:
+            item["target_rank"] = None
     for item in value.get("memory_candidates") or []:
         if isinstance(item, dict) and item.get("operation") in {"resolve", "supersede"}:
             for key in UNUSED_MEMORY_DELETE_FIELDS:
@@ -1281,15 +1287,21 @@ def adjudicate(state, response, canonical_locations, regional_quest_ids,
                         proposal["action_evidence"], _player_action_text(action))):
                 _path_error(f"$.proposals.quests[{quest_index}].action_evidence",
                             "任务转为active时，action_evidence必须逐字摘取本次玩家输入中表达接受意图的短句")
+            old_details = (current.get("name"), current.get("description"))
             current.update({key: proposal[key] for key in ("status", "progress", "objectives")
                             if proposal[key] is not None})
+            # The breakthrough quest the program opens is a placeholder ("突破至7阶"); the GM makes it
+            # this character's own trial by renaming and describing it as the story develops.
+            if current.get("quest_kind") == "breakthrough":
+                current.update({key: proposal[key] for key in ("name", "description") if proposal[key]})
             if proposal["necessary_nodes"]:
                 established_nodes = set(current.get("necessary_nodes", []))
                 established_nodes.update(node for node in proposal["necessary_nodes"] if node in response["narrative"]["body"])
                 current["necessary_nodes"] = sorted(established_nodes)
             status_changed = current["status"] != old_status
             progress_changed = (current.get("progress", "") != old_progress or
-                                current.get("objectives", []) != old_objectives)
+                                current.get("objectives", []) != old_objectives or
+                                (current.get("name"), current.get("description")) != old_details)
             if status_changed or progress_changed:
                 changes.append(_change("quest", quest_id,
                                        old_status if status_changed else "progress_updated",

@@ -211,7 +211,7 @@ def story_arc_policy(action_type):
     return "\n<RUNTIME_STORY_ARC_POLICY_JSON>\n" + encoded + "\n</RUNTIME_STORY_ARC_POLICY_JSON>\n"
 
 
-STATE_RULES_POLICY_VERSION = "state-rules/3"
+STATE_RULES_POLICY_VERSION = "state-rules/4"
 MEMORY_CURATION_POLICY_VERSION = "memory-curation-policy/1"
 
 
@@ -258,7 +258,9 @@ def state_rules_policy(state, contract):
         "EXP只增不减：experience.amount为非负整数，到达当前阶位阈值后不再累积。单次奖励参考当前阈值的3%到15%，重大挑战可更高；低挑战、无新颖、重复的行为单回合合计不超过10",
         "突破breakthrough：角色EXP满足阈值时breakthrough_eligible由程序计算。玩家本次输入明确表达突破意图时才可attempted=true，"
         "action_evidence逐字摘取玩家输入中表达该意图的那一小段（例如“闭关冲击六阶”），不要整段复制，也不要引用否定说法；没有意图时只描写准备或机缘。"
-        "6阶及以上升阶需要完成突破任务：EXP刚满时若尚无对应任务，程序会自动创建一个状态为eligible、quest_kind=breakthrough、target_rank=当前阶位+1的突破任务，由你在剧情中展开并推进到offered或active；"
+        "6阶及以上升阶需要完成突破任务，任务须依据角色实际的成长路线个性化制定，不要套用通用任务。"
+        "EXP刚满的这一轮，你可以直接create一个quest_kind=breakthrough、target_rank=当前阶位+1、状态为eligible、offered或active的突破任务，写明贴合角色的name与description，程序就不再创建占位任务；"
+        "若没有新建，程序会自动创建一个名为“突破至N阶”、状态为eligible的占位突破任务，之后推进它时请用update为它填写贴合角色的name与description，并推进到offered或active；"
         "玩家拒绝或任务失败后程序不会重建，之后由玩家主动发起",
         "存活与死亡：scene.player_life_state必须与HP结果一致；角色死亡即本存档的结局，请写出完整的结局段落，之后玩家只能重塑最近一段剧情，任何手段都不能复活",
         f"战力：有效战力=基础战力+装备战力+战力修正，由程序计算。已装备的ordinary普通装备合计最多计入基础战力的{int(ORDINARY_EQUIPMENT_SHARE * 100)}%，超出部分不计入有效战力；"
@@ -267,7 +269,8 @@ def state_rules_policy(state, contract):
         + "、".join(f"{key}为基础战力的{int(share * 100)}%" for key, share in MODIFIER_SEVERITY_SHARE.items())
         + "。伤势痊愈、离开对应环境、强化或增益结束时，必须用remove或expire移除对应的临时修正，程序不会自动过期；空数组表示既有修正保持不变",
         "背包items：add获得，remove消耗、出售、交出或遗失，equip/unequip穿脱。可堆叠物品追加时复用已有item_id（name必须一致）；新物品item_id填null。货币currency.copper_delta以铜币计，100铜=1银，100银=1金，余额不能为负",
-        "任务quests：新建任务必须填写name与description，状态可为untriggered、eligible或offered；玩家本次输入明确表示接受时才能把任务创建为或转为active，"
+        "任务quests：target_rank只表示突破任务要晋升到的阶位，普通任务与地区任务一律填null，不要用它表示任务难度或敌人阶位。"
+        "新建任务必须填写name与description，状态可为untriggered、eligible或offered；玩家本次输入明确表示接受时才能把任务创建为或转为active，"
         "action_evidence逐字摘取玩家输入中表达接受意图的那一小段（如“这个委托我接了”“我答应帮她”），不要整段复制，也不要引用否定说法；终局状态不可逆",
         "已提供（offered）但玩家尚未接取的任务，若剧情表明它已失效或过期——如截止时间已过、委托人已另找他人或不再需要、任务对象已死亡或消失、与玩家已选择的另一任务冲突而无法兼顾——"
         "就用status=failed、terminal_cause=external_failure把它结束，并在正文中交代原因。拿不准时保留；玩家只是暂未答复、或可以与其他任务并行推进的委托不要结束。地区任务仍按其专门规则处理。"
