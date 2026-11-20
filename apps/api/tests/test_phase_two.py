@@ -705,8 +705,9 @@ class ContentTest(unittest.TestCase):
             "id": "bond.test", "npc_id": "canon.npc.lilia_noxveil",
             "npc_name": "莉莉娅·诺克维尔", "value": 0, "relation_type": "friend",
             "listed": True, "level": "普通/陌生"}
-        with self.assertRaisesRegex(ContractError, "delta绝对值最多5"):
-            adjudicate(state, validate_gm_response(excessive), canonical_location_map(), set())
+        # Past the limit the delta is cut to it rather than failing the turn.
+        decided = adjudicate(state, validate_gm_response(excessive), canonical_location_map(), set())
+        self.assertEqual(5, decided["state"]["bonds"]["canon.npc.lilia_noxveil"]["value"])
 
     def test_existing_world_flags_cannot_become_power_exceptions(self):
         registry = ContentRegistry(API_DIR)
@@ -1795,10 +1796,14 @@ class PhaseTwoApiTest(unittest.TestCase):
         result = self.wait_job(self.save_id, job["id"])
         self.assertEqual("succeeded", result["status"])
         self.assertEqual(2, len(self.provider.messages))
-        feedback = self.provider.messages[1][-1]
-        self.assertEqual("system", feedback["role"])
+        # The retry shows the model its rejected reply and asks for a fix in place, not a rewrite.
+        rejected, feedback = self.provider.messages[1][-2:]
+        self.assertEqual(self.provider.messages[0], self.provider.messages[1][:-2])
+        self.assertEqual(("assistant", invalid), (rejected["role"], json.loads(rejected["content"])))
+        self.assertEqual("user", feedback["role"])
         self.assertIn("$.scene.elapsed_minutes", feedback["content"])
-        self.assertIn("重新返回一个完整JSON对象", feedback["content"])
+        self.assertIn("不要重写剧情", feedback["content"])
+        self.assertIn("修正后的完整JSON对象", feedback["content"])
         self.assertFalse(result["has_failure_details"])
         missing = self.request(
             "GET", f"/api/saves/{self.save_id}/narrative-jobs/{job['id']}/failure-details", None, 404)

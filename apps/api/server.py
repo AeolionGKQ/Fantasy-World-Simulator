@@ -624,10 +624,22 @@ class AppContext:
                     request_config, api_key, request_messages,
                     lambda result: self.database.set_model_capability(config, result))
             first_error = None
+            rejected_reply = None
             for attempt in range(2):
                 request_messages = list(messages)
                 correction = None
-                if first_error is not None:
+                if first_error is not None and rejected_reply is not None:
+                    # The model sees its own rejected reply and fixes it in place. Asked only to
+                    # "reply again", it rewrote the whole story and broke rules the first try had
+                    # kept, such as evidence quoted word for word from the old story.
+                    correction = ("上面是你上一份回复，它未通过程序校验。\n校验失败位置：" + first_error + "\n"
+                                  "请在这份回复的基础上修正：只修改出错的部分，以及为修正它必须同步调整的内容；"
+                                  "标题、正文、选项和其余字段一字不改地保留，不要重写剧情。"
+                                  "evidence只能逐字摘抄正文中已有的原句。"
+                                  "直接返回修正后的完整JSON对象，不要讨论错误，不要添加解释或代码围栏。")
+                    request_messages.append({"role": "assistant", "content": rejected_reply})
+                    request_messages.append({"role": "user", "content": correction})
+                elif first_error is not None:
                     correction = ("上一份回复未通过程序校验。不要讨论错误，不要添加解释或代码围栏；请重新返回一个完整JSON对象。\n"
                                   "校验失败位置：" + first_error)
                     request_messages.append({"role": "system", "content": correction})
@@ -665,6 +677,8 @@ class AppContext:
                                                    "raw", correction))
                 except (ContractError, ValueError) as exc:
                     detail = "回复契约或权威规则：" + str(exc)
+                    if proposal is not None:
+                        rejected_reply = json.dumps(proposal, ensure_ascii=False)
                     attempts.append(failed_attempt(
                         attempt, "回复契约或权威规则", str(exc),
                         None if proposal is None else json.dumps(proposal, ensure_ascii=False, indent=2),

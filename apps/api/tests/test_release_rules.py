@@ -190,6 +190,43 @@ class StateRuleTest(unittest.TestCase):
         self.assertEqual(1, len(inventory))
         self.assertEqual(5, inventory["item.potion"]["quantity"])
 
+    def test_an_equipped_item_can_be_taken_off_and_handed_over_in_one_turn(self):
+        state = story_state()
+        state["inventory"]["item.scythe"] = {"id": "item.scythe", "name": "长镰", "description": "",
+            "quantity": 2, "power": 50, "power_class": "high_rank", "power_basis": "定制", "equipped": True,
+            "source": "定制"}
+        response = gm_response("turn")
+        response["narrative"]["body"] = "她解下长镰，放在锻台上交给工匠。"
+        def item(operation, quantity=1):
+            return {"operation": operation, "item_id": "item.scythe", "name": "长镰", "description": "",
+                    "quantity": quantity, "power": 50, "power_class": "high_rank", "power_basis": "定制",
+                    "equipped": False, "source": "定制", "reason": "交给工匠", "evidence": "放在锻台上交给工匠"}
+        # Listed remove first: the program still takes it off before handing it over.
+        response["proposals"]["items"] = [item("remove"), item("unequip")]
+        decided = decide(state, response)
+        self.assertEqual((1, False), (decided["state"]["inventory"]["item.scythe"]["quantity"],
+                                      decided["state"]["inventory"]["item.scythe"]["equipped"]))
+        response["proposals"]["items"] = [item("unequip"), item("remove", 2)]
+        self.assertNotIn("item.scythe", decide(state, response)["state"]["inventory"])
+        for twice in ([item("remove"), item("remove")], [item("unequip"), item("equip")]):
+            response["proposals"]["items"] = twice
+            with self.assertRaisesRegex(ContractError, "不能对同一键或ID提交多个提案"):
+                decide(state, response)
+
+    def test_bond_delta_past_the_impact_limit_is_cut_to_the_limit(self):
+        state = story_state()
+        state["bonds"]["canon.npc.lilia_noxveil"] = {"id": "bond.test", "npc_id": "canon.npc.lilia_noxveil",
+            "npc_name": "莉莉娅·诺克维尔", "value": 0, "relation_type": "friend", "listed": True,
+            "level": "普通/陌生"}
+        response = gm_response("turn")
+        response["narrative"]["body"] = "一次普通交谈稍微改善了关系。"
+        response["proposals"]["bonds"] = [base.bond_proposal(
+            delta=10, impact="minor", reason="普通交谈", evidence="普通交谈")]
+        self.assertEqual(5, decide(state, response)["state"]["bonds"]["canon.npc.lilia_noxveil"]["value"])
+        response["proposals"]["bonds"][0]["delta"] = -30
+        response["proposals"]["bonds"][0]["impact"] = "major"
+        self.assertEqual(-25, decide(state, response)["state"]["bonds"]["canon.npc.lilia_noxveil"]["value"])
+
     def test_new_quests_need_a_name_and_learnables_need_an_id_to_change(self):
         response = gm_response("turn")
         response["narrative"]["body"] = "公会贴出一张委托。"

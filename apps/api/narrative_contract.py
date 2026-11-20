@@ -100,6 +100,7 @@ CANONICAL_POWER_EXCEPTIONS = {
     "canon:elf_forest_affinity": 1,
     "canon:dragon_true_form": 2,
 }
+ITEM_EQUIP_OPERATIONS = {"equip", "unequip"}
 # Per-event caps the prompt states verbatim (runtime state-rules policy) and the adjudicator enforces.
 BOND_IMPACT_LIMITS = {"minor": 5, "moderate": 15, "major": 25, "life_defining": 35}
 REPUTATION_IMPACT_LIMITS = {"minor": 5, "moderate": 15, "major": 35, "world_shaping": 50}
@@ -171,7 +172,10 @@ def _reject_duplicate_keyed_proposals(proposals):
         "reputations": lambda item: item.get("key"),
         "world_flags": lambda item: item.get("key"),
         "power_modifiers": lambda item: item.get("id"),
-        "items": lambda item: item.get("item_id"),
+        # Taking off an item and handing it over are two steps of one act, so equip/unequip may
+        # share an item with one count change (add or remove); two of either kind may not.
+        "items": lambda item: item.get("item_id") and (
+            item["item_id"], item.get("operation") in ITEM_EQUIP_OPERATIONS),
         "quests": lambda item: item.get("quest_id"),
         "bonds": lambda item: item.get("npc_id") or item.get("npc_ref"),
         "skills": lambda item: item.get("id"),
@@ -434,6 +438,16 @@ def _fill_program_owned_fields(value, response_type):
     for item in (proposals.get("quests") or []) if isinstance(proposals, dict) else []:
         if isinstance(item, dict) and item.get("quest_kind") in {"regular", "regional"}:
             item["target_rank"] = None
+    # An item that is unequipped and removed in one reply is taken off first, whichever order the
+    # model listed them in; removing it first would leave nothing to unequip.
+    items = proposals.get("items") if isinstance(proposals, dict) else None
+    if isinstance(items, list):
+        removed = {item.get("item_id") for item in items
+                   if isinstance(item, dict) and item.get("operation") == "remove" and item.get("item_id")}
+        if removed:
+            proposals["items"] = sorted(items, key=lambda item: not (
+                isinstance(item, dict) and item.get("operation") in ITEM_EQUIP_OPERATIONS and
+                item.get("item_id") in removed))
     for item in value.get("memory_candidates") or []:
         if isinstance(item, dict) and item.get("operation") in {"resolve", "supersede"}:
             for key in UNUSED_MEMORY_DELETE_FIELDS:
@@ -1367,11 +1381,11 @@ def adjudicate(state, response, canonical_locations, regional_quest_ids,
         elif not bond:
             _path_error(f"$.proposals.bonds[{bond_index}].npc_id", "羁绊不存在")
         old = bond["value"]
+        # A delta past what the impact allows is cut to the limit rather than failing the whole
+        # turn: the limit still holds, and the story the model wrote stays usable.
         maximum_delta = BOND_IMPACT_LIMITS[proposal["impact"]]
-        if abs(proposal["delta"]) > maximum_delta:
-            _path_error(f"$.proposals.bonds[{bond_index}].delta",
-                        f"羁绊impact={proposal['impact']}时delta绝对值最多{maximum_delta}")
-        new = max(-100, min(100, old + proposal["delta"]))
+        delta = max(-maximum_delta, min(maximum_delta, proposal["delta"]))
+        new = max(-100, min(100, old + delta))
         bond["value"] = new
         if proposal["operation"] == "change_relation_type":
             bond["relation_type"] = proposal["relation_type"]
