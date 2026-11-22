@@ -571,6 +571,18 @@ describe("game workspace helpers", () => {
     expect(JSON.stringify(visible)).not.toContain("5d9d0ce7");
   });
 
+  it("显示羁绊人物的改名和身份变化", () => {
+    expect(visibleAuthoritativeChanges([
+      { kind: "bond", key: "canon.npc.lilia_noxveil.npc_name", display_name: "莉莉娅·诺克维尔",
+        old: "米娅", new: "莉莉娅·诺克维尔", reason: "身份揭晓" },
+      { kind: "bond", key: "canon.npc.lilia_noxveil.relation_type", display_name: "莉莉娅·诺克维尔",
+        old: "同游的少女", new: "朋友", reason: "身份揭晓" },
+    ])).toEqual([
+      { label: "羁绊人物名字", value: "米娅 → 莉莉娅·诺克维尔", reason: "身份揭晓" },
+      { label: "莉莉娅·诺克维尔的身份", value: "同游的少女 → 朋友", reason: "身份揭晓" },
+    ]);
+  });
+
   it("保留任务进度更新并用自然语言显示装备状态", () => {
     expect(visibleAuthoritativeChanges([{
       kind: "quest", key: "quest.internal.7", display_name: "护送商队",
