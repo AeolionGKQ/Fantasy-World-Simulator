@@ -9,12 +9,12 @@ import uuid
 from difflib import SequenceMatcher
 
 try:
-    from .canonical_npcs import CANONICAL_NPCS, canonical_name_collision
+    from .canonical_npcs import CANONICAL_NPCS, canonical_name_collision, canonical_name_key
     from .catalog import EXP_THRESHOLDS, POWER_BY_RANK
     from .contract_registry import validate_contract, validate_json_schema
     from .location_graph import JURISDICTION_IDS
 except ImportError:
-    from canonical_npcs import CANONICAL_NPCS, canonical_name_collision
+    from canonical_npcs import CANONICAL_NPCS, canonical_name_collision, canonical_name_key
     from catalog import EXP_THRESHOLDS, POWER_BY_RANK
     from contract_registry import validate_contract, validate_json_schema
     from location_graph import JURISDICTION_IDS
@@ -792,22 +792,45 @@ def _change(kind, key, old, new, reason, extra=None):
     return result
 
 
-def _update_bond_profile(result, bond, proposal, bond_index, canonical_npcs, changes):
+def _rename_bond(bond, name):
+    """Gives a bond a new name, keeping the old one in former_names."""
+    old_name = bond["npc_name"]
+    former = [value for value in bond.get("former_names", []) if value != name]
+    bond["former_names"] = former + ([old_name] if old_name not in former and old_name != name else [])
+    bond["npc_name"] = name
+    return old_name
+
+
+def _update_bond_profile(result, bond, proposal, canonical_npcs, changes):
     """change_relation_type sets an existing bond's name and identity to the proposal's values.
-    A new name covers an NPC who went by an alias or was unnamed until the story revealed more;
-    the old name stays in former_names so later turns know both refer to one person."""
+    A new name covers an NPC who went by an alias or was unnamed until the story revealed more,
+    canonical people included (the 魔族 quest's "米娅" is 莉莉娅·诺克维尔); the old name stays in
+    former_names so later turns know both refer to one person. Returns the bond, which moves to
+    the canonical person when a dynamic NPC turns out to be one."""
     npc_id = bond["npc_id"]
     name = proposal["npc_name"].strip()
     if name != bond["npc_name"]:
-        # Canonical names are fixed; the id check above already holds them to the catalog.
-        if canonical_name_collision(name, [{"id": key, "name": value}
-                                           for key, value in canonical_npcs.items()]):
-            _path_error(f"$.proposals.bonds[{bond_index}].npc_name", "不能把羁绊改名为正典人物的名字")
-        old_name = bond["npc_name"]
-        former = [value for value in bond.get("former_names", []) if value != name]
-        bond["former_names"] = former + ([old_name] if old_name not in former else [])
-        bond["npc_name"] = name
+        old_name = _rename_bond(bond, name)
         npc = result["npcs"].get(npc_id)
+        canonical_id = next((key for key, value in canonical_npcs.items()
+                             if canonical_name_key(value) == canonical_name_key(name)), None)
+        if npc is not None and npc_id not in canonical_npcs and canonical_id:
+            # A dynamic NPC revealed as a canonical person: the bond moves to the canonical id, so
+            # a quest reward for that person finds it instead of adding a second bond.
+            npc["canonical_npc_id"] = canonical_id
+            del result["bonds"][npc_id]
+            existing = result["bonds"].get(canonical_id)
+            if existing:
+                existing["value"] = max(existing["value"], bond["value"])
+                existing["former_names"] = list(dict.fromkeys(
+                    existing.get("former_names", []) + bond["former_names"]))
+                existing["former_names"] = [value for value in existing["former_names"]
+                                            if value != existing["npc_name"]]
+                bond = existing
+            else:
+                bond.update({"npc_id": canonical_id})
+                result["bonds"][canonical_id] = bond
+            npc_id = canonical_id
         if npc is not None:
             npc["former_names"] = list(bond["former_names"])
             npc["name"] = name
@@ -818,6 +841,7 @@ def _update_bond_profile(result, bond, proposal, bond_index, canonical_npcs, cha
         changes.append(_change("bond", npc_id + ".relation_type", bond["relation_type"], relation_type,
                                proposal["reason"], {"display_name": bond["npc_name"]}))
         bond["relation_type"] = relation_type
+    return bond
 
 
 def _contains_any(text, terms):
@@ -1371,6 +1395,13 @@ def adjudicate(state, response, canonical_locations, regional_quest_ids,
                         changes.append(_change("item", reward["id"], None, item, "地区任务固定奖励",
                                                {"display_name": reward["name"]}))
                     for reward in definition["rewards"]["bonds"]:
+                        known = result["bonds"].get(reward["npc_id"])
+                        if known and known["npc_name"] != reward["npc_name"]:
+                            # Met under an alias ("米娅"): finishing the quest reveals the real name.
+                            old_name = _rename_bond(known, reward["npc_name"])
+                            changes.append(_change("bond", reward["npc_id"] + ".npc_name", old_name,
+                                                   reward["npc_name"], "地区任务揭示真实身份",
+                                                   {"display_name": reward["npc_name"]}))
                         if reward["npc_id"] not in result["bonds"]:
                             bond = {"id": generated_id("bond"), "npc_id": reward["npc_id"],
                                     "npc_name": reward["npc_name"], "value": 21,
@@ -1396,8 +1427,6 @@ def adjudicate(state, response, canonical_locations, regional_quest_ids,
             if (npc_id not in result["bonds"] and npc_id not in result["npcs"] and
                     npc_id not in canonical_npcs):
                 _path_error(f"$.proposals.bonds[{bond_index}].npc_id", "羁绊npc_id不是既有稳定NPC")
-            if npc_id in canonical_npcs and proposal["npc_name"] != canonical_npcs[npc_id]:
-                _path_error(f"$.proposals.bonds[{bond_index}].npc_name", "正典人物ID与姓名不一致")
         bond = result["bonds"].get(npc_id)
         if proposal["operation"] == "create_or_join":
             if bond:
@@ -1416,7 +1445,8 @@ def adjudicate(state, response, canonical_locations, regional_quest_ids,
         new = max(-100, min(100, old + delta))
         bond["value"] = new
         if proposal["operation"] == "change_relation_type":
-            _update_bond_profile(result, bond, proposal, bond_index, canonical_npcs, changes)
+            bond = _update_bond_profile(result, bond, proposal, canonical_npcs, changes)
+            npc_id, new = bond["npc_id"], bond["value"]
         bond["level"] = bond_level(new)
         if new != old:
             changes.append(_change("bond", npc_id, old, new, proposal["reason"],
