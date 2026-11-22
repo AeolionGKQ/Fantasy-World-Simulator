@@ -805,6 +805,8 @@ export interface Bond {
   relation_type: string;
   listed: boolean;
   level?: string;
+  /** Names the NPC went by before the story revealed the current one, oldest first. */
+  former_names?: string[];
 }
 
 export type ReputationKey =

@@ -223,7 +223,7 @@ def story_arc_policy(action_type):
     return "\n<RUNTIME_STORY_ARC_POLICY_JSON>\n" + encoded + "\n</RUNTIME_STORY_ARC_POLICY_JSON>\n"
 
 
-STATE_RULES_POLICY_VERSION = "state-rules/5"
+STATE_RULES_POLICY_VERSION = "state-rules/6"
 MEMORY_CURATION_POLICY_VERSION = "memory-curation-policy/1"
 
 
@@ -290,6 +290,12 @@ def state_rules_policy(state, contract):
         "羁绊bonds的delta绝对值上限由impact决定："
         + "、".join(f"{key}为{limit}" for key, limit in BOND_IMPACT_LIMITS.items())
         + "（可正可负）；普通互动只能用minor或moderate",
+        "羁绊bonds的operation：create_or_join只用于首次建立羁绊；已有羁绊只调整好感度时用adjust，npc_name与relation_type照抄authoritative_state中该羁绊的当前值（adjust不会修改它们）；"
+        "要修改已有羁绊的名字或身份时用change_relation_type，npc_name和relation_type都填修改后的完整值，不改的一项照抄当前值，delta可同时调整、好感度不变时填0，evidence摘取正文中揭示或促成这一变化的原句",
+        "改名用于NPC此前使用化名、昵称、代号或身份不明，后来在正文中亲口说出或被揭示真名等情况，必须是剧情中真实发生的揭示，不要为简称、尊称或写法差异改名；改名后程序会把旧名记入former_names，"
+        "该NPC在authoritative_state.npcs中的名字也一并更新，之后统一使用新名字，需要时可提到其旧称；正典人物的名字不可修改",
+        "relation_type是该NPC相对玩家角色的身份或关系定位，写成简短称呼（如“新结识的同伴”“熟悉的伙伴”“挚友”“导师”“雇主”“宿敌”）；只在关系的实质发生转变时更新，"
+        "例如从新认识到并肩作战多次后成为熟悉的伙伴、经历生死后成为挚友、由合作转为敌对，不要因好感度的小幅波动或单次互动就改写，也不要每轮反复调整",
         "声望reputations的delta绝对值上限由impact决定："
         + "、".join(f"{key}为{limit}" for key, limit in REPUTATION_IMPACT_LIMITS.items())
         + "（可正可负）。continental_overall只用于跨势力、广泛传播的事件；主要发生在某一势力辖区或直接影响该势力的事件，使用对应势力的键；同一事件理由充分时可同时影响二者。visibility须为公开、被发现或已传播",
