@@ -237,10 +237,50 @@ class StateRuleTest(unittest.TestCase):
         response["proposals"]["bonds"][0].update(operation="adjust", delta=3)
         bond = decide(state, response)["state"]["bonds"]["npc.hooded"]
         self.assertEqual(("灰鸦", "新结识的同伴", 33), (bond["npc_name"], bond["relation_type"], bond["value"]))
-        # A dynamic NPC cannot take a canonical person's name.
-        response["proposals"]["bonds"][0].update(operation="change_relation_type", npc_name="莉莉娅·诺克维尔")
-        with self.assertRaisesRegex(ContractError, "正典人物的名字"):
-            decide(state, response)
+
+    def test_canonical_people_can_go_by_an_alias_until_revealed(self):
+        lilia = "canon.npc.lilia_noxveil"
+        state = story_state()
+        response = gm_response("turn")
+        response["narrative"]["body"] = "少女把你拉进小巷，自称米娅。后来她摘下斗篷：“其实我是莉莉娅·诺克维尔。”"
+        response["proposals"]["bonds"] = [base.bond_proposal(
+            operation="create_or_join", npc_id=lilia, npc_name="米娅", relation_type="同游的少女",
+            admission="important_character", delta=5, reason="同游", evidence="自称米娅")]
+        state = decide(state, response)["state"]
+        self.assertEqual("米娅", state["bonds"][lilia]["npc_name"])
+        response["proposals"]["bonds"] = [base.bond_proposal(
+            operation="change_relation_type", npc_id=lilia, npc_name="莉莉娅·诺克维尔", relation_type="朋友",
+            delta=0, reason="身份揭晓", evidence="其实我是莉莉娅·诺克维尔")]
+        bond = decide(state, response)["state"]["bonds"][lilia]
+        self.assertEqual(("莉莉娅·诺克维尔", ["米娅"], "朋友"),
+                         (bond["npc_name"], bond["former_names"], bond["relation_type"]))
+
+    def test_a_dynamic_npc_revealed_as_a_canonical_person_moves_the_bond(self):
+        lilia = "canon.npc.lilia_noxveil"
+        state = story_state()
+        state["npcs"]["npc.mia"] = {"id": "npc.mia", "name": "米娅", "description": "魔族少女", "source": "街头"}
+        state["bonds"]["npc.mia"] = {"id": "bond.mia", "npc_id": "npc.mia", "npc_name": "米娅", "value": 40,
+                                     "relation_type": "同游的少女", "listed": True, "level": "友善"}
+        response = gm_response("turn")
+        response["narrative"]["body"] = "她摘下斗篷：“其实我是莉莉娅·诺克维尔。”"
+        response["proposals"]["bonds"] = [base.bond_proposal(
+            operation="change_relation_type", npc_id="npc.mia", npc_name="莉莉娅·诺克维尔", relation_type="朋友",
+            delta=2, reason="身份揭晓", evidence="其实我是莉莉娅·诺克维尔")]
+        decided = decide(state, response)
+        bonds = decided["state"]["bonds"]
+        self.assertNotIn("npc.mia", bonds)
+        self.assertEqual((lilia, "莉莉娅·诺克维尔", ["米娅"], 42, "朋友"),
+                         (bonds[lilia]["npc_id"], bonds[lilia]["npc_name"], bonds[lilia]["former_names"],
+                          bonds[lilia]["value"], bonds[lilia]["relation_type"]))
+        self.assertEqual(lilia, decided["state"]["npcs"]["npc.mia"]["canonical_npc_id"])
+        self.assertIn((lilia + ".npc_name", "米娅", "莉莉娅·诺克维尔"),
+                      [(c["key"], c["old"], c["new"]) for c in decided["changes"]])
+        # The canonical person already had a bond: the two merge and the higher value stays.
+        state["bonds"][lilia] = {"id": "bond.lilia", "npc_id": lilia, "npc_name": "莉莉娅·诺克维尔",
+                                 "value": 60, "relation_type": "朋友", "listed": True, "level": "亲近"}
+        bonds = decide(state, response)["state"]["bonds"]
+        self.assertEqual(([lilia], 60, ["米娅"]),
+                         ([key for key in bonds], bonds[lilia]["value"], bonds[lilia]["former_names"]))
 
     def test_bond_delta_past_the_impact_limit_is_cut_to_the_limit(self):
         state = story_state()
