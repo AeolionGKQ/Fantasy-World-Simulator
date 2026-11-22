@@ -213,6 +213,35 @@ class StateRuleTest(unittest.TestCase):
             with self.assertRaisesRegex(ContractError, "不能对同一键或ID提交多个提案"):
                 decide(state, response)
 
+    def test_bond_name_and_identity_change_with_change_relation_type(self):
+        state = story_state()
+        state["npcs"]["npc.hooded"] = {"id": "npc.hooded", "name": "灰鸦", "description": "戴兜帽的女剑士",
+                                       "source": "初遇"}
+        state["bonds"]["npc.hooded"] = {"id": "bond.hooded", "npc_id": "npc.hooded", "npc_name": "灰鸦",
+            "value": 30, "relation_type": "新结识的同伴", "listed": True, "level": "友善"}
+        response = gm_response("turn")
+        response["narrative"]["body"] = "篝火旁，她摘下兜帽：“我的真名是赛琳·霜歌。”从此她成了可以托付后背的伙伴。"
+        response["proposals"]["bonds"] = [base.bond_proposal(
+            operation="change_relation_type", npc_id="npc.hooded", npc_name="赛琳·霜歌",
+            relation_type="熟悉的伙伴", delta=0, reason="坦白真名", evidence="我的真名是赛琳·霜歌")]
+        decided = decide(state, response)
+        bond = decided["state"]["bonds"]["npc.hooded"]
+        self.assertEqual(("赛琳·霜歌", "熟悉的伙伴", ["灰鸦"], 30),
+                         (bond["npc_name"], bond["relation_type"], bond["former_names"], bond["value"]))
+        self.assertEqual(("赛琳·霜歌", ["灰鸦"]), (decided["state"]["npcs"]["npc.hooded"]["name"],
+                                                decided["state"]["npcs"]["npc.hooded"]["former_names"]))
+        changes = {(c["key"], c["old"], c["new"]) for c in decided["changes"] if c["kind"] == "bond"}
+        self.assertEqual({("npc.hooded.npc_name", "灰鸦", "赛琳·霜歌"),
+                          ("npc.hooded.relation_type", "新结识的同伴", "熟悉的伙伴")}, changes)
+        # adjust changes only the value; a different name or identity there is ignored.
+        response["proposals"]["bonds"][0].update(operation="adjust", delta=3)
+        bond = decide(state, response)["state"]["bonds"]["npc.hooded"]
+        self.assertEqual(("灰鸦", "新结识的同伴", 33), (bond["npc_name"], bond["relation_type"], bond["value"]))
+        # A dynamic NPC cannot take a canonical person's name.
+        response["proposals"]["bonds"][0].update(operation="change_relation_type", npc_name="莉莉娅·诺克维尔")
+        with self.assertRaisesRegex(ContractError, "正典人物的名字"):
+            decide(state, response)
+
     def test_bond_delta_past_the_impact_limit_is_cut_to_the_limit(self):
         state = story_state()
         state["bonds"]["canon.npc.lilia_noxveil"] = {"id": "bond.test", "npc_id": "canon.npc.lilia_noxveil",

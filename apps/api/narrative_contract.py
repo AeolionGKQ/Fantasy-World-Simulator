@@ -792,6 +792,34 @@ def _change(kind, key, old, new, reason, extra=None):
     return result
 
 
+def _update_bond_profile(result, bond, proposal, bond_index, canonical_npcs, changes):
+    """change_relation_type sets an existing bond's name and identity to the proposal's values.
+    A new name covers an NPC who went by an alias or was unnamed until the story revealed more;
+    the old name stays in former_names so later turns know both refer to one person."""
+    npc_id = bond["npc_id"]
+    name = proposal["npc_name"].strip()
+    if name != bond["npc_name"]:
+        # Canonical names are fixed; the id check above already holds them to the catalog.
+        if canonical_name_collision(name, [{"id": key, "name": value}
+                                           for key, value in canonical_npcs.items()]):
+            _path_error(f"$.proposals.bonds[{bond_index}].npc_name", "不能把羁绊改名为正典人物的名字")
+        old_name = bond["npc_name"]
+        former = [value for value in bond.get("former_names", []) if value != name]
+        bond["former_names"] = former + ([old_name] if old_name not in former else [])
+        bond["npc_name"] = name
+        npc = result["npcs"].get(npc_id)
+        if npc is not None:
+            npc["former_names"] = list(bond["former_names"])
+            npc["name"] = name
+        changes.append(_change("bond", npc_id + ".npc_name", old_name, name, proposal["reason"],
+                               {"display_name": name}))
+    relation_type = proposal["relation_type"].strip()
+    if relation_type != bond["relation_type"]:
+        changes.append(_change("bond", npc_id + ".relation_type", bond["relation_type"], relation_type,
+                               proposal["reason"], {"display_name": bond["npc_name"]}))
+        bond["relation_type"] = relation_type
+
+
 def _contains_any(text, terms):
     return any(term in text for term in terms)
 
@@ -1388,7 +1416,7 @@ def adjudicate(state, response, canonical_locations, regional_quest_ids,
         new = max(-100, min(100, old + delta))
         bond["value"] = new
         if proposal["operation"] == "change_relation_type":
-            bond["relation_type"] = proposal["relation_type"]
+            _update_bond_profile(result, bond, proposal, bond_index, canonical_npcs, changes)
         bond["level"] = bond_level(new)
         if new != old:
             changes.append(_change("bond", npc_id, old, new, proposal["reason"],

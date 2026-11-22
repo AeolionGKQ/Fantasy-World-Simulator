@@ -148,6 +148,16 @@ function printable(value: unknown): string {
 }
 
 export function formatChange(change: AuthoritativeChange): { label: string; value: string; reason: string } {
+  // A bond's name or identity (relation_type) changed: show the words themselves, old and new.
+  if (change.kind === "bond" && (change.key.endsWith(".npc_name") || change.key.endsWith(".relation_type"))) {
+    const renamed = change.key.endsWith(".npc_name");
+    const name = cleanDisplayText(change.display_name, "");
+    return {
+      label: renamed ? "羁绊人物名字" : `${name || "羁绊人物"}的身份`,
+      value: `${cleanDisplayText(change.old, "无")} → ${cleanDisplayText(change.new, "无")}`,
+      reason: cleanDisplayText(change.reason, renamed ? "人物名字已更新" : "人物身份已更新"),
+    };
+  }
   const label = (() => {
     if (change.kind === "item" && change.key.endsWith(".equipped")) {
       const name = cleanDisplayText(change.display_name, "物品");
