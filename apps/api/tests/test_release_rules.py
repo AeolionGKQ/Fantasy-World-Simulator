@@ -8,7 +8,7 @@ import test_phase_two as base
 from api.content_registry import STATE_RULES_POLICY_VERSION, ContentRegistry, state_rules_policy
 from api.contract_registry import load_contract
 from api.model_provider import ProviderError
-from api.narrative_contract import (ContractError, _evidence_authorizes_action,
+from api.narrative_contract import (ContractError, RegionalQuestHold, _evidence_authorizes_action,
                                     _validate_regional_transition, adjudicate, validate_gm_response)
 from api.story_repository import (StoryRepository, canonical_location_map, initial_story_state,
                                   number_active_memories)
@@ -360,13 +360,71 @@ class StateRuleTest(unittest.TestCase):
         snack = "先去尝尝刚出炉的熔岩糖酥"
         _validate_regional_transition("regional_main.mia_day_out", {"status": "active"}, update,
                                       "location_matched", snack, body)
-        # Starting the quest still needs the player's own trigger words.
-        with self.assertRaisesRegex(ContractError, "触发原文"):
+        # Starting the quest still needs the player's own trigger words; without them it stays offered.
+        with self.assertRaises(RegionalQuestHold) as held:
             _validate_regional_transition("regional_main.mia_day_out", {"status": "offered"}, update,
                                           "location_matched", snack, body)
+        self.assertEqual("offered", held.exception.status)
         _validate_regional_transition(
             "regional_main.mia_day_out", {"status": "offered"},
             {**update, "action_evidence": "我愿意帮助米娅"}, "location_matched", "好，我愿意帮助米娅", body)
+
+    def regional_turn(self, state, quest_id, status, body, action="继续"):
+        registry = ContentRegistry(base.API_DIR)
+        quest = next(item for item in registry.quests if item["id"] == quest_id)
+        response = gm_response("turn")
+        response["narrative"]["body"] = body
+        response["proposals"]["quests"] = [{"operation": "transition", "quest_id": quest_id,
+            "name": quest["name"], "description": quest["description"], "status": status,
+            "progress": "继续推进", "objectives": [], "quest_kind": "regional", "target_rank": None,
+            "action_evidence": "", "necessary_nodes": [], "terminal_cause": "none", "reason": "推进",
+            "evidence": body[:6]}]
+        return adjudicate(state, validate_gm_response(response), canonical_location_map(), {quest_id},
+                          {quest_id: {"context_eligibility": "persistent_active"}}, {"action": action},
+                          {quest_id: quest})
+
+    def test_academy_day_completes_from_nodes_told_in_any_turn_and_words(self):
+        # Seen in a player's save: the ending said 晨星别院 and 安顿 but never 宿舍 or 选择学院,
+        # and the academy was chosen turns earlier, so every retry failed.
+        quest_id = "regional_main.grand_academy_first_day"
+        state = story_state()
+        state["regional_quests"][quest_id]["status"] = "active"
+        state = self.regional_turn(state, quest_id, "active", "测试结束后，她在名册上写下：法师学院。")["state"]
+        self.assertEqual(["法师学院", "选择学院"], state["regional_quests"][quest_id]["necessary_nodes"])
+        ending = "她用白玉符匙打开晨星别院三号的门，安顿下来，收好了刻着名字的学院学生卡。"
+        decided = self.regional_turn(state, quest_id, "completed", ending)
+        self.assertEqual("completed", decided["state"]["regional_quests"][quest_id]["status"])
+        self.assertEqual("塞莉娅·维恩", decided["state"]["world_flags"]["grand_academy_guide"])
+        self.assertEqual([], decided["notes"])
+
+    def test_a_regional_ending_missing_nodes_keeps_the_turn_and_says_what_is_missing(self):
+        quest_id = "regional_main.mia_day_out"
+        state = story_state()
+        state["regional_quests"][quest_id]["status"] = "active"
+        decided = self.regional_turn(state, quest_id, "completed", "夜幕下，两人坐在屋顶上看着漫天繁星。")
+        quest = decided["state"]["regional_quests"][quest_id]
+        self.assertEqual(("active", ["一同看星空"]), (quest["status"], quest["necessary_nodes"]))
+        self.assertEqual(1, len(decided["notes"]))
+        self.assertIn("“维蕾莎出现”、“赠予护魂项链”", decided["notes"][0])
+
+    def test_sacred_tree_needs_the_walk_or_the_talk_not_both(self):
+        quest_id = "regional_main.sacred_tree_encounter"
+        state = story_state()
+        state["regional_quests"][quest_id]["status"] = "active"
+        decided = self.regional_turn(state, quest_id, "completed",
+                                     "交谈在黄昏时结束，莉瑟娅把一枚翠生护符放进旅人手心。")
+        self.assertEqual("completed", decided["state"]["regional_quests"][quest_id]["status"])
+
+    def test_the_gm_sees_each_regional_ending_and_what_is_already_shown(self):
+        from api.content_registry import regional_completion_context
+        quest_id = "regional_main.grand_academy_first_day"
+        state = story_state()
+        state["regional_quests"][quest_id]["necessary_nodes"] = ["选择学院"]
+        context = regional_completion_context(quest_id, state)
+        self.assertEqual([("选择学院", True), ("分配宿舍并安顿", False), ("学生卡", False)],
+                         [(node["node"], node["shown"]) for node in context["completion_nodes"]])
+        self.assertIn("宿舍", context["completion_nodes"][1]["accepted_words"])
+        self.assertIn("法师学院—塞莉娅·维恩", context["completion_requirements"][0])
 
     def test_reply_type_comes_from_the_job_not_the_model(self):
         # Seen on the test phone: a 干涉命运 reply labelled "turn" failed although nothing else was wrong.

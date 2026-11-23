@@ -8,7 +8,8 @@ from pathlib import Path
 try:
     from .canonical_npcs import canonical_npc_catalog
     from .contract_registry import contract_from_documents
-    from .narrative_contract import (AGE_DELTA_LIMIT, ATTRIBUTE_DELTA_LIMIT, BOND_IMPACT_LIMITS,
+    from .narrative_contract import (ACADEMY_GUIDES, AGE_DELTA_LIMIT, ATTRIBUTE_DELTA_LIMIT,
+                                     BOND_IMPACT_LIMITS, REGIONAL_COMPLETION_NODES, regional_node_status,
                                      MEMORY_CURATION_CONTRACT, MODIFIER_SEVERITY_SHARE,
                                      ORDINARY_EQUIPMENT_SHARE, RANK_UP_RESOURCE_GROWTH,
                                      REPUTATION_IMPACT_LIMITS)
@@ -17,7 +18,8 @@ try:
 except ImportError:
     from canonical_npcs import canonical_npc_catalog
     from contract_registry import contract_from_documents
-    from narrative_contract import (AGE_DELTA_LIMIT, ATTRIBUTE_DELTA_LIMIT, BOND_IMPACT_LIMITS,
+    from narrative_contract import (ACADEMY_GUIDES, AGE_DELTA_LIMIT, ATTRIBUTE_DELTA_LIMIT,
+                                    BOND_IMPACT_LIMITS, REGIONAL_COMPLETION_NODES, regional_node_status,
                                     MEMORY_CURATION_CONTRACT, MODIFIER_SEVERITY_SHARE,
                                     ORDINARY_EQUIPMENT_SHARE, RANK_UP_RESOURCE_GROWTH,
                                     REPUTATION_IMPACT_LIMITS)
@@ -68,6 +70,32 @@ PLAYER_ADDRESS_DIALOGUE_RULE = (
     "（如“名字，……”“姓+先生/小姐，……”），不得当面用名字代替“你”；只有向第三方提起玩家角色时，"
     "才用名字、尊称或“她/他”")
 PLAYER_ADDRESS_CONSISTENCY_RULE = "以当前称呼设置为准；前文、摘要或记忆中的写法与之不一致时，不要沿用"
+
+
+REGIONAL_COMPLETION_REQUIREMENTS = {
+    "regional_main.song_of_sandsea": [
+        "完成或玩家主动离队时，须在proposals.currency中按实际路程、时间与贡献结算护卫工资（copper_delta大于0）",
+        "主动离队须来自本次玩家输入中明确提出离队的表述，并逐字摘入action_evidence",
+        "未按时归队导致任务结束时，正文须写明未按时归队，且不得结算护卫工资",
+    ],
+    "regional_main.grand_academy_first_day": [
+        "完成时在proposals.world_flags中记录grand_academy_selected_school（所选学院）与grand_academy_guide（对应指引员）："
+        + "；".join(f"{academy}—{guide}" for academy, guide in ACADEMY_GUIDES.items())
+        + "。未填写时程序会根据正文与此前记录推断",
+    ],
+}
+
+
+def regional_completion_context(quest_id, state):
+    """What a regional quest's ending needs, as the program checks it, with what the story has
+    already shown."""
+    quest = state.get("regional_quests", {}).get(quest_id, {})
+    shown, _ = regional_node_status(quest_id, quest.get("necessary_nodes"), "")
+    return {
+        "completion_nodes": [{"node": name, "accepted_words": list(words), "shown": name in shown}
+                             for name, words in REGIONAL_COMPLETION_NODES.get(quest_id, ())],
+        "completion_requirements": REGIONAL_COMPLETION_REQUIREMENTS.get(quest_id, []),
+    }
 
 
 def player_address_narration_rule(mode, address):
@@ -674,8 +702,13 @@ class ContentRegistry:
                     "context_eligibility": item["context_eligibility"],
                     "designated_trigger_locations": list(next(
                         quest["roots"] for quest in revision_quests if quest["id"] == item["id"])),
+                    **regional_completion_context(item["id"], state),
                 } for item in quest_context],
                 "rules": [
+                    "转为active需要本次玩家输入中有明确接受或参与的表述，并逐字摘入action_evidence；没有时任务会保持为offered",
+                    "转为completed前，正文须已交代completion_nodes中的全部节点：每个节点用accepted_words中任一说法自然写出即可，"
+                    "可以分散在任务进行中的不同回合；shown=true表示程序已记录该节点。节点未齐时程序会让任务保持进行中，不会作废本回合",
+                    "completion_requirements列出该任务结束时程序另外核对的事项，须在结束的那一回合一并满足",
                     "只有visible_regional_quests列出的任务可用于本次叙事",
                     "location_matched任务才可首次出现线索、预告、推荐、引导、offered或触发事件，并且仍须满足任务原文触发条件",
                     "persistent_active仅表示任务此前已offered或active，允许离开指定地点后继续推进",

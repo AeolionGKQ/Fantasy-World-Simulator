@@ -46,35 +46,62 @@ QUEST_TRANSITIONS = {
 REGIONAL_TRANSITION_RULES = {
     "regional_main.lost_tidevoice": {
         "start_terms": ("任务板", "匿名", "委托", "潮音珠"),
-        "complete_nodes": ("潮音珠", "演出"),
         "terminal_terms": ("拒绝", "未接取", "演出取消", "未能在演出前找回", "放弃"),
     },
     "regional_main.walking_with_wind": {
         "start_terms": ("搭话", "伊蕾娅", "少女"),
-        "complete_nodes": ("日落", "维兰希亚"),
         "terminal_terms": ("没有搭话", "中途离开", "未完成", "拒绝", "放弃"),
     },
     "regional_main.mia_day_out": {
         "start_terms": ("误导", "拒绝透露", "帮助", "士兵", "米娅"),
-        "complete_nodes": ("星空", "维蕾莎", "护魂项链"),
         "terminal_terms": ("指出方向", "帮助士兵", "破坏出行", "强行带回", "中断"),
     },
     "regional_main.sacred_tree_encounter": {
         "start_terms": ("观看", "搭话", "协助", "莉瑟娅"),
-        "complete_nodes": ("同行", "交流", "翠生护符"),
         "terminal_terms": ("忽略", "持续冒犯", "攻击", "伤害精灵之森", "离开"),
     },
     "regional_main.song_of_sandsea": {
         "start_terms": ("接受", "加入", "护卫", "商队", "娜希娅"),
-        "complete_nodes": ("熔脊龙谷",),
         "terminal_terms": ("拒绝", "未按时归队", "主动离队", "放弃"),
     },
     "regional_main.grand_academy_first_day": {
         "start_terms": ("入学", "测试", "学院"),
-        "complete_nodes": ("选择学院", "宿舍", "学生卡"),
         "terminal_terms": ("拒绝", "放弃入学", "测试失败", "中断", "离开"),
     },
 }
+# What a regional quest's ending must show before it counts as completed, from its source text.
+# Each node is (name, words that show it): the story may say it any of these ways, and a node shown
+# in any turn while the quest runs is recorded (necessary_nodes), so the ending turn need not repeat it.
+REGIONAL_COMPLETION_NODES = {
+    "regional_main.lost_tidevoice": (
+        ("找回潮音珠", ("潮音珠",)),
+        ("演出", ("演出", "演唱", "表演", "登台", "音乐会")),
+    ),
+    "regional_main.walking_with_wind": (
+        ("云海日落", ("日落", "夕阳", "落日", "晚霞", "余晖", "黄昏")),
+        ("返回维兰希亚", ("维兰希亚",)),
+    ),
+    "regional_main.mia_day_out": (
+        ("一同看星空", ("星空", "星辰", "繁星", "星海", "夜空", "星光", "银河")),
+        ("维蕾莎出现", ("维蕾莎",)),
+        ("赠予护魂项链", ("护魂项链", "项链")),
+    ),
+    "regional_main.sacred_tree_encounter": (
+        # The source ends the quest when the walk *or* the talk ends, not only when both happen.
+        ("同行或交流", ("同行", "交流", "交谈", "游览", "陪伴", "一起", "聊")),
+        ("翠生护符", ("翠生护符", "护符")),
+    ),
+    "regional_main.song_of_sandsea": (
+        ("抵达熔脊龙谷", ("熔脊龙谷", "龙谷")),
+    ),
+    "regional_main.grand_academy_first_day": (
+        ("选择学院", ("选择学院", "战士学院", "法师学院", "魔导学院")),
+        ("分配宿舍并安顿", ("宿舍", "寝室", "住处", "居所", "住所", "公寓", "别院", "房间", "安顿")),
+        ("学生卡", ("学生卡", "学员卡", "学生证", "学籍卡")),
+    ),
+}
+# Ways of saying yes that start any regional quest, on top of each quest's own trigger words.
+REGIONAL_ACCEPTANCE_TERMS = ("接下", "接受", "答应", "同意", "愿意", "加入", "一起", "陪", "帮")
 REGIONAL_ACTIVE_ACTION_TERMS = {
     "regional_main.lost_tidevoice": ("接取", "接受委托", "帮助露米娅", "同行寻找"),
     "regional_main.walking_with_wind": ("搭话", "主动交谈", "陪伊蕾娅", "接受邀请"),
@@ -848,9 +875,50 @@ def _contains_any(text, terms):
     return any(term in text for term in terms)
 
 
+class RegionalQuestHold(Exception):
+    """A regional quest step the story has not earned yet. The turn is kept; the quest stays at
+    `status` and the note tells the player (and, through the state, the next turn) what is missing."""
+
+    def __init__(self, status, note):
+        super().__init__(note)
+        self.status = status
+        self.note = note
+
+
+def regional_node_status(quest_id, recorded, text):
+    """(shown, missing) completion node names of a regional quest. A node counts when any of its
+    words is in text, or was recorded in an earlier turn (necessary_nodes)."""
+    recorded = set(recorded or [])
+    shown, missing = [], []
+    for name, words in REGIONAL_COMPLETION_NODES.get(quest_id, ()):
+        if name in recorded or any(word in recorded or word in text for word in words):
+            shown.append(name)
+        else:
+            missing.append(name)
+    return shown, missing
+
+
+def _academy_choice(proposals, world_flags, text):
+    """The academy the player chose: the GM's flag this turn, then the saved flag, then the one
+    academy (or guide) the story names. None when that is not clear."""
+    proposed = {item["key"]: item["value"] for item in (proposals or {}).get("world_flags", [])}
+    for flags in (proposed, world_flags or {}):
+        if flags.get("grand_academy_selected_school") in ACADEMY_GUIDES:
+            return flags["grand_academy_selected_school"]
+    named = [academy for academy in ACADEMY_GUIDES if academy in text]
+    if len(named) == 1:
+        return named[0]
+    guided = [academy for academy, guide in ACADEMY_GUIDES.items() if guide in text]
+    return guided[0] if len(guided) == 1 else None
+
+
 def _validate_regional_transition(quest_id, current, proposal, context_eligibility,
-                                  action_text, body, proposals=None):
+                                  action_text, body, proposals=None, world_flags=None):
+    """Hard errors are for replies that break the quest's rules; a step the story has not yet
+    earned (missing ending nodes, no player acceptance, no wage) raises RegionalQuestHold so the
+    turn is kept and the quest waits."""
     target = proposal["status"]
+    name = current.get("name") or quest_id
     if current["status"] in {"untriggered", "eligible"} and context_eligibility != "location_matched":
         raise ContractError("地区任务不能在错误地点从未触发状态转移")
     rule = REGIONAL_TRANSITION_RULES[quest_id]
@@ -860,19 +928,19 @@ def _validate_regional_transition(quest_id, current, proposal, context_eligibili
                                  _normalized_clause(proposal["action_evidence"]).lower()), "")
     negated_active = bool(authorization_clause) and _clause_negates_terms(
         authorization_clause, REGIONAL_NEGATED_ACTION_TERMS[quest_id])
-    # The player's trigger words authorize starting the quest; once it is active, later turns only
-    # update its progress and need no such quote (as for regular quests).
-    becoming_active = target == "active" and current["status"] != "active"
-    if becoming_active and negated_active:
-        raise ContractError("玩家原始行动明确否定地区任务触发行为，不能转为active")
-    if becoming_active and not _evidence_authorizes_terms(
-            proposal["action_evidence"], action_text,
-            REGIONAL_ACTIVE_ACTION_TERMS[quest_id] + tuple(rule["start_terms"])):
-        raise ContractError("地区任务active必须引用本次玩家行动中的触发原文")
     if current["status"] in {"untriggered", "eligible"} and target in {
             "active", "offered", "declined", "failed"} and not _contains_any(evidence, rule["start_terms"]):
         raise ContractError("地区任务缺少玩家动作或触发证据")
-    terminal_evidence = " ".join((action_text, current.get("progress", ""), body))
+    # The player's own words start the quest; once it is active, later turns only update its
+    # progress and need no such quote (as for regular quests). Without them the chance stays open.
+    becoming_active = target == "active" and current["status"] != "active"
+    if becoming_active and (negated_active or not _evidence_authorizes_terms(
+            proposal["action_evidence"], action_text,
+            REGIONAL_ACTIVE_ACTION_TERMS[quest_id] + tuple(rule["start_terms"]) +
+            REGIONAL_ACCEPTANCE_TERMS)):
+        raise RegionalQuestHold("offered", f"地区任务“{name}”需要玩家在行动中明确表示接受或参与，"
+                                           "本回合保持为“已提供”。")
+    terminal_evidence = " ".join((action_text, current.get("progress") or "", body))
     if target in {"declined", "failed", "abandoned"}:
         if _locate_quote(proposal["evidence"], body) is None:
             raise ContractError("地区任务终局路径缺少正文证据")
@@ -881,34 +949,45 @@ def _validate_regional_transition(quest_id, current, proposal, context_eligibili
             raise ContractError("地区任务declined必须来自玩家明确拒绝")
         if proposal["terminal_cause"] == "voluntary_departure" and not _evidence_authorizes_terms(
                 proposal["action_evidence"], action_text,
-                ("主动离队", "提出离队", "申请离队", "告辞", "结束护卫", "离开商队")):
-            raise ContractError("主动离队必须引用本次玩家行动中的离队原文")
+                ("离队", "告辞", "结束护卫", "离开商队", "不干了", "退出", "辞别", "分道扬镳")):
+            raise RegionalQuestHold(current["status"], f"地区任务“{name}”需要玩家在行动中明确提出离队，"
+                                                       "任务保持进行中。")
         if proposal["terminal_cause"] == "refusal" and target != "declined":
             raise ContractError("refusal只能对应declined任务状态")
         if proposal["terminal_cause"] == "missed_return" and not _contains_any(
-                " ".join((proposal["evidence"], body)), ("未按时", "错过归队", "没有归队", "未能归队")):
-            raise ContractError("missed_return必须有未按时归队的正文证据")
+                " ".join((proposal["evidence"], body)),
+                ("未按时", "错过", "没有归队", "未能归队", "没赶上", "迟到", "已经出发", "已经离开")):
+            raise RegionalQuestHold(current["status"], f"地区任务“{name}”：正文还没有写明玩家未按时归队，"
+                                                       "任务保持进行中。")
+    text = " ".join((body, current.get("progress") or "", proposal.get("progress") or ""))
     if target == "completed":
-        if not all(term in body or term in current.get("necessary_nodes", [])
-                   for term in rule["complete_nodes"]):
-            raise ContractError("地区任务缺少必要完成节点")
+        _, missing = regional_node_status(quest_id, current.get("necessary_nodes"), text)
+        if missing:
+            raise RegionalQuestHold(current["status"], f"地区任务“{name}”尚未完成：故事还没有交代"
+                                    + "、".join(f"“{node}”" for node in missing) + "，任务保持进行中。")
     if quest_id == "regional_main.song_of_sandsea" and (
             target == "completed" or proposal.get("terminal_cause") == "voluntary_departure"):
-        currency = (proposals or {}).get("currency", {})
-        combined = " ".join((currency.get("reason", ""), currency.get("evidence", ""), body))
-        if currency.get("copper_delta", 0) <= 0 or not _contains_any(
-                combined, ("工资", "贡献", "路程", "护卫", "结算")):
-            raise ContractError("沙海之歌完成或主动离队必须按实际贡献结算工资")
+        if (proposals or {}).get("currency", {}).get("copper_delta", 0) <= 0:
+            raise RegionalQuestHold(current["status"], f"地区任务“{name}”结束时需要按实际路程与贡献结算"
+                                                       "护卫工资，本回合任务保持进行中。")
     if (quest_id == "regional_main.song_of_sandsea" and
             proposal.get("terminal_cause") == "missed_return" and
             (proposals or {}).get("currency", {}).get("copper_delta", 0) > 0):
         raise ContractError("沙海之歌未按时归队时不能结算护卫工资")
     if quest_id == "regional_main.grand_academy_first_day" and target == "completed":
-        flags = {item["key"]: item["value"] for item in (proposals or {}).get("world_flags", [])}
-        academy = flags.get("grand_academy_selected_school")
-        guide = flags.get("grand_academy_guide")
-        if academy not in ACADEMY_GUIDES or guide != ACADEMY_GUIDES[academy]:
-            raise ContractError("学院任务完成必须记录所选学院和对应指引员")
+        academy = _academy_choice(proposals, world_flags,
+                                  " ".join([text] + list(current.get("necessary_nodes", []))))
+        if academy is None:
+            raise RegionalQuestHold(current["status"], f"地区任务“{name}”尚未完成：故事还没有交代玩家"
+                                                       "选择了哪座学院，任务保持进行中。")
+        # The guide follows from the academy; the program records both, whatever the GM wrote.
+        flags = proposals.setdefault("world_flags", [])
+        flags[:] = [item for item in flags if item["key"] not in
+                    {"grand_academy_selected_school", "grand_academy_guide"}]
+        for key, value in (("grand_academy_selected_school", academy),
+                           ("grand_academy_guide", ACADEMY_GUIDES[academy])):
+            flags.append({"key": key, "value": value, "reason": "学院入学日完成时记录所选学院与指引员",
+                          "evidence": ""})
 
 
 def _validate_narrative_consistency(state, response, guidance=""):
@@ -1341,10 +1420,15 @@ def adjudicate(state, response, canonical_locations, regional_quest_ids,
                 context_item = (quest_context or {}).get(quest_id, {})
                 if proposal["quest_kind"] != "regional" or proposal["target_rank"] is not None:
                     raise ContractError("地区任务提案类型无效")
-                _validate_regional_transition(
-                    quest_id, current, proposal, context_item.get("context_eligibility"),
-                    _player_action_text(action),
-                    response["narrative"]["body"], proposals)
+                try:
+                    _validate_regional_transition(
+                        quest_id, current, proposal, context_item.get("context_eligibility"),
+                        _player_action_text(action),
+                        response["narrative"]["body"], proposals, result.get("world_flags"))
+                except RegionalQuestHold as hold:
+                    # Keep the story; the quest waits, and the note says what it still needs.
+                    proposal = dict(proposal, status=hold.status, terminal_cause="none")
+                    notes.append(hold.note)
             elif (proposal["quest_kind"] != current.get("quest_kind", "regular") or
                   proposal["target_rank"] != current.get("target_rank")):
                 raise ContractError("任务类型或目标阶位不能在状态转移中改变")
@@ -1416,6 +1500,21 @@ def adjudicate(state, response, canonical_locations, regional_quest_ids,
                         result["world_flags"][flag] = True
                         receipts.append(("regional-reward:flag:" + flag, "world_flag", {flag: True}))
                         changes.append(_change("world_flag", flag, None, True, "地区任务固定结果"))
+    # Each turn a running regional quest's story is checked for its ending nodes, whether or not the
+    # GM listed them: what happened turns ago (choosing an academy) still counts at the end.
+    for quest_id in regional_quest_ids:
+        quest = result.get("regional_quests", {}).get(quest_id)
+        if quest and quest["status"] in {"offered", "active"}:
+            shown, _ = regional_node_status(quest_id, quest.get("necessary_nodes"), " ".join(
+                (response["narrative"]["body"], quest.get("progress") or "")))
+            recorded = set(quest.get("necessary_nodes", [])) | set(shown)
+            if quest_id == "regional_main.grand_academy_first_day":
+                # Which academy (or guide) was named, for the academy flags at the end.
+                recorded |= {name for pair in ACADEMY_GUIDES.items() for name in pair
+                             if name in response["narrative"]["body"]}
+            recorded = sorted(recorded)
+            if recorded != sorted(quest.get("necessary_nodes", [])):
+                quest["necessary_nodes"] = recorded
     if consumed_breakthrough_task:
         result["quests"][consumed_breakthrough_task]["consumed"] = True
 

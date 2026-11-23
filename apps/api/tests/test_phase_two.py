@@ -1291,10 +1291,17 @@ class ContentTest(unittest.TestCase):
                 "name": quest["name"], "description": quest["description"], "status": "active", "progress": "开始",
                 "objectives": [], "quest_kind": "regional", "target_rank": None,
                 "action_evidence": "模型声称接受", "necessary_nodes": [], "terminal_cause": "none", "reason": "开始", "evidence": "开始任务"}]
-            with self.subTest(quest=quest_id), self.assertRaises(ContractError):
-                adjudicate(state, validate_gm_response(response), canonical_location_map(), {quest_id},
-                           {quest_id: {"context_eligibility": "location_matched"}},
-                           {"action": "只是观察"}, {quest_id: quest})
+            with self.subTest(quest=quest_id):
+                # Without the player's own words the quest never starts: either the reply is
+                # rejected, or the turn is kept and the quest stays only offered.
+                try:
+                    decided = adjudicate(state, validate_gm_response(response), canonical_location_map(),
+                                         {quest_id}, {quest_id: {"context_eligibility": "location_matched"}},
+                                         {"action": "只是观察"}, {quest_id: quest})
+                except ContractError:
+                    continue
+                self.assertEqual("offered", decided["state"]["regional_quests"][quest_id]["status"])
+                self.assertTrue(any("明确表示接受" in note for note in decided["notes"]))
 
     def test_regional_active_respects_explicit_player_negation(self):
         registry = ContentRegistry(API_DIR)
@@ -1314,13 +1321,10 @@ class ContentTest(unittest.TestCase):
             "action_evidence": "加入商队", "necessary_nodes": [], "terminal_cause": "none", "reason": "开始", "evidence": "开始任务"}]
         context = {quest_id: {"context_eligibility": "location_matched"}}
         action = {"action": "我不接受招募，不加入商队，也不担任护卫"}
-        with self.assertRaisesRegex(ContractError, "active必须引用"):
-            adjudicate(state, validate_gm_response(response), canonical_location_map(), {quest_id},
-                       context, action, {quest_id: quest})
-        with self.assertRaisesRegex(ContractError, "active必须引用"):
-            adjudicate(state, validate_gm_response(response), canonical_location_map(), {quest_id},
-                       context, {"action": "不要在任何情况下让他们把我登记为护卫或加入商队"},
-                       {quest_id: quest})
+        for refusal in (action, {"action": "不要在任何情况下让他们把我登记为护卫或加入商队"}):
+            decided = adjudicate(state, validate_gm_response(response), canonical_location_map(), {quest_id},
+                                 context, refusal, {quest_id: quest})
+            self.assertEqual("offered", decided["state"]["regional_quests"][quest_id]["status"])
         state["regional_quests"][quest_id]["status"] = "offered"
         declined = copy.deepcopy(response)
         declined["narrative"]["body"] = "玩家拒绝任务，商队尊重决定。"
@@ -1380,9 +1384,26 @@ class ContentTest(unittest.TestCase):
                 "name": quest["name"], "description": quest["description"], "status": "completed",
                 "progress": "完成", "objectives": [], "quest_kind": "regional", "target_rank": None,
                 "action_evidence": "完成", "necessary_nodes": nodes, "terminal_cause": "none", "reason": "完成", "evidence": "任务完成"}]
-            with self.subTest(quest=quest_id), self.assertRaises(ContractError):
-                adjudicate(state, validate_gm_response(response), canonical_location_map(), {quest_id},
-                           {quest_id: {"context_eligibility": "persistent_active"}}, {}, {quest_id: quest})
+            with self.subTest(quest=quest_id):
+                # No wage / no academy named: the turn is kept and the quest waits.
+                decided = adjudicate(state, validate_gm_response(response), canonical_location_map(), {quest_id},
+                                     {quest_id: {"context_eligibility": "persistent_active"}}, {},
+                                     {quest_id: quest})
+                self.assertEqual("active", decided["state"]["regional_quests"][quest_id]["status"])
+                self.assertTrue(any("任务保持进行中" in note for note in decided["notes"]))
+                if quest_id.endswith("song_of_sandsea"):
+                    response["proposals"]["currency"] = {"copper_delta": 300, "reason": "护卫工资",
+                                                         "evidence": "商队抵达熔脊龙谷"}
+                else:
+                    response["narrative"]["body"] = "选择法师学院后分配宿舍并取得学生卡，任务完成。"
+                decided = adjudicate(state, validate_gm_response(response), canonical_location_map(), {quest_id},
+                                     {quest_id: {"context_eligibility": "persistent_active"}}, {},
+                                     {quest_id: quest})
+                self.assertEqual("completed", decided["state"]["regional_quests"][quest_id]["status"])
+                if quest_id.endswith("first_day"):
+                    flags = decided["state"]["world_flags"]
+                    self.assertEqual(("法师学院", "塞莉娅·维恩"), (flags["grand_academy_selected_school"],
+                                                                flags["grand_academy_guide"]))
 
     def test_regional_terminal_paths_require_task_specific_evidence(self):
         registry = ContentRegistry(API_DIR)
