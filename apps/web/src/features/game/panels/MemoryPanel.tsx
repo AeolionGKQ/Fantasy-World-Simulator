@@ -54,8 +54,9 @@ export function MemoryPanel({ memory, memories, arcBusy, arcJob, onMerge, onRebu
       </div>
       <section className="plain-section">
         <div className="section-line"><h3>故事弧</h3></div>
-        {memory.story_arcs.length
-          ? <ul className="arc-list">{memory.story_arcs.map((arc) => <ArcRow key={arc.id} arc={arc} />)}</ul>
+        {/* Arcs merged into a later one are gone from the GM context too, so only the merged arc shows. */}
+        {currentArcs.length
+          ? <ul className="arc-list">{currentArcs.map((arc) => <ArcRow key={arc.id} arc={arc} />)}</ul>
           : <p className="muted-copy">较早的剧情积累到连续 25 段后，会自动整理成一个故事弧，概括这一段旅程。</p>}
       </section>
       <section className="plain-section">
@@ -123,7 +124,7 @@ function DeleteMemoryModal({ saveId, memory, onClose, onDeleted }: { saveId: str
 function ArcRow({ arc }: { arc: StoryArc }) {
   return (
     <li>
-      <div className="record-heading"><strong>{arc.title}</strong><span>第 {arc.start_sequence} 至 {arc.end_sequence} 段 · {arc.status === "current" ? "正在使用" : "已压缩到后续摘要"}</span></div>
+      <div className="record-heading"><strong>{arc.title}</strong><span>第 {arc.start_sequence} 至 {arc.end_sequence} 段</span></div>
       <p>{arc.summary}</p>
       {/* Key events are part of the summary; only open threads are listed, one per line. */}
       {arc.unresolved.length > 0 && (
