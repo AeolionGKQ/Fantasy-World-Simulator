@@ -2105,6 +2105,15 @@ class PhaseTwoApiTest(unittest.TestCase):
             self.save_id, {}, automatic=True)
         self.assertIsNone(automatic)
         self.assertFalse(created)
+        # The next story turn sees only the merged arc, not the three it replaced.
+        self.provider.responses.append(gm_response("turn"))
+        turn = self.request("POST", f"/api/saves/{self.save_id}/turns", {
+            "request_id": "turn-after-arc-merge", "expected_state_version": 1,
+            "action": "继续前进", "option_id": None}, 202)
+        self.wait_job(self.save_id, turn["id"])
+        context = json.loads(self.provider.messages[-1][1]["content"])
+        self.assertEqual([(1, 75, 2)], [(arc["start_sequence"], arc["end_sequence"], arc["level"])
+                                        for arc in context["story_arcs"]])
 
     def test_v2_export_import_round_trip(self):
         self.provider.responses.append(gm_response("opening"))
