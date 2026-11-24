@@ -251,7 +251,7 @@ def story_arc_policy(action_type):
     return "\n<RUNTIME_STORY_ARC_POLICY_JSON>\n" + encoded + "\n</RUNTIME_STORY_ARC_POLICY_JSON>\n"
 
 
-STATE_RULES_POLICY_VERSION = "state-rules/7"
+STATE_RULES_POLICY_VERSION = "state-rules/8"
 MEMORY_CURATION_POLICY_VERSION = "memory-curation-policy/1"
 
 
@@ -312,6 +312,9 @@ def state_rules_policy(state, contract):
         "任务quests：target_rank只表示突破任务要晋升到的阶位，普通任务与地区任务一律填null，不要用它表示任务难度或敌人阶位。"
         "新建任务必须填写name与description，状态可为untriggered、eligible或offered；玩家本次输入明确表示接受时才能把任务创建为或转为active，"
         "action_evidence逐字摘取玩家输入中表达接受意图的那一小段（如“这个委托我接了”“我答应帮她”），不要整段复制，也不要引用否定说法；终局状态不可逆",
+        "玩家没有口头答应、但已经主动着手推进某个offered任务时（按任务目标行动，如前往委托地点、调查任务线索、寻找任务对象、与委托相关人物交涉），也算作已接取，可以直接转为active，"
+        "action_evidence逐字摘取玩家输入中推进该任务的那一小段（如“去码头打听潮音珠的下落”）；只是路过、闲聊提及或被动卷入不算推进。"
+        "offered任务因玩家的行动而推进时，即使暂不转为active，也要在action_evidence中摘取该行动原文；连续两轮如此，程序会把它视为已接取",
         "已提供（offered）但玩家尚未接取的任务，若剧情表明它已失效或过期——如截止时间已过、委托人已另找他人或不再需要、任务对象已死亡或消失、与玩家已选择的另一任务冲突而无法兼顾——"
         "就用status=failed、terminal_cause=external_failure把它结束，并在正文中交代原因。拿不准时保留；玩家只是暂未答复、或可以与其他任务并行推进的委托不要结束。地区任务仍按其专门规则处理。"
         "已结束的任务不会再出现在authoritative_state中，玩家也可能在任务栏中主动忽略任务",
@@ -658,7 +661,8 @@ class ContentRegistry:
                     "玩家可尝试任何行为；客观条件不足时叙述合理失败并继续故事，不要省略尝试本身",
                     "所有非零状态提案必须用evidence逐字引用正文；正文可以使用自然沉浸式措辞，不必迎合机制关键词",
                     "重塑只以reshape_guidance作为本次新授权，original_action仅是要被改写的历史上下文",
-                    "普通任务可按世界进展创建为untriggered、eligible或offered；只有玩家本次输入明确表示接受时才能active，action_evidence逐字摘取玩家输入中表达接受意图的那一小段，不要整段复制",
+                    "普通任务可按世界进展创建为untriggered、eligible或offered；玩家本次输入明确表示接受，或玩家已主动着手推进该offered任务时，才能active，"
+                    "action_evidence逐字摘取玩家输入中表达接受或推进该任务的那一小段，不要整段复制",
                     "NPC死亡不等于玩家死亡；scene.player_life_state只描述玩家本人且必须与HP结果一致",
                     "普通行为只能产生minor或moderate关系影响；major、life_defining或world_shaping必须由正文中的重大长期事件支撑",
                     "既有正典人物必须使用canonical_npc_catalog稳定ID，不得伪造canon.npc前缀",
@@ -705,7 +709,8 @@ class ContentRegistry:
                     **regional_completion_context(item["id"], state),
                 } for item in quest_context],
                 "rules": [
-                    "转为active需要本次玩家输入中有明确接受或参与的表述，并逐字摘入action_evidence；没有时任务会保持为offered",
+                    "首次触发转为active需要本次玩家输入中有明确接受或参与的表述，并逐字摘入action_evidence；没有时任务会保持为offered。"
+                    "已offered的任务，玩家主动着手推进时也算作已接取，可转为active，action_evidence摘取推进它的行动原文；连续两轮推进时程序会自动视为已接取",
                     "转为completed前，正文须已交代completion_nodes中的全部节点：每个节点用accepted_words中任一说法自然写出即可，"
                     "可以分散在任务进行中的不同回合；shown=true表示程序已记录该节点。节点未齐时程序会让任务保持进行中，不会作废本回合",
                     "completion_requirements列出该任务结束时程序另外核对的事项，须在结束的那一回合一并满足",

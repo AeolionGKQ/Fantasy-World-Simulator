@@ -351,6 +351,60 @@ class StateRuleTest(unittest.TestCase):
             "我愿意接下护送商队前往沙海的这份委托", "我不愿意接下护送商队前往沙海的这份委托"))
         self.assertFalse(_evidence_authorizes_action("我愿意接下这份委托", "我想先去吃点东西"))
 
+    def quest_update(self, state, quest_id, status, progress, action, action_evidence, regional=False):
+        response = gm_response("turn")
+        response["narrative"]["body"] = "旅人沿着码头一路打听，线索渐渐清晰。"
+        response["proposals"]["quests"] = [{"operation": "update", "quest_id": quest_id, "name": None,
+            "description": None, "status": status, "progress": progress, "objectives": [],
+            "quest_kind": "regional" if regional else "regular", "target_rank": None,
+            "action_evidence": action_evidence, "necessary_nodes": [], "terminal_cause": "none",
+            "reason": "推进", "evidence": "线索渐渐清晰"}]
+        context = {quest_id: {"context_eligibility": "persistent_active"}} if regional else {}
+        registry = ContentRegistry(base.API_DIR)
+        definitions = {quest["id"]: quest for quest in registry.quests} if regional else None
+        return adjudicate(state, validate_gm_response(response), canonical_location_map(),
+                          {quest_id} if regional else set(), context, {"action": action}, definitions)
+
+    def test_a_player_who_keeps_advancing_an_offered_quest_has_taken_it(self):
+        state = story_state()
+        state["quests"]["quest.lost"] = {"id": "quest.lost", "name": "失物委托", "description": "找回失物",
+            "status": "offered", "progress": "", "objectives": [], "regional": False,
+            "quest_kind": "regular", "target_rank": None, "consumed": False, "necessary_nodes": []}
+        first = self.quest_update(state, "quest.lost", "offered", "在码头打听到第一条线索",
+                                  "去码头打听失物的下落", "去码头打听失物的下落")
+        quest = first["state"]["quests"]["quest.lost"]
+        self.assertEqual(("offered", 1), (quest["status"], quest["player_advances"]))
+        second = self.quest_update(first["state"], "quest.lost", "offered", "找到了目击者",
+                                   "找那个水手问清楚", "找那个水手问清楚")
+        quest = second["state"]["quests"]["quest.lost"]
+        self.assertEqual("active", quest["status"])
+        self.assertNotIn("player_advances", quest)
+        self.assertTrue(any("视为已接取" in note for note in second["notes"]))
+        self.assertIn(("quest.lost", "offered", "active"),
+                      [(c["key"], c["old"], c["new"]) for c in second["changes"] if c["kind"] == "quest"])
+        # Progress the player did not drive (no quote from their action) breaks the run.
+        other = self.quest_update(first["state"], "quest.lost", "offered", "委托人又加了赏金",
+                                  "在旅店休息", "")
+        self.assertEqual(("offered", 0), (other["state"]["quests"]["quest.lost"]["status"],
+                                          other["state"]["quests"]["quest.lost"]["player_advances"]))
+        # The GM may also accept it at once when the player is clearly working on it.
+        direct = self.quest_update(state, "quest.lost", "active", "在码头打听到第一条线索",
+                                   "去码头打听失物的下落", "去码头打听失物的下落")
+        self.assertEqual("active", direct["state"]["quests"]["quest.lost"]["status"])
+
+    def test_an_offered_regional_quest_starts_when_the_player_works_on_it(self):
+        quest_id = "regional_main.mia_day_out"
+        state = story_state()
+        state["regional_quests"][quest_id]["status"] = "offered"
+        # No trigger words, but the player is following 米娅's day out.
+        decided = self.quest_update(state, quest_id, "active", "和米娅一起逛了地热集市",
+                                    "跟着她去尝尝熔岩糖酥", "跟着她去尝尝熔岩糖酥", regional=True)
+        self.assertEqual("active", decided["state"]["regional_quests"][quest_id]["status"])
+        # Still never against the player's words.
+        refused = self.quest_update(state, quest_id, "active", "米娅失望地离开",
+                                    "我不帮米娅", "我不帮米娅", regional=True)
+        self.assertEqual("offered", refused["state"]["regional_quests"][quest_id]["status"])
+
     def test_active_regional_quest_updates_need_no_new_trigger_quote(self):
         body = "米娅拉着菲亚挤到熔岩糖酥摊前，四人分着吃完了刚出炉的糖酥。"
         update = {"quest_id": "regional_main.mia_day_out", "status": "active", "action_evidence": "",

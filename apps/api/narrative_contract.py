@@ -101,6 +101,8 @@ REGIONAL_COMPLETION_NODES = {
     ),
 }
 # Ways of saying yes that start any regional quest, on top of each quest's own trigger words.
+# Turns in a row of the player advancing an offered quest after which it counts as accepted.
+PLAYER_ADVANCES_TO_ACCEPT = 2
 REGIONAL_ACCEPTANCE_TERMS = ("接下", "接受", "答应", "同意", "愿意", "加入", "一起", "陪", "帮")
 REGIONAL_ACTIVE_ACTION_TERMS = {
     "regional_main.lost_tidevoice": ("接取", "接受委托", "帮助露米娅", "同行寻找"),
@@ -934,10 +936,14 @@ def _validate_regional_transition(quest_id, current, proposal, context_eligibili
     # The player's own words start the quest; once it is active, later turns only update its
     # progress and need no such quote (as for regular quests). Without them the chance stays open.
     becoming_active = target == "active" and current["status"] != "active"
-    if becoming_active and (negated_active or not _evidence_authorizes_terms(
-            proposal["action_evidence"], action_text,
-            REGIONAL_ACTIVE_ACTION_TERMS[quest_id] + tuple(rule["start_terms"]) +
-            REGIONAL_ACCEPTANCE_TERMS)):
+    # From untriggered/eligible the player's words must name the quest's trigger; once it is
+    # offered, any of the player's own actions that pushes it forward counts as taking it on.
+    authorized = (_evidence_authorizes_action(proposal["action_evidence"], action_text)
+                  if current["status"] == "offered" else _evidence_authorizes_terms(
+                      proposal["action_evidence"], action_text,
+                      REGIONAL_ACTIVE_ACTION_TERMS[quest_id] + tuple(rule["start_terms"]) +
+                      REGIONAL_ACCEPTANCE_TERMS))
+    if becoming_active and (negated_active or not authorized):
         raise RegionalQuestHold("offered", f"地区任务“{name}”需要玩家在行动中明确表示接受或参与，"
                                            "本回合保持为“已提供”。")
     terminal_evidence = " ".join((action_text, current.get("progress") or "", body))
@@ -1448,6 +1454,19 @@ def adjudicate(state, response, canonical_locations, regional_quest_ids,
                 established_nodes = set(current.get("necessary_nodes", []))
                 established_nodes.update(node for node in proposal["necessary_nodes"] if node in response["narrative"]["body"])
                 current["necessary_nodes"] = sorted(established_nodes)
+            # A player who keeps working on an offered quest has taken it on: after two turns in a
+            # row where the player's own action (quoted in action_evidence) moved it forward, the
+            # program makes it active even if the GM left it offered.
+            if current["status"] == "offered" and old_status == "offered":
+                advanced = (current.get("progress", "") != old_progress and
+                            _evidence_authorizes_action(proposal["action_evidence"],
+                                                        _player_action_text(action)))
+                current["player_advances"] = current.get("player_advances", 0) + 1 if advanced else 0
+                if current["player_advances"] >= PLAYER_ADVANCES_TO_ACCEPT:
+                    current["status"] = "active"
+                    notes.append(f"玩家已持续推进任务“{current.get('name') or quest_id}”，视为已接取。")
+            if current["status"] != "offered":
+                current.pop("player_advances", None)
             status_changed = current["status"] != old_status
             progress_changed = (current.get("progress", "") != old_progress or
                                 current.get("objectives", []) != old_objectives or
