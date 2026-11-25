@@ -8,7 +8,8 @@ import test_phase_two as base
 from api.content_registry import STATE_RULES_POLICY_VERSION, ContentRegistry, state_rules_policy
 from api.contract_registry import load_contract
 from api.model_provider import ProviderError
-from api.narrative_contract import (ContractError, RegionalQuestHold, _evidence_authorizes_action,
+from api.narrative_contract import (ContractError, RegionalQuestHold, _authorized_span,
+                                    _evidence_authorizes_action,
                                     _validate_regional_transition, adjudicate, validate_gm_response)
 from api.story_repository import (StoryRepository, canonical_location_map, initial_story_state,
                                   number_active_memories)
@@ -428,6 +429,28 @@ class StateRuleTest(unittest.TestCase):
                                           "location_matched", "继续赶路", "她往哪个方向去了？")
         _validate_regional_transition("regional_main.mia_day_out", {"status": "untriggered"}, failed,
                                       "location_matched", "继续赶路", body)
+
+    def test_a_yes_with_conditions_is_still_a_yes(self):
+        cases = [
+            # Two players' saves: both agreed to go with 米娅 and were told they had not.
+            ("提出条件：可以同行，但不能惹出危及治安的麻烦", "可以同行，但不能惹出危及治安的麻烦", True),
+            ("好吧，我陪你去吃烤饼，我知道这个城里最棒的一家。", "我陪你去吃烤饼", True),
+            ("我陪你去，不过不许乱跑", "我陪你去，不过不许乱跑", True),
+            ("我不太确定，但我接了", "我不太确定，但我接了", True),
+            ("好的，但我不接", "好的，但我不接", False),
+            ("我不接，你找别人吧", "我不接，你找别人吧", False),
+            ("别跟着我", "别跟着我", False),
+            ("我真的不能同行", "我真的不能同行", False),
+        ]
+        for action, quote, accepted in cases:
+            with self.subTest(quote=quote):
+                self.assertEqual(accepted, _authorized_span(quote, action) is not None)
+        update = {"status": "active", "action_evidence": "可以同行，但不能惹出危及治安的麻烦", "evidence": "米娅笑了",
+                  "terminal_cause": "none", "progress": "结伴同行", "necessary_nodes": []}
+        for status in ("untriggered", "offered"):
+            _validate_regional_transition("regional_main.mia_day_out", {"status": status}, update,
+                                          "location_matched", "提出条件：可以同行，但不能惹出危及治安的麻烦",
+                                          "自称“米娅”的少女笑了")
 
     def test_active_regional_quest_updates_need_no_new_trigger_quote(self):
         body = "米娅拉着菲亚挤到熔岩糖酥摊前，四人分着吃完了刚出炉的糖酥。"
