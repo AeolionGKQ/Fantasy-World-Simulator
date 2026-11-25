@@ -45,27 +45,28 @@ QUEST_TRANSITIONS = {
 }
 REGIONAL_TRANSITION_RULES = {
     "regional_main.lost_tidevoice": {
-        "start_terms": ("任务板", "匿名", "委托", "潮音珠"),
+        "start_terms": ("任务板", "匿名", "委托", "潮音珠", "告示", "寻物", "露米娅"),
         "terminal_terms": ("拒绝", "未接取", "演出取消", "未能在演出前找回", "放弃"),
     },
     "regional_main.walking_with_wind": {
-        "start_terms": ("搭话", "伊蕾娅", "少女"),
+        "start_terms": ("搭话", "伊蕾娅", "少女", "长椅", "叹气", "交谈", "羽族"),
         "terminal_terms": ("没有搭话", "中途离开", "未完成", "拒绝", "放弃"),
     },
     "regional_main.mia_day_out": {
-        "start_terms": ("误导", "拒绝透露", "帮助", "士兵", "米娅"),
+        "start_terms": ("误导", "拒绝透露", "帮助", "士兵", "米娅", "卫兵", "守卫", "追兵", "斗篷",
+                        "少女", "掩护"),
         "terminal_terms": ("指出方向", "帮助士兵", "破坏出行", "强行带回", "中断"),
     },
     "regional_main.sacred_tree_encounter": {
-        "start_terms": ("观看", "搭话", "协助", "莉瑟娅"),
+        "start_terms": ("观看", "搭话", "协助", "莉瑟娅", "射箭", "圣女", "教学", "孩童", "交谈"),
         "terminal_terms": ("忽略", "持续冒犯", "攻击", "伤害精灵之森", "离开"),
     },
     "regional_main.song_of_sandsea": {
-        "start_terms": ("接受", "加入", "护卫", "商队", "娜希娅"),
+        "start_terms": ("接受", "加入", "护卫", "商队", "娜希娅", "招募", "雇佣"),
         "terminal_terms": ("拒绝", "未按时归队", "主动离队", "放弃"),
     },
     "regional_main.grand_academy_first_day": {
-        "start_terms": ("入学", "测试", "学院"),
+        "start_terms": ("入学", "测试", "学院", "报名", "新生"),
         "terminal_terms": ("拒绝", "放弃入学", "测试失败", "中断", "离开"),
     },
 }
@@ -930,8 +931,11 @@ def _validate_regional_transition(quest_id, current, proposal, context_eligibili
                                  _normalized_clause(proposal["action_evidence"]).lower()), "")
     negated_active = bool(authorization_clause) and _clause_negates_terms(
         authorization_clause, REGIONAL_NEGATED_ACTION_TERMS[quest_id])
+    # Offering only says the chance has come (the trigger location is checked above); the scene
+    # may word it freely (卫兵 for the source's 士兵). Starting or closing the quest from scratch
+    # still needs words of its trigger.
     if current["status"] in {"untriggered", "eligible"} and target in {
-            "active", "offered", "declined", "failed"} and not _contains_any(evidence, rule["start_terms"]):
+            "active", "declined", "failed"} and not _contains_any(evidence, rule["start_terms"]):
         raise ContractError("地区任务缺少玩家动作或触发证据")
     # The player's own words start the quest; once it is active, later turns only update its
     # progress and need no such quote (as for regular quests). Without them the chance stays open.

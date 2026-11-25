@@ -405,6 +405,30 @@ class StateRuleTest(unittest.TestCase):
                                     "我不帮米娅", "我不帮米娅", regional=True)
         self.assertEqual("offered", refused["state"]["regional_quests"][quest_id]["status"])
 
+    def test_a_regional_quest_can_be_offered_in_the_scene_s_own_words(self):
+        # A player's save: 米娅 ran past and 卫兵 (not the source's 士兵) asked where she went; the
+        # reply offering the quest was rejected for having none of the trigger words.
+        body = ("一道披着宽大黑色斗篷的纤细身影自低矮围墙上轻巧跃下。五六名卫兵快步拐入巷口，"
+                "领头的卫队长询问：“刚才是否有一名可疑人员从这里逃窜？她往哪个方向去了？”")
+        offer = {"status": "offered", "action_evidence": "", "terminal_cause": "none", "progress": "卫兵询问去向",
+                 "evidence": "她往哪个方向去了？", "necessary_nodes": []}
+        _validate_regional_transition("regional_main.mia_day_out", {"status": "untriggered"}, offer,
+                                      "location_matched", "展开魔力感知，观察四周", "她往哪个方向去了？")
+        _validate_regional_transition("regional_main.mia_day_out", {"status": "untriggered"}, offer,
+                                      "location_matched", "展开魔力感知，观察四周", body)
+        # Still only where the quest can start.
+        with self.assertRaisesRegex(ContractError, "错误地点"):
+            _validate_regional_transition("regional_main.mia_day_out", {"status": "untriggered"}, offer,
+                                          "card_only", "展开魔力感知", body)
+        # Ending it from scratch still needs words of its trigger; 卫兵 now counts as one.
+        failed = {**offer, "status": "failed", "terminal_cause": "external_failure",
+                  "evidence": "她往哪个方向去了"}
+        with self.assertRaisesRegex(ContractError, "触发证据"):
+            _validate_regional_transition("regional_main.mia_day_out", {"status": "untriggered"}, failed,
+                                          "location_matched", "继续赶路", "她往哪个方向去了？")
+        _validate_regional_transition("regional_main.mia_day_out", {"status": "untriggered"}, failed,
+                                      "location_matched", "继续赶路", body)
+
     def test_active_regional_quest_updates_need_no_new_trigger_quote(self):
         body = "米娅拉着菲亚挤到熔岩糖酥摊前，四人分着吃完了刚出炉的糖酥。"
         update = {"quest_id": "regional_main.mia_day_out", "status": "active", "action_evidence": "",
