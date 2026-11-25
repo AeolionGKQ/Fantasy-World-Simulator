@@ -104,7 +104,8 @@ REGIONAL_COMPLETION_NODES = {
 # Ways of saying yes that start any regional quest, on top of each quest's own trigger words.
 # Turns in a row of the player advancing an offered quest after which it counts as accepted.
 PLAYER_ADVANCES_TO_ACCEPT = 2
-REGIONAL_ACCEPTANCE_TERMS = ("接下", "接受", "答应", "同意", "愿意", "加入", "一起", "陪", "帮")
+REGIONAL_ACCEPTANCE_TERMS = ("接下", "接受", "答应", "同意", "愿意", "加入", "一起", "陪", "帮",
+                             "同行", "带路", "走吧", "跟你", "一块")
 REGIONAL_ACTIVE_ACTION_TERMS = {
     "regional_main.lost_tidevoice": ("接取", "接受委托", "帮助露米娅", "同行寻找"),
     "regional_main.walking_with_wind": ("搭话", "主动交谈", "陪伊蕾娅", "接受邀请"),
@@ -414,6 +415,22 @@ def _evidence_authorizes_action(evidence, action_text):
     return _authorized_span(evidence, action_text) is not None
 
 
+# A later clause that sets a condition on the other side ("但不能惹出麻烦", "只要别乱跑") is not
+# the player saying no; one that starts with the player ("但我不接") still is.
+CONDITION_CLAUSE = re.compile(r"^(?:但是|但|不过|可是|只是)?(?:前提是|条件是|只要|只是)?(?:你|您|你们)?"
+                              r"(?:绝对|千万)?(?:不能|不许|不准|不得|不可以|不可|不要|别)")
+
+
+def _without_conditions(text):
+    """text with its condition clauses dropped, keeping the first clause whatever it says."""
+    parts = re.split(f"([{re.escape(CLAUSE_BOUNDARY)}])", text)
+    kept = parts[:1]
+    for index in range(1, len(parts) - 1, 2):
+        if not CONDITION_CLAUSE.match(parts[index + 1].strip()):
+            kept += [parts[index], parts[index + 1]]
+    return "".join(kept)
+
+
 def _authorized_span(evidence, action_text):
     """The player's own words the quote stands for, or None when it is not from this input or is
     negated."""
@@ -428,7 +445,8 @@ def _authorized_span(evidence, action_text):
     # Look back to the start of the clause, or to a turn such as "但/还是/不过" that overrides
     # an earlier negation ("我不太确定，但我接了").
     boundary = max(action_text.rfind(mark, 0, start) for mark in CLAUSE_BOUNDARY)
-    scope = re.split(r"但是|但|可是|还是|不过|然而", action_text[boundary + 1:start] + quote)[-1]
+    scope = _without_conditions(action_text[boundary + 1:start] + quote)
+    scope = re.split(r"但是|但|可是|还是|不过|然而", scope)[-1]
     for source, replacement in AFFIRMATIVE_NEGATION_IDIOMS.items():
         scope = scope.replace(source, replacement)
     return None if INTENT_NEGATION.search(scope) else quote
